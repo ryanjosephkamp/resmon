@@ -21,7 +21,7 @@ allow.
 
 **The tools are one list.** ``mcp_server.TOOLS`` converted per family; a tool
 added there is offered here with no edit, and
-``test_every_tool_converts_for_every_family`` parametrises over the list so it
+``test_every_tool_converts_for_every_family`` parametrizes over the list so it
 cannot be otherwise.
 
 **The write set is one list.** ``mcp_server.WRITE_TOOLS`` decides what waits for
@@ -358,10 +358,9 @@ class ApiKeyRuntime:
             # **No ``logger.exception`` here.** It would write the raw traceback,
             # whose last line is the exception's own message -- and an
             # ``httpx.HTTPStatusError``'s message embeds the request URL, which
-            # can carry a key in its query string. The backend calls
-            # ``setup_app_logger`` nowhere and uvicorn installs no root handler,
-            # so the record would go out through ``logging.lastResort`` to
-            # stderr, which Electron pipes into the main process console. The
+            # can carry a key in its query string. The engine's root handler
+            # (``logger.install_engine_log``) writes every error to stderr,
+            # which Electron pipes into the main process console. The
             # sanitized sentence is always correct; only such a log would not
             # be. ``_sentence_for`` writes the log line itself, for the reason ``llm_remote._as_ai_error`` gives: one
             # place, so every raise path reports identically and no future
@@ -684,7 +683,7 @@ class ApiKeyRuntime:
         except Exception as exc:
             # Raw exceptions can include key-bearing URLs and response bodies.
             event = {'type':'error','detail':type(exc).__name__,
-                     'message':'Selected API request failed or was cancelled; no retry was sent.'}
+                     'message':'Selected API request failed or was canceled; no retry was sent.'}
             emit(event); yield event
         finally:
             timer.cancel()

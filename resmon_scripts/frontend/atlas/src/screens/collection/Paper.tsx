@@ -3,7 +3,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
 import { Icon } from '../../shell/Icon';
-import { MAP_KEY, invalidateFor } from '../today/freshness';
+import { invalidateFor, mapKey, readMap } from '../today/freshness';
+import { PaperCollections } from '../../collections/PaperCollections';
+import { PaperFullText } from '../fulltext/GetPdf';
+import { useCollection } from '../../collections/current';
 import { PaperLifecycle } from '../lifecycle/LifecycleMarks';
 import { basisWords, PaperSky } from '../sky/PaperSky';
 import { authors, publishedWords } from '../today/format';
@@ -55,7 +58,8 @@ export function Paper() {
     queryKey: ['catalog'], staleTime: Infinity,
     queryFn: () => answer(engine().GET('/api/repositories/catalog')),
   });
-  const map = useQuery({ queryKey: MAP_KEY, queryFn: () => answer(engine().GET('/api/map')) });
+  const { id: collection, name: collectionName, several } = useCollection();
+  const map = useQuery({ queryKey: mapKey(collection), queryFn: () => readMap(collection) });
 
   // Nearest on the map: by distance between map positions, which is what the
   // sky beside them shows, and no more than that.
@@ -102,7 +106,7 @@ export function Paper() {
     return (
       <div className="page">
         <h1 className="page-title">Paper {raw} could not be read</h1>
-        <p className="page-lede">{paper.error?.message ?? 'There is no such paper in your collection.'}</p>
+        <p className="page-lede">{paper.error?.message ?? (several ? 'There is no such paper in any collection.' : 'There is no such paper in your collection.')}</p>
         <p><Link to="/search" className="btn">Back to Search</Link></p>
       </div>
     );
@@ -119,7 +123,7 @@ export function Paper() {
   return (
     <div className="paper" data-paper={data.id}>
       <div className="paper-main">
-        <Link to="/search" className="back"><Icon name="back" size={14} />Your collection</Link>
+        <Link to="/search" className="back"><Icon name="back" size={14} />{collectionName ?? 'Your collection'}</Link>
         <h1 className="paper-name">{data.title}</h1>
         <div className="meta paper-meta">
           <span className="who">{authors(data.authors)}</span>
@@ -128,9 +132,9 @@ export function Paper() {
           {data.publication_date && (<><span className="sep" /><span>Published {publishedWords(data.publication_date)}</span></>)}
           {data.doi && (<><span className="sep" /><a href={`https://doi.org/${data.doi}`} target="_blank" rel="noreferrer">doi:{data.doi}</a></>)}
           {data.url && (<><span className="sep" /><a href={data.url} target="_blank" rel="noreferrer">open at the source</a></>)}
-          {/* The number this collection knows it by: what a file in the Library is linked with. */}
+          {/* The number resmon knows it by, the same in every collection: what a file in the Library is linked with. */}
           <span className="sep" />
-          <span className="paper-number num" title="Its number in this collection only">Paper {data.id}</span>
+          <span className="paper-number num" title="Its number in this resmon, the same in every collection it is in">Paper {data.id}</span>
         </div>
         <div className="paper-actions" data-queue={status ?? 'none'}>
           {status === null && (
@@ -152,6 +156,7 @@ export function Paper() {
             <p className="field-error" role="alert">{(save.error ?? mark.error ?? remove.error)?.message}</p>
           )}
         </div>
+        <PaperFullText id={data.id} sourceUrl={data.url ?? null} sourceName={source} />
 
         {/* Above the abstract: a retraction is read before the paper is. */}
         <PaperLifecycle id={data.id} />
@@ -196,9 +201,11 @@ export function Paper() {
           )}
         </section>
 
+        <PaperCollections paper={data.id} collections={data.collections} />
+
         {shares.length > 0 && (
           <section className="paper-section" aria-label="Shared wording" data-wording="paper-note">
-            <h2>Shared wording <span>with other abstracts in your collection, from the last scan</span></h2>
+            <h2>Shared wording <span>with other abstracts {several ? 'in resmon, in every collection' : 'in your collection'}, from the last scan</span></h2>
             <ul className="paper-links">
               {shares.map((pair) => {
                 const other = pair.left.id === data.id ? pair.right : pair.left;

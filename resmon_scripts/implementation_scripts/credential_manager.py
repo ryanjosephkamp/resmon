@@ -23,13 +23,13 @@ _SERVICE = APP_NAME  # "resmon"
 # ---------------------------------------------------------------------------
 #
 # OS keyring backends can block indefinitely. On macOS ``SecItemCopyMatching``
-# waits on a GUI authorisation prompt; if nobody answers it, the call never
+# waits on a GUI authorization prompt; if nobody answers it, the call never
 # returns. Because several request paths read credentials, an unbounded call
 # there hangs the HTTP request and holds an ASGI worker thread with it. The
 # same block made the verification suite hang forever rather than fail.
 #
 # Every keyring call is therefore run on a short-lived daemon thread and
-# joined with a timeout. A stuck OS call cannot be cancelled, but the caller is
+# joined with a timeout. A stuck OS call cannot be canceled, but the caller is
 # released: the orphaned thread finishes in the background once the prompt is
 # answered or the backend gives up.
 #
@@ -85,15 +85,15 @@ def keyring_is_responsive() -> bool:
     return not _breaker_is_open()
 
 
-def _call_keyring(op: str, fn, *args, honour_breaker: bool = False):
+def _call_keyring(op: str, fn, *args, honor_breaker: bool = False):
     """Run ``fn(*args)`` on a daemon thread, bounded by the keyring timeout.
 
     Returns ``(ok, value)``. ``ok`` is False only on timeout. Exceptions raised
-    by the backend propagate to the caller unchanged. With ``honour_breaker``
+    by the backend propagate to the caller unchanged. With ``honor_breaker``
     the call short-circuits while the breaker is open — reads pass True, so a
     sweep costs one timeout rather than one per stored credential.
     """
-    if honour_breaker and _breaker_is_open():
+    if honor_breaker and _breaker_is_open():
         return False, None
 
     box: dict = {}
@@ -111,7 +111,7 @@ def _call_keyring(op: str, fn, *args, honour_breaker: bool = False):
     if worker.is_alive():
         logger.warning(
             "OS keyring %s exceeded %.1fs and was abandoned (service=%s). "
-            "If a keychain authorisation prompt is open, answering it will "
+            "If a keychain authorization prompt is open, answering it will "
             "unblock subsequent calls.",
             op, _KEYRING_TIMEOUT_SEC, _SERVICE,
         )
@@ -223,7 +223,7 @@ def probe_credential(key_name: str) -> str:
     """
     ok, value = _call_keyring(
         "get_password", keyring.get_password, _SERVICE, key_name,
-        honour_breaker=True,
+        honor_breaker=True,
     )
     if not ok:
         return UNREADABLE
@@ -240,7 +240,7 @@ def get_credential(key_name: str) -> str | None:
     """
     ok, value = _call_keyring(
         "get_password", keyring.get_password, _SERVICE, key_name,
-        honour_breaker=True,
+        honor_breaker=True,
     )
     if not ok:
         return None
@@ -266,7 +266,7 @@ def delete_credential(key_name: str) -> bool:
     try:
         read, value = _call_keyring(
             "get_password", keyring.get_password, _SERVICE, key_name,
-            honour_breaker=True,
+            honor_breaker=True,
         )
         known_absent = read and value is None
     except Exception:  # noqa: BLE001 - an unreadable item is not an absent one

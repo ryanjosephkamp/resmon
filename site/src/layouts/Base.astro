@@ -1,25 +1,28 @@
 ---
 /**
- * The page shell: head, masthead, navigation, footer.
+ * The page shell: head, the top bar, the footer.
  *
- * Ships no client JavaScript. There is no script tag on any content page and
- * no theme toggle writing to localStorage; the color scheme follows
- * `prefers-color-scheme`. The two typefaces are files on this site, bundled
- * from `@fontsource`, so a page here makes no request to anywhere but GitHub.
+ * Set as the app's own top bar: the "research monitor" lockup, the sections,
+ * the appearance control, and the one action at the far end. The theme
+ * follows the system until a reader chooses one, as the app's does, and the
+ * accent is the app's amber until a reader turns its hue
+ * (`../scripts/appearance.ts`). The small script in the head sets a choice
+ * kept from an earlier visit before the page paints; without scripts the page
+ * follows the system and the control is not shown. The three faces are files
+ * on this site, bundled from `@fontsource`, so a page here makes no request to
+ * anywhere but GitHub.
  */
-import '@fontsource/atkinson-hyperlegible-next/400.css';
-import '@fontsource/atkinson-hyperlegible-next/400-italic.css';
-import '@fontsource/atkinson-hyperlegible-next/700.css';
-import '@fontsource/atkinson-hyperlegible-next/800.css';
-import '@fontsource/atkinson-hyperlegible-mono/400.css';
-import '@fontsource/atkinson-hyperlegible-mono/600.css';
-import textFont from '@fontsource/atkinson-hyperlegible-next/files/atkinson-hyperlegible-next-latin-400-normal.woff2?url';
-import displayFont from '@fontsource/atkinson-hyperlegible-next/files/atkinson-hyperlegible-next-latin-800-normal.woff2?url';
+import '@fontsource-variable/geist/wght.css';
+import '@fontsource-variable/geist-mono/wght.css';
+import '@fontsource/spectral/400-italic.css';
+import '@fontsource/spectral/500-italic.css';
+import textFont from '@fontsource-variable/geist/files/geist-latin-wght-normal.woff2?url';
 import '../styles/tokens.css';
 import '../styles/base.css';
 import Mark from '../components/Mark.astro';
 import Credit from '../components/Credit.astro';
-import { url, absoluteUrl, GITHUB_REPO } from '../lib/urls';
+import { url, absoluteUrl, GITHUB_REPO, GITHUB_RELEASES } from '../lib/urls';
+import { DEFAULT_HUE } from '../lib/dial';
 
 interface Props {
   title: string;
@@ -41,11 +44,17 @@ const fullTitle = title === SITE_NAME ? `${SITE_NAME} · Research Monitor` : `${
 
 const nav = [
   { label: 'Sources', href: '/#sources' },
-  { label: 'Tour', href: '/#tour' },
+  { label: 'Tour', href: '/#tour', wide: true },
   { label: 'Guide', href: '/guide/' },
-  { label: 'Updates', href: '/updates/' },
-  // On a phone these two live in the footer only, so the masthead stays one row.
+  // On a phone these live in the footer only, so the masthead stays one row.
   { label: 'Reference', href: '/reference/', wide: true },
+];
+
+/** The app's own words for the three themes (its command palette and Settings). */
+const THEMES = [
+  { value: 'system', label: 'Follow the system', icon: '<rect x="1.75" y="2.75" width="12.5" height="8.5" rx="1.5" /><path d="M5.5 14h5M8 11.25V14" />' },
+  { value: 'light', label: 'Light', icon: '<circle cx="8" cy="8" r="3" /><path d="M8 1.5v1.5M8 13v1.5M14.5 8H13M3 8H1.5M12.6 3.4l-1.06 1.06M4.46 11.54 3.4 12.6M12.6 12.6l-1.06-1.06M4.46 4.46 3.4 3.4" />' },
+  { value: 'dark', label: 'Dark', icon: '<path d="M13.5 9.6A5.75 5.75 0 0 1 6.4 2.5a5.75 5.75 0 1 0 7.1 7.1Z" />' },
 ];
 
 const current = Astro.url.pathname;
@@ -60,10 +69,9 @@ const isCurrent = (href: string) => !href.includes('#') && current.startsWith(ur
     <title>{fullTitle}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={absoluteUrl(path)} />
-    <link rel="icon" href={url('/favicon.svg')} type="image/svg+xml" />
+    <link rel="icon" href={url('/favicon.png')} type="image/png" sizes="64x64" />
     <link rel="apple-touch-icon" href={url('/apple-touch-icon.png')} />
     <link rel="preload" href={textFont} as="font" type="font/woff2" crossorigin />
-    <link rel="preload" href={displayFont} as="font" type="font/woff2" crossorigin />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content={SITE_NAME} />
     <meta property="og:title" content={fullTitle} />
@@ -71,26 +79,31 @@ const isCurrent = (href: string) => !href.includes('#') && current.startsWith(ur
     <meta property="og:url" content={absoluteUrl(path)} />
     <meta property="og:image" content={absoluteUrl('/media/resmon-og.png')} />
     <meta name="twitter:card" content="summary_large_image" />
-    {/*
-      The in-app Blog tab hard-codes the feed URL, so this element is for feed
-      readers and browsers, not for the app. It is still declared at the path
-      the app uses, so the two can never point at different files.
-    */}
-    <link
-      rel="alternate"
-      type="application/atom+xml"
-      title="resmon updates"
-      href={url('/feed.xml')}
-    />
+    <script is:inline>
+      // A theme and color chosen on an earlier visit, set before the page paints. The top bar's
+      // appearance control (src/scripts/appearance.ts) keeps them; only its own names and colors are read.
+      // `scripted` lets a page hold room for what its scripts will draw.
+      document.documentElement.classList.add('scripted');
+      try {
+        const kept = JSON.parse(localStorage.getItem('resmon:appearance') || 'null');
+        if (kept) {
+          const root = document.documentElement;
+          if (kept.theme === 'light' || kept.theme === 'dark') root.dataset.theme = kept.theme;
+          for (const [name, value] of Object.entries(kept.tones || {})) {
+            if (/^--dial-(light|dark)-[a-z]+$/.test(name) && /^#[0-9a-f]{6}$/i.test(value)) root.style.setProperty(name, value);
+          }
+        }
+      } catch {}
+    </script>
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
 
     <header class="masthead">
       <div class="shell masthead-inner">
-        <a class="wordmark" href={url('/')}>
+        <a class="lockup" href={url('/')} aria-label="resmon, research monitor: home">
           <Mark />
-          <span>resmon</span>
+          <span class="lockup-words" aria-hidden="true"><b>res</b>earch <b>mon</b>itor</span>
         </a>
         <nav aria-label="Primary">
           <ul class="nav">
@@ -108,6 +121,44 @@ const isCurrent = (href: string) => !href.includes('#') && current.startsWith(ur
             </li>
           </ul>
         </nav>
+        <div class="mast-end">
+          <div class="appearance" data-appearance hidden>
+            <button type="button" class="appearance-button" aria-expanded="false" aria-controls="appearance-panel">
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M8 1.75s-4.25 4.6-4.25 7.6a4.25 4.25 0 0 0 8.5 0c0-3-4.25-7.6-4.25-7.6Z" />
+              </svg>
+              <span class="visually-hidden">Theme and color</span>
+            </button>
+            <div class="appearance-panel" id="appearance-panel" hidden>
+              <fieldset class="themes">
+                <legend>Theme</legend>
+                <div class="seg">
+                  {
+                    THEMES.map((theme) => (
+                      <label>
+                        <input class="visually-hidden" type="radio" name="theme" value={theme.value} />
+                        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" set:html={theme.icon} />
+                        <span>{theme.label}</span>
+                      </label>
+                    ))
+                  }
+                </div>
+              </fieldset>
+              <div class="dial">
+                <label for="hue"><i>Its color:</i> <span class="hue-name">amber</span></label>
+                <div class="dial-row">
+                  <input id="hue" type="range" min="0" max="359" step="1" value={DEFAULT_HUE} />
+                  <button type="button" class="hue-reset">Use the default</button>
+                </div>
+                <p class="dial-note">
+                  Only the hue turns. As in the app, each tone is then drawn light or deep enough to read on this
+                  page, in either theme.
+                </p>
+              </div>
+            </div>
+          </div>
+          <a class="mast-action" href={GITHUB_RELEASES}>Download</a>
+        </div>
       </div>
     </header>
 
@@ -123,8 +174,9 @@ const isCurrent = (href: string) => !href.includes('#') && current.startsWith(ur
         <p class="footer-line">
           <Mark />
           <span>
-            resmon is free and open source under the MIT license. Everything it retrieves stays
-            on the computer that retrieved it.
+            resmon is free and open source under the MIT license. What it collects stays on your
+            computer unless you switch on summaries, delivery, or a backup, and then goes only where
+            you point it.
           </span>
         </p>
         <ul class="footer-links">
@@ -134,11 +186,13 @@ const isCurrent = (href: string) => !href.includes('#') && current.startsWith(ur
           <li><a href={url('/reference/')}>Reference</a></li>
           <li><a href={url('/guide/license/')}>License</a></li>
           <li><a href={url('/third-party-notices/')}>Third-party notices</a></li>
-          <li><a href={url('/feed.xml')}>Atom feed</a></li>
         </ul>
         <Credit />
       </div>
     </footer>
+    <script>
+      import '../scripts/appearance';
+    </script>
   </body>
 </html>
 
@@ -153,69 +207,334 @@ const isCurrent = (href: string) => !href.includes('#') && current.startsWith(ur
   .masthead {
     background: var(--color-mast);
     color: var(--color-mast-text);
+    border-bottom: var(--border-width) solid var(--color-border);
   }
 
   .masthead-inner {
     display: flex;
-    flex-wrap: wrap;
     align-items: center;
-    justify-content: space-between;
     gap: var(--space-2) var(--space-5);
     min-height: var(--masthead-height);
-    padding-block: var(--space-2);
   }
 
-  .wordmark {
+  .lockup {
     display: inline-flex;
     align-items: center;
     gap: var(--space-2);
-    font-weight: var(--weight-heavy);
-    font-size: var(--text-lg);
+    font-size: var(--text-base);
     letter-spacing: var(--tracking-tight);
-    color: var(--color-mast-text);
+    color: var(--color-mast-muted);
     text-decoration: none;
+    white-space: nowrap;
+    transition: color var(--duration-fast) var(--ease);
   }
 
-  .wordmark:hover {
+  .lockup b {
+    font-weight: var(--weight-bold);
     color: var(--color-mast-text);
+  }
+
+  .lockup:hover {
+    color: var(--color-text-muted);
+  }
+
+  .lockup-words {
+    display: none;
+  }
+
+  nav {
+    align-self: stretch;
+    display: flex;
   }
 
   .nav {
     display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-1) var(--space-3);
+    align-items: stretch;
+    gap: var(--space-1);
     margin: 0;
     padding: 0;
     list-style: none;
     font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+  }
+
+  .nav li {
+    display: flex;
   }
 
   .nav li + li {
     margin-top: 0;
   }
 
-  .nav-wide {
+  .nav .nav-wide {
     display: none;
   }
 
   .nav a {
-    display: inline-block;
-    padding-block: var(--space-1);
-    color: var(--color-mast-muted);
+    position: relative;
+    display: flex;
+    align-items: center;
+    padding-inline: var(--space-2);
+    color: var(--color-text-muted);
     text-decoration: none;
+    transition: color var(--duration-fast) var(--ease);
   }
 
-  .nav a:hover {
-    color: var(--color-mast-text);
-  }
-
+  .nav a:hover,
   .nav a[aria-current='page'] {
     color: var(--color-mast-text);
-    font-weight: var(--weight-bold);
-    text-decoration: underline;
-    text-decoration-thickness: var(--border-width-heavy);
-    text-underline-offset: var(--underline-offset);
-    text-decoration-color: var(--color-mast-text);
+  }
+
+  .nav a[aria-current='page']::after {
+    content: '';
+    position: absolute;
+    inset-inline: var(--space-2);
+    inset-block-end: calc(-1 * var(--border-width));
+    height: var(--border-width-heavy);
+    background: var(--color-accent-mark);
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  }
+
+  /* The panel opens from here, so it is held to the top bar's right edge, inside the page. */
+  .mast-end {
+    position: relative;
+    margin-inline-start: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .mast-action {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--space-6);
+    padding-inline: var(--space-3);
+    border: var(--border-width) solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    color: var(--color-mast-text);
+    text-decoration: none;
+    white-space: nowrap;
+    transition:
+      border-color var(--duration-fast) var(--ease),
+      color var(--duration-fast) var(--ease);
+  }
+
+  .mast-action:hover {
+    border-color: var(--color-accent-mark);
+    color: var(--color-accent-text);
+  }
+
+  /* ---- Appearance: the theme and the accent's hue -------------------- */
+
+  .appearance[hidden],
+  .appearance-panel[hidden] {
+    display: none;
+  }
+
+  .appearance-button {
+    display: grid;
+    place-items: center;
+    width: var(--target-size);
+    min-height: var(--space-6);
+    padding: 0;
+    border: var(--border-width) solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--color-mast-text);
+    cursor: pointer;
+    transition: border-color var(--duration-fast) var(--ease);
+  }
+
+  .appearance-button svg {
+    fill: var(--color-accent-mark);
+    stroke: var(--color-mast-text);
+    stroke-width: 1.2;
+  }
+
+  .appearance-button:hover,
+  .appearance-button[aria-expanded='true'] {
+    border-color: var(--color-accent-mark);
+  }
+
+  .appearance-panel {
+    position: absolute;
+    z-index: 20;
+    inset-block-start: calc(100% + var(--space-2));
+    inset-inline-end: 0;
+    width: min(var(--panel-width), var(--panel-room));
+    padding: var(--space-4);
+    background: var(--color-surface-raised);
+    border: var(--border-width) solid var(--color-border-strong);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-panel);
+    color: var(--color-text);
+    font-size: var(--text-sm);
+  }
+
+  .themes {
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .themes legend,
+  .dial > label {
+    padding: 0;
+    margin-bottom: var(--space-2);
+    font-weight: var(--weight-semibold);
+  }
+
+  .seg {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border: var(--border-width) solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+  }
+
+  .seg label {
+    display: grid;
+    justify-items: center;
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-1);
+    color: var(--color-text-muted);
+    font-size: var(--text-xs);
+    line-height: var(--leading-tight);
+    text-align: center;
+    cursor: pointer;
+  }
+
+  .seg label + label {
+    border-inline-start: var(--border-width) solid var(--color-border);
+  }
+
+  .seg svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.3;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .seg label:hover {
+    color: var(--color-text);
+  }
+
+  .seg label:has(:checked) {
+    background: var(--color-accent-surface);
+    color: var(--color-text);
+    box-shadow: inset 0 calc(-1 * var(--border-width-heavy)) 0 var(--color-accent-mark);
+  }
+
+  .seg label:has(:focus-visible) {
+    outline: var(--border-width-heavy) solid var(--color-focus);
+    outline-offset: calc(-1 * var(--border-width-heavy));
+  }
+
+  .dial {
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
+    border-top: var(--border-width) solid var(--color-border);
+  }
+
+  .dial > label {
+    display: block;
+    font-family: var(--font-serif);
+    font-size: var(--text-md);
+    font-weight: var(--weight-medium);
+  }
+
+  .dial > label i {
+    color: var(--color-text);
+  }
+
+  .hue-name {
+    color: var(--color-accent-text);
+  }
+
+  .dial-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .dial input[type='range'] {
+    flex: 1;
+    min-width: 0;
+    height: var(--target-size);
+    margin: 0;
+    background: transparent;
+    appearance: none;
+    cursor: pointer;
+  }
+
+  .dial input[type='range']::-webkit-slider-runnable-track {
+    height: var(--dial-track);
+    border-radius: var(--dial-track);
+    background: var(--track, var(--color-border-strong));
+  }
+
+  .dial input[type='range']::-moz-range-track {
+    height: var(--dial-track);
+    border-radius: var(--dial-track);
+    background: var(--track, var(--color-border-strong));
+  }
+
+  .dial input[type='range']::-webkit-slider-thumb {
+    width: var(--dial-thumb);
+    height: var(--dial-thumb);
+    margin-top: calc((var(--dial-track) - var(--dial-thumb)) / 2);
+    border: var(--border-width-heavy) solid var(--color-text);
+    border-radius: 50%;
+    background: var(--color-accent-mark);
+    appearance: none;
+  }
+
+  .dial input[type='range']::-moz-range-thumb {
+    width: var(--dial-thumb);
+    height: var(--dial-thumb);
+    border: var(--border-width-heavy) solid var(--color-text);
+    border-radius: 50%;
+    background: var(--color-accent-mark);
+  }
+
+  .dial input[type='range']:focus-visible {
+    outline: var(--border-width-heavy) solid var(--color-focus);
+    outline-offset: var(--border-width-heavy);
+    border-radius: var(--radius-md);
+  }
+
+  .hue-reset {
+    flex: none;
+    min-height: var(--space-6);
+    padding-inline: var(--space-3);
+    border: var(--border-width) solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--color-text);
+    font: inherit;
+    font-size: var(--text-xs);
+    cursor: pointer;
+  }
+
+  .hue-reset:hover:not(:disabled) {
+    border-color: var(--color-accent-mark);
+  }
+
+  .hue-reset:disabled {
+    color: var(--color-text-faint);
+    cursor: default;
+  }
+
+  .dial-note {
+    margin: var(--space-3) 0 0;
+    color: var(--color-text-muted);
+    font-family: var(--font-serif);
+    font-style: italic;
+    font-size: var(--text-sm);
+    line-height: var(--leading-snug);
   }
 
   /*
@@ -241,7 +560,7 @@ const isCurrent = (href: string) => !href.includes('#') && current.startsWith(ur
   }
 
   .footer {
-    border-top: var(--border-width-heavy) solid var(--color-rule-heavy);
+    border-top: var(--border-width) solid var(--color-border);
     color: var(--color-text-muted);
     font-size: var(--text-sm);
     padding-block: var(--space-5) var(--space-6);
@@ -278,8 +597,16 @@ const isCurrent = (href: string) => !href.includes('#') && current.startsWith(ur
       padding-inline: var(--gutter-wide);
     }
 
-    .nav-wide {
-      display: list-item;
+    .nav .nav-wide {
+      display: flex;
+    }
+
+    .lockup-words {
+      display: inline;
+    }
+
+    .nav {
+      gap: var(--space-2);
     }
   }
 </style>

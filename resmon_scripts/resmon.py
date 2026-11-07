@@ -13,11 +13,12 @@ import tempfile
 import threading
 from collections import OrderedDict
 import time
+import uuid
 import zipfile
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Callable, Literal, Optional, TypeVar
+from typing import Callable, Iterable, Iterator, Literal, Optional, TypeVar, Union, get_args
 
 import httpx
 
@@ -29,16 +30,19 @@ from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Response
 from starlette.requests import Request
 from starlette.responses import FileResponse, Response, StreamingResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from implementation_scripts import backup as backup_module
 from implementation_scripts import api_auth, runtime_identity, library, library_export, library_text, evidence, evidence_reader, evidence_export
+from implementation_scripts import library_folder, library_removal, library_thumbs
 from implementation_scripts import selected_evidence, selected_evidence_runtime, selected_evidence_export
-from implementation_scripts import delivery
+from implementation_scripts import delivery, upgrade_copy
+from implementation_scripts import full_text, paper_find
 from implementation_scripts.config import (
     APP_NAME, APP_VERSION, DEFAULT_DB_PATH, PORT_FILE, REPORTS_DIR,
 )
 from implementation_scripts.database import (
+    DEFAULT_COLLECTION_NAME,
     get_connection,
     init_db,
     get_routines,
@@ -47,6 +51,7 @@ from implementation_scripts.database import (
     update_routine,
     delete_routine,
     get_executions,
+    count_executions,
     get_execution_by_id,
     get_execution_by_request_id,
     record_missed_fire,
@@ -74,6 +79,7 @@ from implementation_scripts.database import (
     get_progress_events,
     get_lifecycle_for_document,
     SCHEMA_VERSION,
+    KEPT_THROUGH_SETTINGS_RESET,
     get_schema_version,
     utc_now_iso,
 )
@@ -108,8 +114,8 @@ from implementation_scripts.zero_reason import answered as zero_answered, in_par
 from implementation_scripts import (
     analytics, assistant_choices, assistant_export, assistant_runtime, assistant_store,
     coverage_audit, date_window, embedding_job, map_facets, today,
-    embeddings, explorer, lifecycle, match_explain, near_duplicates,
-    reading_queue, reference_export, response_models, search_record, source_coverage,
+    embeddings, explorer, lifecycle, match_explain, near_duplicates, paper_collections,
+    reading_queue, reference_export, response_models, search_record, source_contact, source_coverage,
     source_wall, vector_index, watch_profiles,
     watchdog,
 )
@@ -140,6 +146,39 @@ from implementation_scripts.repo_catalog import (
 # App setup
 # ---------------------------------------------------------------------------
 
+def _ensure_clients_loaded_on_startup() -> None:
+    """Import every source client before the engine answers or fires anything."""
+    from implementation_scripts import api_registry
+    try:
+        api_registry._ensure_loaded()
+    except Exception:
+        # A client that cannot be imported is a bug the first run reports in
+        # its own words; it must not stop the engine from starting.
+        logging.getLogger(__name__).exception("Could not load the source clients at startup")
+
+
+def _recover_library_on_startup(started_at: float) -> None:
+    """Remove an import lock, and its unpublished bytes, that an import a stopped engine was in left behind."""
+    try:
+        library.recover_stale_import_lock(_get_db(), started_at)
+    except Exception:
+        logging.getLogger(__name__).exception("Could not check the Library's import lock at startup")
+
+
+def _init_full_text_on_startup() -> None:
+    """Give the PDF worker its connections, record downloads a stopped engine left as interrupted,
+    remove the staging folders it left, and start the worker if requests are waiting from before."""
+    try:
+        full_text.worker.configure(_open_connection)
+        conn = _get_db()
+        full_text.adopt_interrupted(conn)
+        full_text.clear_stale_staging()
+        if conn.execute("SELECT 1 FROM full_text_downloads WHERE state = 'waiting' LIMIT 1").fetchone():
+            full_text.worker.wake()
+    except Exception:
+        logging.getLogger(__name__).exception("Could not start the PDF worker at startup")
+
+
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     """Startup/shutdown hooks.
@@ -150,9 +189,15 @@ async def _lifespan(_app: FastAPI):
     reads routines and therefore needs the database ready). The handlers stay as
     ordinary module-level functions so tests can still call them directly.
     """
+    # This engine's start: a Library lock that names no owner and is older than
+    # it was left by an import that stopped (``_recover_library_on_startup``).
+    started_at = time.time()
     # First, before anything opens the database: a staged restore replaces the
     # file every later hook is about to read.
     _apply_pending_restore_on_startup()
+    # Every source client registers on import. Loaded here, once, so no run is
+    # ever the registry's first user (``api_registry._ensure_loaded``).
+    _ensure_clients_loaded_on_startup()
     _init_admission_on_startup()
     _migrate_legacy_ai_key_on_startup()
     # Before the scheduler: a routine that fires the moment it starts must not
@@ -162,11 +207,15 @@ async def _lifespan(_app: FastAPI):
     # After the scheduler, because a routine that fires the moment it starts
     # should find a drain already running rather than wait for the idle poll.
     _init_delivery_on_startup()
+    # Before the PDF worker, which imports into the Library.
+    _recover_library_on_startup(started_at)
+    _init_full_text_on_startup()
     _selected_startup()
     try:
         yield
     finally:
         _selected_shutdown()
+        full_text.worker.shutdown()
         _shutdown_delivery()
         _shutdown_scheduler()
 
@@ -184,6 +233,11 @@ app = FastAPI(title=APP_NAME, version=APP_VERSION, lifespan=_lifespan)
 # renderer. The authoritative checks (Host, Origin, token) are ``LocalApiGuard``,
 # registered below the Library guard so that it runs outermost; see
 # ``implementation_scripts/api_auth.py``.
+#
+# ``FailureAnswer`` is added first, so it runs inside CORS: a route that raises
+# is answered with a sentence CORS marks for the renderer, not with the
+# outermost layer's unmarked "Internal Server Error".
+app.add_middleware(api_auth.FailureAnswer)
 app.add_middleware(
     api_auth.RendererCORSMiddleware,
     allow_origins=(),
@@ -240,7 +294,7 @@ _db_local = threading.local()
 #
 # The owner is recorded because closing a connection from a *different* thread
 # while its owner is mid-statement does not raise -- it segfaults. Connections
-# are opened with ``check_same_thread=False``, so nothing in sqlite3 serialises
+# are opened with ``check_same_thread=False``, so nothing in sqlite3 serializes
 # a close against another thread's in-flight query, and CPython hands the C
 # library a connection it is still using. ``close_db`` uses the owner to refuse
 # exactly that; see the note there.
@@ -259,13 +313,18 @@ def _ephemeral_db_path(generation: int) -> str:
     return str(Path(_memory_dir.name) / f"resmon_{generation}.db")
 
 
-def _open_connection():
-    """Open one connection to the configured database."""
+def _db_file_path() -> str:
+    """The file the configured database lives in (a temporary one for ``":memory:"``)."""
     path = _db_path or None
-    db_str = (
+    return (
         _ephemeral_db_path(_db_generation) if path == ":memory:"
         else (str(path) if path else str(DEFAULT_DB_PATH))
     )
+
+
+def _open_connection():
+    """Open one connection to the configured database."""
+    db_str = _db_file_path()
     conn = sqlite3.connect(db_str, check_same_thread=False, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
@@ -320,7 +379,9 @@ def _get_db():
         _db_generation += 1
         _shared_conn = _open_connection()
         if not _db_initialized:
-            init_db(conn=_shared_conn)
+            # ``":memory:"`` stands for a throwaway database (a temporary file
+            # here), which keeps no copy of itself before an upgrade.
+            init_db(conn=_shared_conn, keep_upgrade_copy=_db_path != ":memory:")
             _db_initialized = True
 
     conn = getattr(_db_local, "conn", None)
@@ -334,6 +395,32 @@ def _get_db():
 def _close_db(conn):
     """No-op — a thread keeps its connection for its lifetime."""
     pass
+
+
+# ---------------------------------------------------------------------------
+# Naming a collection
+# ---------------------------------------------------------------------------
+
+#: A collection as a request names it: its id, or its name. Absent (None) is the
+#: default collection, so a client from before collections reads what it read.
+CollectionRef = Optional[Union[int, str]]
+
+
+#: A collection named in a query string, by its id or its name; absent, the default collection.
+_COLLECTION_QUERY = Query(None, max_length=200, description=(
+    "The collection, by its id or its name. Absent, the default collection."))
+
+
+def _collection_refusal(exc: "paper_collections.CollectionError") -> HTTPException:
+    return HTTPException(exc.status, exc.message)
+
+
+def _collection_id(conn, ref: CollectionRef) -> int:
+    """The id of the collection a request names, or a 404 that says which name was not found."""
+    try:
+        return paper_collections.resolve(conn, ref)
+    except paper_collections.CollectionError as exc:
+        raise _collection_refusal(exc) from None
 
 
 # ---------------------------------------------------------------------------
@@ -360,6 +447,24 @@ class DiveRequest(BaseModel):
     # time, never at page load: an id fixed when the page rendered would make
     # the user's genuine second search look like a duplicate of their first.
     request_id: Optional[str] = None
+    # The collection the run's papers land in, by id or name: the window's
+    # collection it was started from. Absent, the default collection.
+    collection: CollectionRef = None
+
+class FindRequest(BaseModel):
+    """Find a paper: a DOI, an arXiv id, a PMID or a title, asked of many sources at once."""
+
+    query: str
+    # The sources to ask. Absent, every source that can look up this kind.
+    repositories: Optional[list[str]] = None
+    request_id: Optional[str] = None
+    # The collection the paper lands in, by id or name. Absent, the default one.
+    collection: CollectionRef = None
+
+
+class DocumentIdsBody(BaseModel):
+    document_ids: list[int]
+
 
 class SweepRequest(BaseModel):
     repositories: list[str]
@@ -375,6 +480,8 @@ class SweepRequest(BaseModel):
     saved_configuration_id: Optional[int] = None
     # See DiveRequest.request_id.
     request_id: Optional[str] = None
+    # See DiveRequest.collection.
+    collection: CollectionRef = None
 
 
 class RestartRequest(BaseModel):
@@ -387,6 +494,10 @@ class RestartRequest(BaseModel):
 
     # See DiveRequest.request_id.
     request_id: Optional[str] = None
+    # Run again: a completed run's search, once more. Without it only a run
+    # that stopped before it finished (interrupted, failed, canceled) is
+    # restarted, as Restart has always done.
+    again: bool = False
 
 
 class DeliveryTargetCreate(BaseModel):
@@ -426,6 +537,11 @@ class RoutineCreate(BaseModel):
     ai_settings: Optional[dict] = None
     storage_settings: Optional[dict] = None
     notify_on_complete: bool = False
+    # Where the watch's papers land, by id or name. Absent, the default collection.
+    collection: CollectionRef = None
+    # Whether each run gets its new papers' open-access PDFs into the Library
+    # (``full_text.for_watch_run``). Off unless asked for.
+    download_full_text: bool = False
 
 class RoutineUpdate(BaseModel):
     name: Optional[str] = None
@@ -439,6 +555,10 @@ class RoutineUpdate(BaseModel):
     ai_settings: Optional[dict] = None
     storage_settings: Optional[dict] = None
     notify_on_complete: Optional[bool] = None
+    # Point the watch's later runs at another collection, by id or name. Papers
+    # its earlier runs filed stay where they are.
+    collection: CollectionRef = None
+    download_full_text: Optional[bool] = None
 
 class ConfigCreate(BaseModel):
     name: str
@@ -520,6 +640,11 @@ def _check_expected_runtime(expected_runtime_id: Optional[str]) -> None:
             "expected_runtime_id": expected_runtime_id, "actual_runtime_id": actual})
 
 
+def _daemon_build_id() -> Optional[str]:
+    from implementation_scripts.daemon import build_id
+    return build_id()
+
+
 @app.get("/api/health", response_model=response_models.Health,
          response_model_exclude_unset=True)
 def health(expected_runtime_id: Optional[str] = None):
@@ -543,7 +668,7 @@ def health(expected_runtime_id: Optional[str] = None):
     identity = runtime_identity.project(conn)
     try:
         embeddings = vector_index.extension_status(conn)
-    except Exception as exc:  # pragma: no cover - defence; the status call catches its own
+    except Exception as exc:  # pragma: no cover - defense; the status call catches its own
         embeddings = {"extension": None, "reason": f"{type(exc).__name__}: {exc}"}
     finally:
         _close_db(conn)
@@ -553,6 +678,7 @@ def health(expected_runtime_id: Optional[str] = None):
         "pid": os.getpid(),
         "started_at": _STARTED_AT,
         "version": APP_VERSION,
+        "build": _daemon_build_id(),
         "embeddings": embeddings,
     }
 
@@ -950,20 +1076,26 @@ def _should_dispatch_desktop_notification(
     Mirrors the in-renderer logic in
     ``ExecutionContext.maybeNotifyCompletion``:
 
-    * Manual runs (``deep_dive`` / ``deep_sweep``) honor ``notify_manual``.
+    * Manual runs (``deep_dive`` / ``deep_sweep``, and ``find_paper``, Find a
+      paper) honor ``notify_manual``.
     * Automated runs (``automated_sweep``) honor the per-routine
       ``notify_on_complete`` flag first; otherwise fall back to the
       global ``notify_automatic_mode`` (``all`` fires for every routine,
       ``none`` and ``selected`` suppress when the per-routine flag is
       false).
     """
-    if execution_type in ("deep_dive", "deep_sweep"):
+    if execution_type in ("deep_dive", "deep_sweep", "find_paper"):
         return bool(notify_manual)
     if execution_type == "automated_sweep":
         if routine_notify_on_complete:
             return True
         return notify_automatic_mode == "all"
     return False
+
+
+def _listed_names(names: list[str]) -> str:
+    """"arXiv", "arXiv and Crossref": at most two names, as a notification has room for."""
+    return names[0] if len(names) == 1 else f"{names[0]} and {names[1]}"
 
 
 def _notification_coverage_phrase(coverage: dict) -> str:
@@ -973,19 +1105,26 @@ def _notification_coverage_phrase(coverage: dict) -> str:
     delivery envelope give -- so the notification can say no more than the
     record does. A source whose outcome was not recorded is neither an answer
     nor a failure here; it is counted as unknown, as it is everywhere else.
+    One or two sources that did not answer are named, so a failed watch says
+    which source failed it; more are counted.
     """
     total = int(coverage.get("total") or 0)
     if total == 0:
         return "no source outcome was recorded"
     counts = coverage.get("counts") or {}
+    answered = int(counts.get("answered") or 0)
     non_answer = int(counts.get("non_answer") or 0)
     unknown = int(counts.get("unknown") or 0)
     partial = int(counts.get("partial") or 0)
+    rows = coverage.get("sources") or []
+    named = [source_coverage._name(s["source"]) for s in rows
+             if s.get("category") == "non_answer" and isinstance(s.get("source"), str)]
     # Where the run's saved selection cannot be read, the count is of the
     # sources that left a record, which may not be every source it asked.
     qualifier = "" if coverage.get("selection_known") else "recorded "
     if total == 1:
-        source = f"the {qualifier}source"
+        only = rows[0].get("source") if rows and isinstance(rows[0].get("source"), str) else None
+        source = source_coverage._name(only) if only else f"the {qualifier}source"
         if non_answer:
             phrase = f"{source} did not answer"
         elif unknown:
@@ -996,6 +1135,9 @@ def _notification_coverage_phrase(coverage: dict) -> str:
         sources = f"{qualifier}sources"
         if not non_answer and not unknown:
             phrase = f"all {total} {sources} answered"
+        elif not unknown and len(named) == non_answer <= 2:
+            phrase = (f"{_listed_names(named)} did not answer" if non_answer == total
+                      else f"{answered} of {total} {sources} answered; {_listed_names(named)} did not")
         elif not unknown:
             phrase = f"{non_answer} of {total} {sources} did not answer"
         elif not non_answer:
@@ -1010,29 +1152,47 @@ def _notification_coverage_phrase(coverage: dict) -> str:
     return phrase
 
 
-def _desktop_notification_body(
+# The plain words a notification's phrase can begin with. Anything else it
+# begins with is a number or a source's own name ("arXiv"), kept as it is.
+_PHRASE_LEADS = ("all ", "whether ", "the ", "no ", "which ")
+
+
+def _sentence(phrase: str) -> str:
+    """A phrase as a sentence: a plain first word raised, and a full stop."""
+    if phrase.startswith(_PHRASE_LEADS):
+        phrase = phrase[0].upper() + phrase[1:]
+    return phrase if phrase.endswith(".") else f"{phrase}."
+
+
+def _desktop_notification_words(
     conn, execution_row: dict, routine_name: Optional[str],
-) -> str:
-    """The sentence a completed or ended run's notification carries.
+) -> tuple[str, str]:
+    """The title and the sentence a finished or ended run's notification carries.
 
-    This read ``total_results`` and ``new_results``, which are the names
-    ``_enrich_execution_row`` gives the counts for the renderer. The hook hands
-    this function the raw ``executions`` row, whose columns are
-    ``result_count`` and ``new_result_count``, so every notification the
-    background service ever posted for a completed run said "0 results (0
-    new)" -- including a routine that had found 1,500 papers, six of them new.
-    The tests only checked that a notification fired. They now check what it
-    says.
+    In the app's words: a run "finished", "failed", or "was stopped", and a
+    watch is named in the title, so the body has room for what came of it.
+    The title begins "resmon: " for the fallback that posts through the
+    system's own notifier; the app strips it, because macOS already shows the
+    app's name beside every notification it posts.
 
-    A count the row does not hold is said to be unrecorded, never printed as
-    zero: a quiet run and an unmeasured one must not read the same.
+    The counts are read from the raw ``executions`` row, whose columns are
+    ``result_count`` and ``new_result_count``; an earlier reading of the
+    renderer's names for them made every notification say "0 results (0
+    new)". A count the row does not hold is said to be unrecorded, never
+    printed as zero: a quiet run and an unmeasured one must not read the same.
+    A finished find says instead how many of the sources it asked hold the
+    paper (``paper_find.notice_words``).
     """
     execution_type = str(execution_row.get("execution_type") or "").strip()
-    subject = routine_name or {
-        "deep_dive": "Deep Dive",
-        "deep_sweep": "Deep Sweep",
-        "automated_sweep": "Watch",
-    }.get(execution_type, "Run")
+    if routine_name:
+        subject = f"Watch \u201c{routine_name}\u201d"
+    else:
+        subject = {
+            "deep_dive": "Deep Dive",
+            "deep_sweep": "Deep Sweep",
+            "automated_sweep": "Watch run",
+            "find_paper": "Find a paper",
+        }.get(execution_type, "Run")
 
     try:
         coverage = source_coverage.build(
@@ -1046,22 +1206,45 @@ def _desktop_notification_body(
         coverage_phrase = "which sources answered could not be read"
 
     status = str(execution_row.get("status") or "").strip().lower()
-    if status == "completed":
-        total = execution_row.get("result_count")
-        new = execution_row.get("new_result_count")
-        if isinstance(total, int) and isinstance(new, int):
-            counts = f"{new:,} new of {total:,} results"
-        elif isinstance(total, int):
-            counts = f"{total:,} results, how many new not recorded"
-        else:
-            counts = "result count not recorded"
-        return f"{subject}: {counts}; {coverage_phrase}."
-    ended = {
+    verb = {
+        "completed": "finished",
         "failed": "failed",
-        "cancelled": "was cancelled",
+        "cancelled": "was stopped",
         "interrupted": "was interrupted",
-    }.get(status, f"ended with status {status or 'unknown'}")
-    return f"{subject} {ended}; {coverage_phrase}."
+    }.get(status, "ended")
+    title = f"resmon: {subject} {verb}"
+    if status != "completed":
+        return title, _sentence(coverage_phrase)
+    if execution_type == "find_paper":
+        # A find says whether the sources hold the paper, as its page does,
+        # rather than how many new papers it stored.
+        try:
+            found_words = paper_find.notice_words(conn, int(execution_row["id"]))
+        except Exception:
+            logging.getLogger(__name__).debug("A find's answers could not be read", exc_info=True)
+            found_words = None
+        if found_words:
+            return title, found_words
+    total = execution_row.get("result_count")
+    new = execution_row.get("new_result_count")
+
+    def papers(n: int) -> str:
+        return f"{n:,} paper" if n == 1 else f"{n:,} papers"
+
+    if isinstance(total, int) and isinstance(new, int):
+        counts = f"{new:,} new {'paper' if new == 1 else 'papers'} of {total:,} found"
+    elif isinstance(total, int):
+        counts = f"{papers(total)} found, how many new not recorded"
+    else:
+        counts = "the paper count was not recorded"
+    return title, _sentence(f"{counts}; {coverage_phrase}")
+
+
+def _desktop_notification_body(
+    conn, execution_row: dict, routine_name: Optional[str],
+) -> str:
+    """The sentence a finished or ended run's notification carries (see ``_desktop_notification_words``)."""
+    return _desktop_notification_words(conn, execution_row, routine_name)[1]
 
 
 def _dispatch_desktop_notification(conn, execution_row: dict) -> None:
@@ -1085,7 +1268,7 @@ def _dispatch_desktop_notification(conn, execution_row: dict) -> None:
         return
 
     execution_type = str(execution_row.get("execution_type") or "").strip()
-    if execution_type not in ("deep_dive", "deep_sweep", "automated_sweep"):
+    if execution_type not in ("deep_dive", "deep_sweep", "find_paper", "automated_sweep"):
         return
 
     raw = _get_settings_group(conn, "notifications")
@@ -1118,13 +1301,7 @@ def _dispatch_desktop_notification(conn, execution_row: dict) -> None:
     ):
         return
 
-    status = str(execution_row.get("status") or "").strip().lower()
-    title = (
-        "resmon: Execution Completed"
-        if status == "completed"
-        else f"resmon: Execution {status or 'finished'}"
-    )
-    body = _desktop_notification_body(conn, execution_row, routine_name)
+    title, body = _desktop_notification_words(conn, execution_row, routine_name)
 
     try:
         exec_id = execution_row.get("id")
@@ -1185,6 +1362,7 @@ def _launch_execution(
     conn,
     ephemeral_credentials: Optional[dict[str, str]] = None,
     claimed_routine_id: Optional[int] = None,
+    reservation: Optional[int] = None,
 ) -> None:
     """Run the pipeline in a background thread, then persist progress events.
 
@@ -1193,6 +1371,11 @@ def _launch_execution(
     ``_dispatch_routine_fire`` *before* this thread starts -- that ordering is
     the whole guard -- and released here, in the ``finally``, which is the only
     place that runs whether the pipeline finished, failed or raised.
+
+    ``reservation`` is the slot a queued manual run was given when the queue
+    drained (``admission.admit_manual``). This execution's own id takes it
+    over once it is admitted; if the thread dies before that, the
+    reservation is released here, which hands the slot to the next in line.
     """
 
     def _run() -> None:
@@ -1231,9 +1414,15 @@ def _launch_execution(
             if claimed_routine_id is not None:
                 routine_claims.release(claimed_routine_id)
             admission.note_finished(exec_id)
+            if reservation is not None:
+                # Already handed to the run below in the ordinary case, and
+                # then this does nothing.
+                admission.note_finished(reservation)
 
     def _run_pipeline() -> None:
         admission.note_admitted(exec_id)
+        if reservation is not None:
+            admission.release_reservation(reservation)
         heartbeat_thread, heartbeat_stop = _start_execution_heartbeat(exec_id)
         # Take this thread's own connection rather than reusing the request
         # thread's. The two run concurrently -- the endpoint returns
@@ -1296,6 +1485,25 @@ def _launch_execution(
                 logging.getLogger(__name__).exception(
                     "Routine delivery hook raised for exec_id=%s", exec_id,
                 )
+            # A watch with its opt-in on: its new papers' open-access PDFs,
+            # asked for now, up to the run's cap. Only asks; the worker
+            # fetches, on its own threads, and nothing here waits for it.
+            try:
+                row = get_execution_by_id(conn, exec_id)
+                if (
+                    row
+                    and row.get("execution_type") == "automated_sweep"
+                    and row.get("status") == "completed"
+                    and row.get("routine_id")
+                ):
+                    routine = get_routine_by_id(conn, row["routine_id"])
+                    if routine and routine.get("download_full_text"):
+                        full_text.worker.configure(_open_connection)
+                        full_text.for_watch_run(conn, exec_id)
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "Full-text hook raised for exec_id=%s", exec_id,
+                )
             # Desktop notification dispatch.
             # Fires from the backend so notifications work even under the
             # headless-daemon path where the renderer is not running.
@@ -1357,12 +1565,13 @@ def _launch_execution(
 
 # Duplicate protection for a *submission* rather than for a routine. The
 # mechanism is the partial UNIQUE index over ``executions.request_id``, and the
-# two helpers below are the check that comes first and the undo that runs when
-# the check and the insert raced anyway. There is deliberately no lock: the
-# index decides, the loser removes the row it had just prepared, and both
-# callers end up holding the same execution id. A lock would make the common
-# case look safer without covering the case that actually needs covering -- a
-# second backend process, which shares the database and not this module.
+# two helpers below are the check that comes first and the answer when the check
+# and the insert raced anyway. The ticket is written in the run's own INSERT, so
+# no reader sees a run without it. There is deliberately no lock: the index
+# decides, the loser's INSERT writes nothing, and both callers end up holding the
+# same execution id. A lock would make the common case look safer without
+# covering the case that actually needs covering -- a second backend process,
+# which shares the database and not this module.
 
 
 def _duplicate_execution_for(conn, request_id: Optional[str]) -> Optional[dict]:
@@ -1376,55 +1585,146 @@ def _duplicate_execution_for(conn, request_id: Optional[str]) -> Optional[dict]:
     return get_execution_by_request_id(conn, request_id)
 
 
-def _reserve_request_id(conn, exec_id: int, request_id: Optional[str]) -> Optional[dict]:
-    """Stamp ``request_id`` on a freshly prepared row, or undo the row.
+def _winner_of_request_id(conn, request_id: Optional[str], error: sqlite3.IntegrityError) -> dict:
+    """The run another process started with this ticket, when this one's INSERT collided with it.
 
-    Returns the *winning* execution when the stamp collided with one written by
-    another process between the check and here, after deleting the row this
-    request prepared. Deleting it is safe precisely here and nowhere later: the
-    row is seconds old, no thread has been launched for it, and nothing else has
-    seen its id.
+    The ticket is written in the run's own INSERT (``insert_execution``), so no
+    reader sees a run without it; the partial UNIQUE index refuses a second row
+    with the same ticket, and this answers with the row that won. Any other
+    integrity error is re-raised.
     """
-    if not request_id:
-        return None
-    try:
-        conn.execute(
-            "UPDATE executions SET request_id = ? WHERE id = ?",
-            (request_id, int(exec_id)),
+    conn.rollback()
+    winner = get_execution_by_request_id(conn, request_id) if request_id else None
+    if winner is None:
+        raise error
+    return winner
+
+
+def _queue_full_refusal(what: str) -> HTTPException:
+    """The answer when resmon runs as many as it allows and as many more wait as it queues."""
+    cap = admission.max()
+    return HTTPException(
+        status_code=429,
+        detail=(
+            f"resmon is already running {cap} run{'s' if cap != 1 else ''}, as many as it "
+            f"allows at once, and {admission.queue_limit()} more are waiting, as many as it "
+            f"queues. This {what} was not queued; ask again once one of them has finished."
+        ),
+        headers={"Retry-After": "5", "X-Resmon-Conflict": "admission_queue_full"},
+    )
+
+
+def _queued_answer(ticket: str, what: str) -> dict:
+    """What a manual run that waits for a slot is told: where it stands, and that it starts on its own."""
+    cap = admission.max()
+    position = admission.ticket_position(ticket) or 1
+    ahead = position - 1
+    return {
+        "queued": True,
+        "queue_position": position,
+        "ticket": ticket,
+        "detail": (
+            f"resmon is already running {cap} run{'s' if cap != 1 else ''}, as many as it allows "
+            f"at once, so this {what} waits"
+            + (f" behind {ahead} other{'s' if ahead != 1 else ''}" if ahead else "")
+            + ". It starts on its own when a run finishes; there is nothing more to do."
+        ),
+    }
+
+
+def _start_or_queue(
+    *,
+    request_id: Optional[str],
+    what: str,
+    info: dict,
+    launch: Callable[[Optional[int], Optional[str]], int],
+    response: Response,
+) -> dict:
+    """Start a manual run now, or queue it for the next free slot, and say which.
+
+    The door every manual run comes through: a Deep Dive, a Deep Sweep, and a
+    restart or a run asked for again. Past the run limit it waits in the same
+    queue a watch's fire waits in (``admission.admit_manual``) and is started
+    in turn, rather than refused as it once was, when a person had to watch
+    for a free slot and ask again. Only a full queue refuses it (429).
+
+    ``launch(reservation, ticket)`` prepares and starts the run and returns
+    its id; for a queued run it is called when its turn comes, on a fresh
+    thread, with the slot reserved for it and the ticket to stamp on its row.
+    A submission whose ``request_id`` is already waiting is answered with that
+    entry again rather than queued twice.
+    """
+    if request_id and admission.ticket_position(request_id) is not None:
+        response.status_code = 202
+        return {"execution_id": None, "duplicate": True, **_queued_answer(request_id, what)}
+    ticket = request_id or uuid.uuid4().hex
+
+    def start(reservation: int) -> None:
+        launch(reservation, ticket)
+
+    decision = admission.admit_manual(ticket, start, info)
+    if decision == "full":
+        raise _queue_full_refusal(what)
+    if decision == "queued":
+        response.status_code = 202
+        return {"execution_id": None, **_queued_answer(ticket, what)}
+    return {"execution_id": launch(None, request_id)}
+
+
+def _search_info(execution_type: str, repositories: list[str], query_params: dict) -> dict:
+    """What a waiting manual run is shown as, on the Runs tab: its kind and its search."""
+    keywords = query_params.get("keywords")
+    return {
+        "execution_type": execution_type,
+        "query": query_params.get("query"),
+        "keywords": list(keywords) if isinstance(keywords, list) else None,
+        "repositories": list(repositories),
+    }
+
+
+def _launch_search(
+    execution_type: str,
+    repositories: list[str],
+    query_params: dict,
+    *,
+    ai_enabled: bool,
+    ai_settings: Optional[dict],
+    ephemeral_credentials: Optional[dict[str, str]],
+    saved_configuration_id: Optional[int],
+) -> Callable[[Optional[int], Optional[str]], int]:
+    """Prepare and start a Deep Dive or Deep Sweep, on whichever thread its turn comes."""
+
+    def launch(reservation: Optional[int], request_id: Optional[str]) -> int:
+        conn = _get_db()
+        engine = SweepEngine(
+            db_conn=conn,
+            config={"ai_enabled": ai_enabled, "ai_settings": ai_settings},
         )
-        conn.commit()
-        return None
-    except sqlite3.IntegrityError:
-        conn.rollback()
-        winner = get_execution_by_request_id(conn, request_id)
         try:
-            conn.execute("DELETE FROM executions WHERE id = ?", (int(exec_id),))
-            conn.commit()
-        except Exception:
-            logging.getLogger(__name__).exception(
-                "Failed to remove the losing side of a request_id race: "
-                "exec_id=%s", exec_id,
-            )
-        return winner
+            exec_id = engine.prepare_execution(execution_type, repositories, query_params, request_id=request_id)
+        except sqlite3.IntegrityError as error:
+            # Another process started this very submission between the check
+            # and here; that run is the answer, and this slot is not needed.
+            winner = _winner_of_request_id(conn, request_id, error)
+            if reservation is not None:
+                admission.note_finished(reservation)
+            return int(winner["id"])
+        # Link the new execution back to the saved
+        # configuration the user picked in ConfigLoader (if any).
+        if saved_configuration_id is not None:
+            set_execution_saved_configuration(conn, exec_id, saved_configuration_id)
+        progress_store.register(exec_id)
+        _launch_execution(engine, exec_id, conn, ephemeral_credentials=ephemeral_credentials,
+                          reservation=reservation)
+        return exec_id
 
-
-def _reject_if_at_manual_cap() -> None:
-    """Raise 429 when the admission controller is at the manual cap."""
-    if not admission.try_admit(kind="manual"):
-        raise HTTPException(
-            status_code=429,
-            detail=(
-                f"resmon is already running the maximum of {admission.max()} "
-                "concurrent executions. Wait for one to finish, then try "
-                "again."
-            ),
-            headers={"Retry-After": "5"},
-        )
+    return launch
 
 
 @app.post("/api/search/dive", response_model=response_models.RunStarted,
           response_model_exclude_unset=True)
-def search_dive(body: DiveRequest):
+def search_dive(body: DiveRequest, response: Response):
+    """Start a Deep Dive, or queue it when resmon runs as many as it allows (202)."""
     conn = _get_db()
     # Before the cap check, deliberately: a resubmission of a run that is
     # already going is not a new demand on capacity, and answering it with 429
@@ -1433,65 +1733,183 @@ def search_dive(body: DiveRequest):
     existing = _duplicate_execution_for(conn, body.request_id)
     if existing is not None:
         return {"execution_id": existing["id"], "duplicate": True}
-    _reject_if_at_manual_cap()
-    engine = SweepEngine(
-        db_conn=conn,
-        config={"ai_enabled": body.ai_enabled, "ai_settings": body.ai_settings},
-    )
     query_params = {
         "query": body.query,
         "keywords": body.keywords,
         "date_from": body.date_from,
         "date_to": body.date_to,
         "max_results": body.max_results,
+        "collection_id": _collection_id(conn, body.collection),
     }
-    exec_id = engine.prepare_execution("deep_dive", [body.repository], query_params)
-    winner = _reserve_request_id(conn, exec_id, body.request_id)
-    if winner is not None:
-        return {"execution_id": winner["id"], "duplicate": True}
-    # Link the new execution back to the saved
-    # configuration the user picked in ConfigLoader (if any).
-    if body.saved_configuration_id is not None:
-        set_execution_saved_configuration(conn, exec_id, body.saved_configuration_id)
-    progress_store.register(exec_id)
-    _launch_execution(engine, exec_id, conn, ephemeral_credentials=body.ephemeral_credentials)
-    return {"execution_id": exec_id}
+    return _start_or_queue(
+        request_id=body.request_id, what="Deep Dive",
+        info=_search_info("deep_dive", [body.repository], query_params),
+        launch=_launch_search(
+            "deep_dive", [body.repository], query_params,
+            ai_enabled=body.ai_enabled, ai_settings=body.ai_settings,
+            ephemeral_credentials=body.ephemeral_credentials,
+            saved_configuration_id=body.saved_configuration_id,
+        ),
+        response=response,
+    )
 
 
 @app.post("/api/search/sweep", response_model=response_models.RunStarted,
           response_model_exclude_unset=True)
-def search_sweep(body: SweepRequest):
+def search_sweep(body: SweepRequest, response: Response):
+    """Start a Deep Sweep, or queue it when resmon runs as many as it allows (202)."""
     conn = _get_db()
-    # Before the cap check, deliberately: a resubmission of a run that is
-    # already going is not a new demand on capacity, and answering it with 429
-    # would tell the user resmon is busy when what it is busy with is their own
-    # first click.
+    # Before the cap check, deliberately: see ``search_dive``.
     existing = _duplicate_execution_for(conn, body.request_id)
     if existing is not None:
         return {"execution_id": existing["id"], "duplicate": True}
-    _reject_if_at_manual_cap()
-    engine = SweepEngine(
-        db_conn=conn,
-        config={"ai_enabled": body.ai_enabled, "ai_settings": body.ai_settings},
-    )
     query_params = {
         "query": body.query,
         "keywords": body.keywords,
         "date_from": body.date_from,
         "date_to": body.date_to,
         "max_results": body.max_results,
+        "collection_id": _collection_id(conn, body.collection),
     }
-    exec_id = engine.prepare_execution("deep_sweep", body.repositories, query_params)
-    winner = _reserve_request_id(conn, exec_id, body.request_id)
-    if winner is not None:
-        return {"execution_id": winner["id"], "duplicate": True}
-    # Link the new execution back to the saved
-    # configuration the user picked in ConfigLoader (if any).
-    if body.saved_configuration_id is not None:
-        set_execution_saved_configuration(conn, exec_id, body.saved_configuration_id)
-    progress_store.register(exec_id)
-    _launch_execution(engine, exec_id, conn, ephemeral_credentials=body.ephemeral_credentials)
-    return {"execution_id": exec_id}
+    return _start_or_queue(
+        request_id=body.request_id, what="Deep Sweep",
+        info=_search_info("deep_sweep", list(body.repositories), query_params),
+        launch=_launch_search(
+            "deep_sweep", list(body.repositories), query_params,
+            ai_enabled=body.ai_enabled, ai_settings=body.ai_settings,
+            ephemeral_credentials=body.ephemeral_credentials,
+            saved_configuration_id=body.saved_configuration_id,
+        ),
+        response=response,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Find a paper (F2)
+# ---------------------------------------------------------------------------
+
+
+def _find_plan(query: str, repositories: Optional[list[str]]) -> tuple[paper_find.PaperQuery, list[str], list[dict]]:
+    """The find asked for: every source in the catalog accounted for, asked or not, and why not.
+
+    *repositories*, when given, are the sources to ask; one that could have
+    been asked and was not named is recorded as left out of this find.
+    """
+    try:
+        parsed = paper_find.parse(query)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    every = [entry["slug"] for entry in catalog_as_dicts()]
+    named = list(repositories) if repositories else every
+    asked, not_asked = paper_find.plan(parsed, list(dict.fromkeys(named + every)))
+    if repositories:
+        left = [slug for slug in asked if slug not in named]
+        asked = [slug for slug in asked if slug in named]
+        not_asked = [{"source": slug, "why": "Left out of this find."} for slug in left] + not_asked
+    return parsed, asked, not_asked
+
+
+@app.get("/api/find/plan", response_model=response_models.FindPlan,
+         response_model_exclude_unset=True)
+def find_plan(q: str = Query(..., max_length=500), repositories: Optional[str] = None):
+    """What a typed query reads as (a DOI, an arXiv id, a PMID, or a title), and which sources it would ask."""
+    named = [s for s in (repositories or "").split(",") if s] or None
+    parsed, asked, not_asked = _find_plan(q, named)
+    return {**parsed.as_params(), "asked": asked, "not_asked": not_asked}
+
+
+@app.post("/api/find", response_model=response_models.RunStarted, response_model_exclude_unset=True)
+def find_a_paper(body: FindRequest, response: Response):
+    """Find a paper across the sources that can look it up: a run, or queued like one (202).
+
+    Each source is asked by the kind it can be asked by; the copy that is the
+    paper is kept in the collection, every source's answer is recorded
+    (``GET /api/executions/{id}/find``), and the copies that share a DOI are
+    linked. A query no named source can look up is refused (400) with why.
+    """
+    conn = _get_db()
+    existing = _duplicate_execution_for(conn, body.request_id)
+    if existing is not None:
+        return {"execution_id": existing["id"], "duplicate": True}
+    parsed, asked, not_asked = _find_plan(body.query, body.repositories)
+    if not asked:
+        kind = paper_find.KIND_WORDS[parsed.kind]
+        # Why the sources named cannot, not that the others were left out.
+        named = set(body.repositories or [])
+        reasons = " ".join([item["why"] for item in not_asked if not named or item["source"] in named][:3])
+        raise HTTPException(400, f"No source named can look up {'an' if kind[0] in 'aeiou' else 'a'} {kind}. {reasons}")
+    query_params = {
+        "query": parsed.typed,
+        "find": {**parsed.as_params(), "not_asked": not_asked},
+        "max_results": paper_find.CANDIDATES,
+        "collection_id": _collection_id(conn, body.collection),
+    }
+    return _start_or_queue(
+        request_id=body.request_id, what="find",
+        info=_search_info("find_paper", asked, query_params),
+        launch=_launch_search(
+            "find_paper", asked, query_params, ai_enabled=False, ai_settings=None,
+            ephemeral_credentials=None, saved_configuration_id=None),
+        response=response,
+    )
+
+
+@app.get("/api/executions/{exec_id}/find", response_model=response_models.FindResult,
+         response_model_exclude_unset=True)
+def find_result(exec_id: int):
+    """A find's question and what each source it named said: found or not, how it matched, what differs, its open copy."""
+    conn = _get_db()
+    result = paper_find.result(conn, exec_id)
+    if result is None:
+        raise HTTPException(404, "That run is not a find.")
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Get the PDF (F1, L4)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/full-text/rules", response_model=response_models.FullTextRules,
+         response_model_exclude_unset=True)
+def full_text_rules():
+    """The limits on downloads, the license rule, and the sources and sites never downloaded from."""
+    return full_text.rules()
+
+
+@app.post("/api/full-text/for-documents", response_model=list[response_models.FullTextStatus],
+         response_model_exclude_unset=True)
+def full_text_for_documents(body: DocumentIdsBody):
+    """For each paper: its open copies, the one resmon would get or why none, its latest request, its Library PDF."""
+    if len(body.document_ids) > 200:
+        raise HTTPException(400, "Ask about at most 200 papers at once.")
+    return full_text.status_for(_get_db(), list(dict.fromkeys(body.document_ids)))
+
+
+@app.post("/api/documents/{doc_id}/full-text", response_model=response_models.FullTextRequest,
+         response_model_exclude_unset=True)
+def get_the_pdf(doc_id: int):
+    """Get the PDF: ask for this paper's open-access PDF into the Library.
+
+    Recorded before anything is fetched. A request that cannot go ahead (no
+    open copy with a stated license, a refused source, no Library folder, the
+    day's cap) comes back ``skipped`` with its reason and sends nothing.
+    """
+    conn = _get_db()
+    try:
+        return full_text.request(conn, doc_id, requested_by="person")
+    except LookupError:
+        raise HTTPException(404, "That paper is not in this database.") from None
+
+
+@app.get("/api/executions/{exec_id}/full-text", response_model=response_models.RunFullText,
+         response_model_exclude_unset=True)
+def run_full_text(exec_id: int):
+    """Every PDF a run asked for (a watch with its opt-in on), and what came of each."""
+    conn = _get_db()
+    if get_execution_by_id(conn, exec_id) is None:
+        raise HTTPException(404, "Run not found")
+    return full_text.for_execution(conn, exec_id)
 
 
 # ---------------------------------------------------------------------------
@@ -1720,6 +2138,7 @@ def get_routine(routine_id: int):
             "email_ai_summary_enabled",
             "ai_enabled",
             "notify_on_complete",
+            "download_full_text",
         ):
             if col in routine:
                 routine[col] = bool(routine[col])
@@ -1757,7 +2176,7 @@ def _upcoming_date_window(conn, routine_id: int, raw_parameters: object) -> Opti
 
 
 def _validated_entity(conn, parameters: dict) -> Optional[dict]:
-    """`parameters.entity`, normalised, or None when the routine is a keyword one.
+    """`parameters.entity`, normalized, or None when the routine is a keyword one.
 
     Validated at the seam rather than at fire time. A routine's
     ``parameters`` is an untyped JSON blob, so an entity naming a
@@ -1897,6 +2316,8 @@ def create_routine(body: RoutineCreate):
             "storage_settings": json.dumps(body.storage_settings) if body.storage_settings else None,
             "notify_on_complete": int(body.notify_on_complete),
             "execution_location": "local",
+            "collection_id": _collection_id(conn, body.collection),
+            "download_full_text": int(body.download_full_text),
         }
         rid = insert_routine(conn, routine_dict)
         _sync_routine_config(conn, rid)
@@ -1957,6 +2378,10 @@ def update_routine_endpoint(routine_id: int, body: RoutineUpdate):
             updates["storage_settings"] = json.dumps(body.storage_settings)
         if body.notify_on_complete is not None:
             updates["notify_on_complete"] = int(body.notify_on_complete)
+        if body.collection is not None:
+            updates["collection_id"] = _collection_id(conn, body.collection)
+        if body.download_full_text is not None:
+            updates["download_full_text"] = int(body.download_full_text)
         update_routine(conn, routine_id, updates)
         _sync_routine_config(conn, routine_id)
         _sched_update_routine(routine_id)
@@ -2321,7 +2746,7 @@ def run_routine_now(routine_id: int, response: Response):
             # to branch on the reason does not have to parse English.
             raise HTTPException(
                 409,
-                (f"This watch is already running as execution "
+                (f"This watch is already running as run "
                  f"{conflict.execution_id}. Wait for that run to finish, or "
                  "cancel it, before starting another."
                  if conflict.execution_id is not None else
@@ -2385,19 +2810,24 @@ def deactivate_routine(routine_id: int):
 
 @app.get("/api/routines/{routine_id}/documents", response_model=response_models.RoutineDocuments,
          response_model_exclude_unset=True)
-def routine_documents(routine_id: int, limit: int = Query(2000, ge=1, le=10000)):
-    """The papers this routine's runs collected: a watch's constellation.
+def routine_documents(routine_id: int, limit: Optional[int] = Query(None, ge=1),
+                      collection: Optional[str] = _COLLECTION_QUERY):
+    """The papers this routine's runs collected that a collection holds: a watch's constellation on its map.
 
     Ids only, newest run first and each paper once, because what a screen does
     with them is mark them on the collection map; a page of records is the
-    Explorer's job. ``total`` counts all of them, so a screen whose ``limit``
-    cut the list short can say so rather than imply the marks are complete.
+    Explorer's job. Every one unless ``limit`` asks for fewer: ids are a few
+    bytes each, and a constellation drawn from the first 2,000 of a watch's
+    papers left the rest off the map. ``total`` counts all of them, so a screen
+    whose ``limit`` cut the list short can say so rather than imply the marks
+    are complete.
     """
     conn = _get_db()
     try:
         if not get_routine_by_id(conn, routine_id):
             raise HTTPException(404, "Watch not found")
-        ids, total = get_routine_document_ids(conn, routine_id, limit=limit)
+        ids, total = get_routine_document_ids(conn, routine_id, limit=limit,
+                                              collection_id=_collection_id(conn, collection))
         return {"routine_id": routine_id, "document_ids": ids, "total": total, "limit": limit}
     finally:
         _close_db(conn)
@@ -2535,26 +2965,131 @@ def source_wall_grid(
         _close_db(conn)
 
 
+def _listed(value: Optional[str]) -> Optional[list[str]]:
+    """A comma-separated query value as its parts; None when there are none."""
+    parts = [part.strip() for part in (value or "").split(",") if part.strip()]
+    return parts or None
+
+
 @app.get("/api/executions", response_model=list[response_models.RunRow],
-         response_model_exclude_unset=True)
+         response_model_exclude_unset=True,
+         responses={200: {"headers": {"X-Resmon-Total": {
+             "description": "How many runs match the filters, however many this page holds.",
+             "schema": {"type": "integer"},
+         }}}})
 def list_executions(
+    response: Response,
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     type: Optional[str] = Query(None, alias="type"),
     routine_id: Optional[int] = Query(None),
+    status: Optional[str] = Query(None),
+    q: Optional[str] = Query(None, max_length=200),
+    omit_events: bool = Query(False),
 ):
+    """The runs, newest first, a page at a time; how many match is the ``X-Resmon-Total`` header.
+
+    ``type`` and ``status`` each take one value or several, comma-separated
+    (``type=deep_dive,deep_sweep,find_paper`` is every search asked by hand). ``q``
+    matches a run's terms, its sources, its watch's or saved search's name,
+    or its number. ``omit_events`` leaves each row's stored
+    ``progress_events`` out (null): the Runs tab lists runs and reads a run's
+    events only on its own page. The total is a header, so the body stays
+    the list every reader of this route already reads.
+    """
     conn = _get_db()
     try:
         # ``routine_id`` is one watch's runs, its nights, for a page that lists
         # them without fetching every run resmon has made to filter them.
-        rows = get_executions(conn, limit=limit, offset=offset, execution_type=type,
-                              routine_id=routine_id)
+        types = _listed(type)
+        statuses = _listed(status)
+        rows = get_executions(conn, limit=limit, offset=offset, routine_id=routine_id,
+                              execution_types=types, statuses=statuses, text=q,
+                              without_events=omit_events)
+        total = count_executions(conn, routine_id=routine_id, execution_types=types,
+                                 statuses=statuses, text=q)
         outcomes = _source_outcomes(conn, [int(r["id"]) for r in rows])
         for row in rows:
             row["coverage"] = source_coverage.build(row, get_execution_sources(conn, int(row["id"])))
             _enrich_execution_row(row)
             row["source_outcomes"] = outcomes.get(int(row["id"]))
+        response.headers["X-Resmon-Total"] = str(total)
+        # Readable by the renderer, which is another origin.
+        response.headers["Access-Control-Expose-Headers"] = "X-Resmon-Total"
         return rows
+    finally:
+        _close_db(conn)
+
+
+def _active_events(events: list[dict]) -> list[dict]:
+    """A running run's events with the repeating ones folded to their newest.
+
+    Each source's heartbeats (``query_progress``, phase ``searching``) to its
+    latest, and the counts of papers linked, embedded or summarized to theirs;
+    the start and end of each search and the log's lines are left out. Every
+    event that changes a source's or the run's state is kept, in order.
+    """
+    keep: set[int] = set()
+    latest: dict[tuple, int] = {}
+    for at, event in enumerate(events):
+        kind = event.get("type")
+        if kind == "query_progress":
+            if event.get("phase") == "searching":
+                latest[("beat", event.get("repository"))] = at
+            continue
+        if kind in ("link_progress", "ai_progress", "dedup_progress"):
+            latest[(kind, event.get("stage"))] = at
+            continue
+        if kind == "log_entry":
+            continue
+        keep.add(at)
+    keep.update(latest.values())
+    return [events[at] for at in sorted(keep)]
+
+
+# When the run monitor's panel was last opened: a run that failed after it is
+# the monitor's red mark until the panel is opened again. Kept in the engine,
+# so it holds across launches; until the panel is first opened, failures since
+# this engine started count.
+_RUNS_SEEN_KEY = "runs_seen_at"
+
+
+def _run_stamp() -> str:
+    """Now, as the sweep engine writes a run's ``end_time``, so the two compare as text."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+_ENGINE_STARTED_AT = _run_stamp()
+
+
+def _failed_unseen(conn) -> tuple[list[int], Optional[str]]:
+    """The runs that failed since the panel was last opened, newest first, and when that was."""
+    seen = get_setting(conn, _RUNS_SEEN_KEY) or None
+    since = seen or _ENGINE_STARTED_AT
+    # ``>=``: both stamps are to the second, so a run that failed in the second
+    # the panel was opened cannot be told to be before it or after. It counts as
+    # unseen: a failure shown red once too often is better than one never shown.
+    rows = conn.execute(
+        "SELECT id FROM executions WHERE status = 'failed' AND end_time >= ? "
+        "ORDER BY end_time DESC, id DESC LIMIT 20",
+        (since,),
+    ).fetchall()
+    return [int(row[0]) for row in rows], seen
+
+
+@app.post("/api/executions/seen", response_model=response_models.RunsSeen,
+          response_model_exclude_unset=True)
+def mark_runs_seen():
+    """The run monitor's panel was opened: every run that has failed until now is seen.
+
+    Clears the monitor's red mark (``failed_unseen`` on ``/active``) until a
+    run fails again. Nothing about any run changes.
+    """
+    conn = _get_db()
+    try:
+        at = _run_stamp()
+        set_setting(conn, _RUNS_SEEN_KEY, at)
+        return {"seen_at": at}
     finally:
         _close_db(conn)
 
@@ -2562,7 +3097,74 @@ def list_executions(
 @app.get("/api/executions/active", response_model=response_models.ActiveRuns,
          response_model_exclude_unset=True)
 def active_executions():
-    return {"active_ids": progress_store.get_active_ids()}
+    """The runs this engine is running, each with its search and its events, and the queue.
+
+    For the Runs tab's Running now and Waiting, read every two seconds while
+    anything runs or waits. A run is here from the moment it is registered
+    until its thread has finished with it; a run another engine is running
+    is not, and the run log lists it as running.
+    """
+    ids = progress_store.get_active_ids()
+    conn = _get_db()
+    try:
+        running = []
+        for exec_id in ids:
+            row = get_execution_by_id(conn, exec_id)
+            if not row:
+                continue
+            _enrich_execution_row(row)
+            running.append({
+                "id": int(row["id"]),
+                "execution_type": row["execution_type"],
+                "routine_id": row.get("routine_id"),
+                "saved_configuration_id": row.get("saved_configuration_id"),
+                "query": row.get("query"),
+                "keywords": row.get("keywords"),
+                "repositories": row.get("repositories"),
+                "start_time": row.get("start_time"),
+                "current_stage": row.get("current_stage"),
+                "restarted_from": row.get("restarted_from"),
+                "request_id": row.get("request_id"),
+                "events": _active_events(progress_store.get_events(exec_id)),
+            })
+        running.sort(key=lambda run: (run["start_time"] or "", run["id"]))
+        failed, seen = _failed_unseen(conn)
+        # What changes when any run starts or ends, here or in another engine
+        # on the same database: a run that starts and ends between two reads
+        # of this route changes nothing above, and the run log would not know
+        # to read itself again.
+        newest, ended = conn.execute("SELECT MAX(id), MAX(end_time) FROM executions").fetchone()
+        return {
+            "active_ids": ids,
+            "running": running,
+            "waiting": admission.waiting(),
+            "max_concurrent": admission.max(),
+            "queue_limit": admission.queue_limit(),
+            "failed_unseen": failed,
+            "seen_at": seen,
+            "newest_run_id": newest,
+            "last_ended_at": ended,
+        }
+    finally:
+        _close_db(conn)
+
+
+@app.delete("/api/executions/waiting/{ticket}", response_model=response_models.WaitingWithdrawn,
+            response_model_exclude_unset=True)
+def withdraw_waiting_run(ticket: str):
+    """Take a run that waits for a free slot out of the queue, before it starts.
+
+    Only a run asked for by hand: a watch's fire runs as its watch says, and
+    is stopped by pausing the watch. A run that has already started is not
+    waiting any more (404), and is stopped from its own page.
+    """
+    kind = admission.withdraw(ticket)
+    if kind is None:
+        raise HTTPException(404, "No run is waiting with that ticket; it may have started already.")
+    if kind == "routine":
+        raise HTTPException(409, (
+            "This is a watch's run, and it runs as its watch is set. Pause the watch to stop its runs."))
+    return {"withdrawn": True, "ticket": ticket}
 
 
 @app.get("/api/executions/{exec_id}", response_model=response_models.Run,
@@ -2909,12 +3511,12 @@ _TERMINAL_EXECUTION_STATES = ("completed", "failed", "cancelled", "interrupted")
 def cancel_execution(exec_id: int):
     """Request cooperative cancellation of a running execution.
 
-    A row that is not in the in-memory ``ProgressStore`` is not cancellable,
+    A row that is not in the in-memory ``ProgressStore`` is not cancelable,
     and saying only "Execution not running" would read, on an
     interrupted row, as if resmon had lost track of something. The row's own
     state belongs in the sentence.
 
-    ``detail`` stays a **string**. FastAPI will serialise a dict there happily,
+    ``detail`` stays a **string**. FastAPI will serialize a dict there happily,
     and a renderer that renders ``detail`` directly -- which several of
     resmon's do -- would then show ``[object Object]``. Anything that needs the
     state structurally reads ``status`` off the row it already has.
@@ -2929,16 +3531,58 @@ def cancel_execution(exec_id: int):
         # always answered for an id the progress store does not hold.
         if not row:
             raise HTTPException(409, f"resmon has no record of execution {exec_id}.")
+        state = row.get("status")
+        state_word = "canceled" if state == "cancelled" else state
         raise HTTPException(409, (
-            f"Execution {exec_id} is {row.get('status')}; only a running "
-            "execution can be cancelled."))
-    progress_store.request_cancel(exec_id)
+            f"Execution {exec_id} is {state_word}; only a running "
+            "execution can be canceled."))
+    if not progress_store.request_cancel(exec_id):
+        # Past the run's last cancellation check: it is recording its result.
+        raise HTTPException(409, (
+            f"Execution {exec_id} is finishing; it is too late to cancel it."))
     return {"status": "cancellation_requested"}
+
+
+def _was_set_to_summarize(conn, exec_id: int) -> bool:
+    """Whether a run was set to summarize, as its ``ai_choice`` event recorded at its start.
+
+    Not whether it got as far as summarizing: ``execution_ai`` holds a row only
+    for a lane that was tried, so a run set to summarize that failed before
+    any paper was summarized has none, and a restart read from those rows came
+    back with summaries off (two watches' failed runs on November 4, 2026,
+    whose pages said "Summaries: On" and "Restart does not summarize"). A run
+    without the event (one from before it existed, or one interrupted before
+    its events were saved) is read from those rows, as it was.
+    """
+    for event in reversed(get_progress_events(conn, exec_id)):
+        if isinstance(event, dict) and event.get("type") == "ai_choice" and isinstance(event.get("enabled"), bool):
+            return bool(event["enabled"])
+    return bool(get_execution_ai(conn, exec_id))
+
+
+def _run_as_its_watch(routine_id: int, watch: dict, response: Response) -> dict:
+    """Restart or Run again on a watch's run: the watch's own Run now, answered as a restart answers.
+
+    Everything ``run_routine_now`` refuses (the watch already running, a full
+    queue, a window it cannot read) is refused here in its words.
+    """
+    ran = run_routine_now(routine_id, response)
+    # ``routine_id`` says the run is the watch's: queued, it is found again by its
+    # watch, since a watch's fire carries no request id its ``ticket`` could match.
+    answer: dict = {"execution_id": ran.get("execution_id"), "restarted_from": None,
+                    "ai_enabled": bool(watch.get("ai_enabled")), "routine_id": routine_id}
+    if ran.get("queued"):
+        ticket = next((w["ticket"] for w in admission.waiting()
+                       if w["kind"] == "watch" and w["routine_id"] == routine_id), None)
+        answer.update({"queued": True, "queue_position": ran.get("queue_position"), "ticket": ticket})
+    answer["detail"] = ran.get("detail")
+    response.status_code = 202
+    return answer
 
 
 @app.post("/api/executions/{exec_id}/restart", status_code=202,
           response_model=response_models.RunRestarted, response_model_exclude_unset=True)
-def restart_execution(exec_id: int, body: Optional[RestartRequest] = None):
+def restart_execution(exec_id: int, response: Response, body: Optional[RestartRequest] = None):
     """Start a fresh execution with the source's parameters, linked back to it.
 
     Restart is not resume. ``progress_events`` is persisted once, at the end,
@@ -2948,8 +3592,24 @@ def restart_execution(exec_id: int, body: Optional[RestartRequest] = None):
 
     The source row is never touched. Its history is what happened, and a
     restart is a second thing that happened, not a correction of the first.
+
+    ``again`` asks for a completed run's search once more (Run again, on the
+    Runs tab); without it only an interrupted, failed or canceled run is
+    restarted. At the run limit the new run waits in the queue
+    (``_start_or_queue``) and its row is written only when it starts: the
+    answer then carries no execution id, ``queued``, and its place.
+
+    **A watch's run is never run alongside its watch.** Restart or Run again
+    on a watch's run is that watch's Run now (``run_routine_now``): the
+    watch's claim, its queue, a paused watch run once, and delivery as it is
+    set, with the watch's current settings rather than the old run's copy,
+    and refused with the run that holds the watch when it is already running,
+    since two runs of one watch would both deliver and email. The new run is
+    the watch's, so it is not linked back (``restarted_from`` is null). A Deep
+    Dive's or Deep Sweep's run is copied, as below.
     """
     request_id = body.request_id if body is not None else None
+    again = bool(body.again) if body is not None else False
     conn = _get_db()
     try:
         duplicate = _duplicate_execution_for(conn, request_id)
@@ -2962,54 +3622,80 @@ def restart_execution(exec_id: int, body: Optional[RestartRequest] = None):
         if not row:
             raise HTTPException(404, "Execution not found")
         state = row.get("status")
-        if state not in _RESTARTABLE_STATES:
+        if state not in _RESTARTABLE_STATES and not (again and state == "completed"):
             # A string, for the same reason ``cancel_execution`` gives one.
             raise HTTPException(409, (
+                f"Execution {exec_id} is {state}; only a run that has ended can be run again."
+                if again else
                 f"Execution {exec_id} is {state}; only an interrupted, failed "
-                "or cancelled run can be restarted."))
-        # The same door a manual Deep Dive or Deep Sweep comes through, so a
-        # restart cannot get resmon past its own concurrency cap. Like those
-        # two, it only *checks* the cap here; the slot is claimed by
-        # ``admission.note_admitted`` on the worker thread.
-        _reject_if_at_manual_cap()
+                "or canceled run can be restarted."))
+        # The watch this run belongs to, if it still exists: a deleted watch's
+        # runs keep their kind and lose their ``routine_id``.
+        watch_id = row.get("routine_id") if row["execution_type"] == "automated_sweep" else None
+        watch = get_routine_by_id(conn, int(watch_id)) if watch_id is not None else None
+        if watch is not None:
+            return _run_as_its_watch(int(watch_id), watch, response)
         # The AI lane, reproduced as far as the record allows. ``parameters``
-        # holds the search, never the AI settings, so what the source row can
-        # answer is whether AI ran at all: ``execution_ai`` has one row per lane
-        # that was tried. A restart therefore reproduces the *choice* -- AI on
-        # or off -- and runs it against whatever is configured today, which is
-        # the same thing a second click of Deep Sweep would do. Reconstructing
-        # the provider, model and credential of the day from a lane record would
-        # be a guess wearing the original run's clothes.
-        ai_enabled = bool(get_execution_ai(conn, exec_id))
-        # ``parameters`` is copied verbatim and ``ai_enabled`` is deliberately
-        # **not** written into it. That JSON is the search the user asked for --
-        # terms, databases, date window -- and the search record and the
-        # reference exports render it as such; an AI flag in there would be read
-        # as part of the query. The fact is durable anyway: the new run writes
-        # its own ``execution_ai`` rows, which is where this decision was read
-        # from in the first place.
-        new_id = insert_execution(conn, {
-            "execution_type": row["execution_type"],
-            "routine_id": row.get("routine_id"),
-            "saved_configuration_id": row.get("saved_configuration_id"),
-            "parameters": row["parameters"],
-            "start_time": utc_now_iso(),
-            "restarted_from": exec_id,
-        })
-        winner = _reserve_request_id(conn, new_id, request_id)
-        if winner is not None:
-            return {"execution_id": winner["id"],
-                    "restarted_from": winner.get("restarted_from"),
-                    "ai_enabled": bool(get_execution_ai(conn, winner["id"])),
-                    "duplicate": True}
-        # No ``prepare_execution``: the row exists, and ``run_prepared`` reads
-        # the repositories and query parameters back out of it. Passing them a
-        # second time would be a second copy to keep honest.
-        engine = SweepEngine(db_conn=conn, config={"ai_enabled": ai_enabled, "ai_settings": None})
-        progress_store.register(new_id)
-        _launch_execution(engine, new_id, conn)
-        return {"execution_id": new_id, "restarted_from": exec_id,
-                "ai_enabled": ai_enabled}
+        # holds the search, never the AI settings. A restart reproduces the
+        # *choice* -- AI on or off -- and runs it against whatever is configured
+        # today, which is the same thing a second click of Deep Sweep would do.
+        # Reconstructing the provider, model and credential of the day from a
+        # lane record would be a guess wearing the original run's clothes.
+        ai_enabled = _was_set_to_summarize(conn, exec_id)
+        try:
+            stored = json.loads(row["parameters"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            stored = {}
+        if not isinstance(stored, dict):
+            stored = {}
+        repositories = stored.get("repositories") if isinstance(stored.get("repositories"), list) else []
+        info = {**_search_info(row["execution_type"], [str(r) for r in repositories], stored),
+                "routine_id": row.get("routine_id"), "restarted_from": exec_id}
+
+        def launch(reservation: Optional[int], ticket: Optional[str]) -> int:
+            own = _get_db()
+            # ``parameters`` is copied verbatim and ``ai_enabled`` is deliberately
+            # **not** written into it. That JSON is the search the user asked for
+            # -- terms, databases, date window -- and the search record and the
+            # reference exports render it as such; an AI flag in there would be
+            # read as part of the query. The fact is durable anyway: the new run
+            # writes its own ``execution_ai`` rows, which is where this decision
+            # was read from in the first place.
+            try:
+                new_id = insert_execution(own, {
+                    "execution_type": row["execution_type"],
+                    "routine_id": row.get("routine_id"),
+                    "saved_configuration_id": row.get("saved_configuration_id"),
+                    "parameters": row["parameters"],
+                    "start_time": utc_now_iso(),
+                    "restarted_from": exec_id,
+                    "request_id": ticket,
+                })
+            except sqlite3.IntegrityError as error:
+                winner = _winner_of_request_id(own, ticket, error)
+                if reservation is not None:
+                    admission.note_finished(reservation)
+                return int(winner["id"])
+            # No ``prepare_execution``: the row exists, and ``run_prepared`` reads
+            # the repositories and query parameters back out of it. Passing them a
+            # second time would be a second copy to keep honest.
+            engine = SweepEngine(db_conn=own, config={"ai_enabled": ai_enabled, "ai_settings": None})
+            progress_store.register(new_id)
+            _launch_execution(engine, new_id, own, reservation=reservation)
+            return new_id
+
+        # The same door a manual Deep Dive or Deep Sweep comes through, so a
+        # restart cannot get resmon past its own concurrency cap.
+        started = _start_or_queue(request_id=request_id, what="run", info=info,
+                                  launch=launch, response=response)
+        response.status_code = 202
+        if started.get("execution_id") is not None:
+            return {"execution_id": started["execution_id"], "restarted_from": exec_id, "ai_enabled": ai_enabled}
+        answer = {"execution_id": None, "restarted_from": exec_id, "ai_enabled": ai_enabled}
+        if started.get("duplicate"):
+            answer["duplicate"] = True
+        answer.update({key: started[key] for key in ("queued", "queue_position", "ticket", "detail")})
+        return answer
     finally:
         _close_db(conn)
 
@@ -3092,7 +3778,18 @@ async def stream_progress(exec_id: int, last_event_id: int = 0):
 
 
 @app.get("/api/executions/{exec_id}/progress/events")
-def get_execution_progress_events(exec_id: int, response: Response):
+def get_execution_progress_events(
+    exec_id: int, response: Response, since: int = Query(0, ge=0),
+):
+    """The run's progress events, from the ``since``-th on (0, every one).
+
+    A running run's page reads only the events it has not seen: a sweep's
+    heartbeat adds one event every two seconds for each source still being
+    asked, and reading the whole list every second read it again and again.
+    The list only grows while the run runs, and once it has ended the
+    persisted list is the same list, so an index into one is an index into
+    the other.
+    """
     conn = _get_db()
     row = get_execution_by_id(conn, exec_id)
     if not row:
@@ -3106,27 +3803,31 @@ def get_execution_progress_events(exec_id: int, response: Response):
     # window between mark_complete and cleanup).  Fall back to persisted
     # events after cleanup removes the live store entry.
     if progress_store.is_registered(exec_id):
-        return progress_store.get_events(exec_id)
-    return get_progress_events(conn, exec_id)
+        return progress_store.get_events(exec_id, since=since)
+    return get_progress_events(conn, exec_id)[since:]
 
 
 @app.get("/api/executions/{exec_id}/document-ids", response_model=response_models.RunDocumentIds,
          response_model_exclude_unset=True)
-def get_execution_document_ids(exec_id: int):
-    """Every paper this run stored that is still in the collection, by id.
+def get_execution_document_ids(exec_id: int, collection: Optional[str] = _COLLECTION_QUERY):
+    """Every paper this run stored that is in the collection, by id.
 
-    The run's map needs all of them and nothing else about them: the map
-    already holds their positions. The papers themselves are paged by
-    ``/documents``; ids alone are a few bytes each, so they come whole.
+    The run's map is the collection's map, so it needs these and nothing else
+    about them: the map already holds their positions. The papers themselves
+    are paged by ``/documents``; ids alone are a few bytes each, so they come
+    whole.
     """
     conn = _get_db()
     try:
         if get_execution_by_id(conn, exec_id) is None:
             raise HTTPException(404, "Execution not found")
+        chosen = _collection_id(conn, collection)
+        within, params = ("", ()) if paper_collections.holds_every_paper(conn, chosen) else (
+            f" AND {paper_collections.member_clause('ed.document_id')}", (chosen,))
         rows = conn.execute(
             "SELECT DISTINCT ed.document_id FROM execution_documents ed "
-            "JOIN documents d ON d.id = ed.document_id WHERE ed.execution_id = ? "
-            "ORDER BY ed.document_id", (exec_id,))
+            f"JOIN documents d ON d.id = ed.document_id WHERE ed.execution_id = ?{within} "
+            "ORDER BY ed.document_id", (exec_id, *params))
         return {"ids": [int(r[0]) for r in rows]}
     finally:
         _close_db(conn)
@@ -3348,7 +4049,7 @@ async def import_configurations(files: list[UploadFile] = File(...)):
         # the Configurations page's Export Selected writes a ZIP, and an
         # import that decided what it had from this suffix read the archive as
         # text and raised. ``import_configs`` sniffs the content instead, and
-        # is handed the names the user recognises so a refusal can quote them
+        # is handed the names the user recognizes so a refusal can quote them
         # rather than a path inside the temporary directory.
         tmp_paths = []
         upload_names = []
@@ -3443,19 +4144,66 @@ class ReferenceExportBody(BaseModel):
     format: str = "bibtex"
 
 
+# A streamed export is sent in pieces of about this many characters: large enough
+# that a file of 100,000 papers is a few thousand writes, small enough that a
+# piece is never more than a moment's memory.
+_EXPORT_PIECE = 64 * 1024
+
+
 def _reference_response(
-    documents: list[dict], fmt: str, stem: str, *, include_ids: bool = False,
-) -> Response:
+    documents: Iterable[dict], fmt: str, stem: str, count: int, *,
+    include_ids: bool = False, close: Optional[Callable[[], None]] = None,
+) -> StreamingResponse:
+    """A reference file, written and sent a piece at a time.
+
+    *count* is how many papers *documents* holds, said in a header before the
+    first piece is sent, which is why a caller reads it in the same transaction
+    as the papers. *close* runs once the last piece is sent, or when the reader
+    goes away first.
+    """
+    done: list[bool] = []
+    lock = threading.Lock()
+
+    def finish() -> None:
+        # Once, from whichever comes first: the last piece written, or the
+        # response ending because the reader went away. The server lets a piece
+        # being written finish before either, so nothing is reading the
+        # connection when it closes.
+        with lock:
+            if close is None or done:
+                return
+            done.append(True)
+        close()
+
     try:
-        text, media_type, extension = reference_export.render(documents, fmt, include_ids=include_ids)
+        media_type, extension = reference_export.describe(fmt, include_ids=include_ids)
     except ValueError as exc:
+        finish()
         raise HTTPException(400, str(exc)) from None
-    return Response(
-        content=text,
+
+    def body() -> Iterator[bytes]:
+        try:
+            pending: list[str] = []
+            size = 0
+            for piece in reference_export.stream(documents, fmt, include_ids=include_ids):
+                pending.append(piece)
+                size += len(piece)
+                if size >= _EXPORT_PIECE:
+                    yield "".join(pending).encode("utf-8")
+                    pending, size = [], 0
+            if pending:
+                yield "".join(pending).encode("utf-8")
+        finally:
+            finish()
+
+    from starlette.background import BackgroundTask  # noqa: PLC0415
+    return StreamingResponse(
+        body(),
         media_type=media_type,
+        background=BackgroundTask(finish),
         headers={
             "Content-Disposition": f'attachment; filename="{stem}.{extension}"',
-            "X-Resmon-Document-Count": str(len(documents)),
+            "X-Resmon-Document-Count": str(count),
             # Readable by the renderer, which is another origin: the count is how
             # it says what a saved file holds, in the engine's number rather
             # than one it worked out before asking.
@@ -3476,7 +4224,7 @@ def export_execution_references(
         documents = get_execution_documents(conn, exec_id, only_new=only_new)
         suffix = "-new" if only_new else ""
         return _reference_response(documents, format, f"resmon-execution-{exec_id}{suffix}",
-                                   include_ids=include_ids)
+                                   len(documents), include_ids=include_ids)
     finally:
         _close_db(conn)
 
@@ -3502,7 +4250,7 @@ def export_selected_references(body: ReferenceExportBody):
                 unique_ids.update(doc["id"] for doc in get_execution_documents(conn, exec_id))
             ids = sorted(unique_ids)
         documents = get_documents_by_ids(conn, ids)
-        return _reference_response(documents, body.format, "resmon-selection")
+        return _reference_response(documents, body.format, "resmon-selection", len(documents))
     finally:
         _close_db(conn)
 
@@ -3544,18 +4292,64 @@ def _reading_queue_status(value: Optional[str]) -> Optional[str]:
     return value
 
 
+def _map_order(conn, wanted: set[int], collection_id: Optional[int] = None) -> Optional[dict[int, tuple]]:
+    """A sort key per paper the collection's map has placed, keeping its neighbors together.
+
+    The map's own regions first, then a Hilbert curve through each region's
+    stretch of the plate, so papers next to each other on the map are next to
+    each other in the list. ``None`` when there is no fitted map to read; the
+    queue then says it is in saved order.
+    """
+    from implementation_scripts import collection_map  # noqa: PLC0415 - see the imports
+    fit = collection_map._current(collection_map.cache_path(conn, collection_id), collection_id)
+    if fit is None or not len(fit.ids):
+        return None
+    side = 1024
+    keep = [i for i, paper in enumerate(fit.ids.tolist()) if paper in wanted]
+    cells = ((fit.xy[keep] + 1.0) / 2.0 * (side - 1)).clip(0, side - 1).astype("int64")
+    order: dict[int, tuple] = {}
+    for paper, region, (x, y) in zip(fit.ids[keep].tolist(), fit.region[keep].tolist(), cells.tolist()):
+        d, s = 0, side // 2
+        while s > 0:
+            rx, ry = int((x & s) > 0), int((y & s) > 0)
+            d += s * s * ((3 * rx) ^ ry)
+            if ry == 0:
+                if rx == 1:
+                    x, y = side - 1 - x, side - 1 - y
+                x, y = y, x
+            s //= 2
+        order[int(paper)] = (int(region), d)
+    return order
+
+
 @app.get("/api/reading-queue", response_model=response_models.ReadingQueuePage,
          response_model_exclude_unset=True)
 def list_reading_queue(
     status: Optional[str] = None,
     limit: int = reading_queue.DEFAULT_PAGE_SIZE,
     offset: int = 0,
+    q: str = Query("", max_length=200),
+    sort: str = "saved",
+    collection: Optional[str] = _COLLECTION_QUERY,
 ):
-    """One page of saved papers. ``status`` omitted (or ``all``) means both."""
+    """One page of a collection's saved papers. ``status`` omitted (or ``all``) means both.
+
+    The queue is one list; each collection shows the saved papers it holds,
+    with their counts. ``q`` keeps the papers whose title, authors or source
+    contain it. ``sort`` is ``saved`` (newest save first), ``published``,
+    ``title``, ``source`` or ``map`` (the collection's map); the page's own
+    ``sort`` says which order it is in, which is ``saved`` when ``map`` was
+    asked for and no map is fitted yet.
+    """
     conn = _get_db()
     try:
+        chosen = _collection_id(conn, collection)
         return reading_queue.list_entries(
-            conn, status=_reading_queue_status(status), limit=limit, offset=offset,
+            conn, status=_reading_queue_status(status), limit=limit, offset=offset, q=q, sort=sort,
+            map_order=_map_order(conn, {r[0] for r in conn.execute("SELECT document_id FROM reading_queue")},
+                                 chosen)
+            if sort == "map" else None,
+            collection_id=chosen,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
@@ -3611,10 +4405,42 @@ def remove_from_reading_queue(document_id: int):
     """
     conn = _get_db()
     try:
-        if not reading_queue.remove(conn, document_id):
+        entry = reading_queue.remove(conn, document_id)
+        if entry is None:
             raise HTTPException(
                 404, f"Document {document_id} is not in the reading queue")
-        return {"removed": True, "document_id": document_id}
+        # The entry as it was, for Undo: ``POST .../restore`` puts it back as it is here.
+        return {"removed": True, "document_id": document_id, "entry": entry}
+    finally:
+        _close_db(conn)
+
+
+class ReadingQueueRestoreBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    status: str
+    saved_at: str = Field(min_length=1, max_length=40)
+    updated_at: str = Field(min_length=1, max_length=40)
+    read_at: Optional[str] = Field(default=None, max_length=40)
+
+
+@app.post("/api/reading-queue/{document_id}/restore",
+          response_model=response_models.ReadingQueueRestored,
+          response_model_exclude_unset=True)
+def restore_to_reading_queue(document_id: int, body: ReadingQueueRestoreBody):
+    """Undo a removal: the entry back with the state and dates it had.
+
+    ``restored`` is false when the paper was saved again in the meantime; its
+    entry now is returned unchanged rather than overwritten.
+    """
+    conn = _get_db()
+    try:
+        entry, restored = reading_queue.restore(
+            conn, document_id, body.status, body.saved_at, body.updated_at, body.read_at)
+        return {"restored": restored, "entry": entry}
+    except reading_queue.UnknownDocument as exc:
+        raise HTTPException(404, str(exc)) from None
+    except (ValueError, sqlite3.IntegrityError) as exc:
+        raise HTTPException(400, str(exc)) from None
     finally:
         _close_db(conn)
 
@@ -3631,7 +4457,7 @@ class LibraryOriginGuard:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         import re
         path = scope.get("path", "")
-        if scope.get("type") == "http" and (re.fullmatch(r"/api/library/files/[^/]+/text", path) or path.startswith("/api/evidence/")):
+        if scope.get("type") == "http" and (re.fullmatch(r"/api/library/files/[^/]+/(?:text|pdf|picture)", path) or path.startswith("/api/evidence/")):
             original_send = send
 
             async def text_send(message):
@@ -3643,12 +4469,14 @@ class LibraryOriginGuard:
                     if path.startswith("/api/evidence/"):
                         message["headers"].append((b"access-control-expose-headers",
                             b"Content-Disposition, Content-Length, X-Resmon-Evidence-Contract, X-Resmon-Vault, X-Resmon-Project, X-Resmon-File, X-Resmon-Version, X-Resmon-SHA256, X-Resmon-Revision, X-Resmon-Bundle"))
+                    elif not path.endswith("/text"):
+                        message["headers"].append((b"access-control-expose-headers",
+                            b"Content-Length, Content-Type, X-Resmon-Vault, X-Resmon-File, X-Resmon-Version, X-Resmon-SHA256"))
                 await original_send(message)
 
             send = text_send
         protected = scope.get("type") == "http" and scope.get("method") != "OPTIONS" and (
-            path in ("/api/library", "/api/library/vault", "/api/library/files", "/api/library/export")
-            or re.fullmatch(r"/api/library/files/[^/]+(?:/(?:paper-links|open|text|shared-wording))?", path)
+            path == "/api/library" or path.startswith("/api/library/")
             or path.startswith("/api/evidence/")
         )
         if protected:
@@ -3763,10 +4591,11 @@ def library_create_vault(request: Request, body: LibraryVaultBody):
 
 @app.get("/api/library/files", response_model=response_models.LibraryFiles, response_model_exclude_unset=True)
 def library_list(request: Request, expected_vault_id: str, q: str = "",
-                 through_id: int | None = None, before_id: int | None = None, limit: int = 50):
-    _library_query(request, ("expected_vault_id", "q", "through_id", "before_id", "limit"))
+                 through_id: int | None = None, before_id: int | None = None, limit: int = 50,
+                 sort: str = "newest", offset: int = 0):
+    _library_query(request, ("expected_vault_id", "q", "through_id", "before_id", "limit", "sort", "offset"))
     with _library_connection() as conn:
-        return library.list_files(conn, expected_vault_id, q, through_id, before_id, limit)
+        return library.list_files(conn, expected_vault_id, q, through_id, before_id, limit, sort, offset)
 
 
 @app.post("/api/library/files", response_model=response_models.LibraryImported, response_model_exclude_unset=True)
@@ -3816,11 +4645,148 @@ def library_inventory(request: Request, expected_vault_id: str, format: str = "j
 
 @app.get("/api/library/files/{file_id}/text", response_model=response_models.LibraryText, response_model_exclude_unset=True)
 def library_read_text(request: Request, response: Response, file_id: str,
-                      expected_vault_id: str, expected_version_id: str):
-    _library_query(request, ("expected_vault_id", "expected_version_id"))
+                      expected_vault_id: str, expected_version_id: str, lines: int | None = None):
+    _library_query(request, ("expected_vault_id", "expected_version_id", "lines"))
     response.headers["Cache-Control"] = "no-store"
     with _library_connection() as conn:
-        return library_text.read_text(conn, expected_vault_id, file_id, expected_version_id)
+        return library_text.read_text(conn, expected_vault_id, file_id, expected_version_id, lines)
+
+
+@app.get("/api/library/files/{file_id}/pdf", response_model=None)
+def library_read_pdf(request: Request, file_id: str, expected_vault_id: str, expected_version_id: str) -> Response:
+    """A kept PDF's bytes, for the reader outside Evidence: verified, up to the one read limit.
+
+    The identity headers name the vault, file, version and hash the bytes were
+    checked against, so the renderer can refuse an answer about another file.
+    """
+    _library_query(request, ("expected_vault_id", "expected_version_id"))
+    with _library_connection() as conn:
+        row, data = library.read_bytes(conn, expected_vault_id, file_id, expected_version_id)
+    return Response(data, media_type="application/octet-stream", headers={
+        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+        "X-Resmon-Vault": expected_vault_id, "X-Resmon-File": file_id,
+        "X-Resmon-Version": expected_version_id, "X-Resmon-SHA256": row["sha256"]})
+
+
+@app.get("/api/library/files/{file_id}/picture", response_model=None)
+def library_picture(request: Request, file_id: str, expected_vault_id: str, expected_version_id: str) -> Response:
+    """The first-page picture kept for this exact version, or 404 ``no_picture``."""
+    _library_query(request, ("expected_vault_id", "expected_version_id"))
+    with _library_connection() as conn:
+        media, data = library_thumbs.read(conn, expected_vault_id, file_id, expected_version_id)
+    return Response(data, media_type=media, headers={
+        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+        "X-Resmon-Vault": expected_vault_id, "X-Resmon-File": file_id, "X-Resmon-Version": expected_version_id})
+
+
+@app.put("/api/library/files/{file_id}/picture", response_model=response_models.LibraryPicture,
+         response_model_exclude_unset=True)
+async def library_keep_picture(request: Request, file_id: str, expected_vault_id: str,
+                               expected_version_id: str) -> dict:
+    """Keep the first-page picture the renderer drew of this version: WebP, PNG or JPEG, 512 KiB at most."""
+    _library_query(request, ("expected_vault_id", "expected_version_id"))
+    media = request.headers.get("content-type", "").split(";")[0].strip().lower()
+    raw = bytearray()
+    async for chunk in request.stream():
+        if len(raw) + len(chunk) > library_thumbs.MAX_PICTURE_BYTES:
+            raise HTTPException(413, {"reason": "picture_limit", "message": "A picture is limited to 512 KiB."})
+        raw.extend(chunk)
+    with _library_connection() as conn:
+        return library_thumbs.write(conn, expected_vault_id, file_id, expected_version_id, media, bytes(raw))
+
+
+class LibraryRemoveBody(LibraryOpenBody):
+    # True only after the person was shown what goes with the file (its
+    # projects and notes) and confirmed. Undo puts every one of them back.
+    cascade: bool = False
+
+
+class LibraryVaultIdBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    expected_vault_id: str
+
+
+class LibraryRelinkBody(LibraryVaultIdBody):
+    folder: str = Field(min_length=1, max_length=4096)
+
+
+class LibraryMoveBody(LibraryVaultIdBody):
+    parent_directory: str = Field(min_length=1, max_length=4096)
+
+
+@app.get("/api/library/files/{file_id}/removal", response_model=response_models.LibraryRemoval,
+         response_model_exclude_unset=True)
+def library_removal_summary(request: Request, file_id: str, expected_vault_id: str, expected_version_id: str):
+    """What would go with this file if it were removed: its paper links, and the projects
+    it is in or has notes in. ``needs_confirmation`` is true when there is a project."""
+    _library_query(request, ("expected_vault_id", "expected_version_id"))
+    with _library_connection() as conn:
+        return library_removal.summary(conn, expected_vault_id, file_id, expected_version_id)
+
+
+@app.delete("/api/library/files/{file_id}", response_model=response_models.LibraryRemoved,
+            response_model_exclude_unset=True)
+def library_remove(request: Request, file_id: str, body: LibraryRemoveBody):
+    """Take a file out of the Library. Its bytes are held in the Library folder's
+    ``removed/`` and its record kept, for Undo and Restore; nothing is deleted."""
+    _library_query(request, ())
+    with _library_connection() as conn:
+        return library_removal.remove(conn, body.expected_vault_id, file_id, body.expected_version_id, body.cascade)
+
+
+@app.get("/api/library/removed", response_model=response_models.LibraryRemovedList,
+         response_model_exclude_unset=True)
+def library_removed(request: Request, expected_vault_id: str):
+    """Every removed file still on record, newest first, and whether its bytes are still held."""
+    _library_query(request, ("expected_vault_id",))
+    with _library_connection() as conn:
+        return library_removal.list_removed(conn, expected_vault_id)
+
+
+@app.post("/api/library/removed/{file_id}/restore", response_model=response_models.LibraryFileDetail,
+          response_model_exclude_unset=True)
+def library_restore(request: Request, file_id: str, body: LibraryVaultIdBody):
+    """Undo a removal: the folder, the row and every row that went with it, as they were."""
+    _library_query(request, ())
+    with _library_connection() as conn:
+        return library_removal.restore(conn, body.expected_vault_id, file_id)
+
+
+@app.post("/api/library/removed/{file_id}/release", response_model=response_models.LibraryReleased,
+          response_model_exclude_unset=True)
+def library_release(request: Request, file_id: str, body: LibraryVaultIdBody):
+    """The held file's verified path, under the name it was imported as, for the desktop's Trash."""
+    _library_query(request, ())
+    with _library_connection() as conn:
+        return library_removal.release_request(conn, body.expected_vault_id, file_id)
+
+
+@app.delete("/api/library/removed/{file_id}", response_model=response_models.LibraryForgotten,
+            response_model_exclude_unset=True)
+def library_forget(request: Request, file_id: str, body: LibraryVaultIdBody):
+    """Drop a removed file's record once its bytes have left the Library folder; refused while they are held."""
+    _library_query(request, ())
+    with _library_connection() as conn:
+        return library_removal.forget(conn, body.expected_vault_id, file_id)
+
+
+@app.post("/api/library/vault/relink", response_model=response_models.LibraryStatus,
+          response_model_exclude_unset=True)
+def library_relink(request: Request, body: LibraryRelinkBody):
+    """Record where the Library folder is now, after checking it is this Library's own."""
+    _library_query(request, ())
+    with _library_connection() as conn:
+        return library_folder.relink(conn, body.expected_vault_id, body.folder)
+
+
+@app.post("/api/library/vault/move", response_model=response_models.LibraryMovedStatus,
+          response_model_exclude_unset=True)
+def library_move(request: Request, body: LibraryMoveBody):
+    """Move the Library folder into another folder, keeping its name. Across disks the
+    files are copied and checked, and the old folder is left where it was."""
+    _library_query(request, ())
+    with _library_connection() as conn:
+        return library_folder.move(conn, body.expected_vault_id, body.parent_directory)
 
 
 def _library_connection_factory():
@@ -3996,12 +4962,12 @@ async def _evidence_run(request: Request, operation: Callable[[sqlite3.Connectio
         if cancel.is_set():
             if isinstance(result, evidence_export.Bundle):
                 result.close()
-            raise HTTPException(409, {"reason": "cancelled", "message": "The Evidence request was cancelled."})
+            raise HTTPException(409, {"reason": "cancelled", "message": "The Evidence request was canceled."})
         return result
     except asyncio.CancelledError:
         cancel.set()
         # Shield the exact thread result so a completed export spool is not
-        # orphaned when the HTTP owner is cancelled after bytes were built.
+        # orphaned when the HTTP owner is canceled after bytes were built.
         try:
             result = await asyncio.shield(task)
             if isinstance(result, evidence_export.Bundle):
@@ -4017,9 +4983,12 @@ _selected_lane_lock = threading.RLock()
 
 
 def _selected_lane(conn: sqlite3.Connection) -> selected_evidence_runtime.Lane:
+    # The port this process serves, the service's included: an answer records
+    # it with the process, so a later start can tell its own answer from
+    # another engine's.
     port = serving_port()
-    if type(port) is not int or not 1 <= port <= 65535 or port == 8742:
-        evidence.refuse('invalid_port', 'Selected answers require an explicit non-default serving port.', 409)
+    if type(port) is not int or not 1 <= port <= 65535:
+        evidence.refuse('invalid_port', 'Selected answers need the port this engine serves, and it is not known.', 409)
     db_path = conn.execute('PRAGMA database_list').fetchone()[2]
     owner = runtime_identity.current_runtime_id()
     with _selected_lane_lock:
@@ -4032,7 +5001,7 @@ def _selected_lane(conn: sqlite3.Connection) -> selected_evidence_runtime.Lane:
 def _selected_startup() -> None:
     # Embedded tests without a serving identity do not start this optional lane.
     port = serving_port()
-    if type(port) is int and 1 <= port <= 65535 and port != 8742:
+    if type(port) is int and 1 <= port <= 65535:
         _selected_lane(_get_db())
 
 
@@ -4270,6 +5239,9 @@ class ExplorerFilters(BaseModel):
     categories: list[str] = []
     date_from: Optional[str] = None
     date_to: Optional[str] = None
+    # The collection searched, by its id or its name. Absent, the default
+    # collection, which is every paper a client from before collections knew.
+    collection: CollectionRef = None
 
 
 class ExplorerSearchBody(ExplorerFilters):
@@ -4279,6 +5251,10 @@ class ExplorerSearchBody(ExplorerFilters):
     # answered with the default rather than a 422: a renderer from a newer build
     # talking to an older backend should get papers, not a validation error.
     sort: str = "newest"
+    # The newest sort's jump: with no cursor, start at the newest match published
+    # on or before this day (YYYY, YYYY-MM or YYYY-MM-DD). Not a filter: the
+    # count is still every match, and ``newer_count`` says how many come first.
+    start_date: Optional[str] = None
     # What else to answer for this page's papers, in the same reply: their
     # near-duplicate links, the people they matched, and their lifecycle
     # notices, each as its own ``/for-documents`` route answers it. Nothing
@@ -4290,7 +5266,7 @@ class ExplorerExportBody(ExplorerFilters):
     format: str = "bibtex"
 
 
-def _filter_kwargs(body: ExplorerFilters) -> dict:
+def _filter_kwargs(body: ExplorerFilters, conn) -> dict:
     return {
         "query": body.query,
         "sources": body.sources or None,
@@ -4298,7 +5274,200 @@ def _filter_kwargs(body: ExplorerFilters) -> dict:
         "categories": body.categories or None,
         "date_from": body.date_from,
         "date_to": body.date_to,
+        "collection_id": _collection_id(conn, body.collection),
     }
+
+
+# ---------------------------------------------------------------------------
+# Collections
+# ---------------------------------------------------------------------------
+#
+# Several collections inside the one database: a paper is stored once and is in
+# one or more of them (``paper_collections``). Every read of "the collection"
+# takes ``collection`` (an id or a name) and an absent one is the default
+# collection, so a client from before collections reads what it always read.
+
+
+class CollectionNameBody(BaseModel):
+    name: str = Field(..., max_length=200)
+
+
+class CollectionCurrentBody(BaseModel):
+    collection: Union[int, str]
+
+
+class CollectionPapersBody(BaseModel):
+    """Move or copy papers into the collection in the path.
+
+    The papers are named by id (``document_ids``) or by a search of the
+    collection they come from (``matching``: the Explorer's filters, whose own
+    ``collection`` is that collection), never both. A search's papers leave
+    out ``except_ids``, and ``at_most`` is how many the person was told would
+    move or copy: a search that matches more by the time it is read is
+    refused, so a filter lost on the way can never move a whole collection. A
+    move takes them out of ``from_collection``, which is the search's
+    collection where ``matching`` is given and the default collection where
+    neither names one.
+    """
+
+    mode: Literal["move", "copy"]
+    document_ids: list[int] = Field(default_factory=list, max_length=paper_collections.IDS_MAX)
+    from_collection: CollectionRef = None
+    matching: Optional[ExplorerFilters] = None
+    except_ids: list[int] = Field(default_factory=list, max_length=paper_collections.IDS_MAX)
+    at_most: Optional[int] = Field(default=None, ge=1)
+
+
+class CollectionMembershipBody(BaseModel):
+    document_id: int
+    added_at: str = Field(..., max_length=40)
+    added_by: str = Field(..., max_length=20)
+    execution_id: Optional[int] = None
+
+
+class CollectionPapersUndoBody(BaseModel):
+    """What a move or a copy answered, sent back to undo it."""
+
+    added: list[int] = Field(default_factory=list, max_length=paper_collections.IDS_MAX)
+    from_collection: CollectionRef = None
+    removed: list[CollectionMembershipBody] = Field(default_factory=list, max_length=paper_collections.IDS_MAX)
+
+
+def _collections_call(compute: Callable[[], dict]) -> dict:
+    """Run a collections change, answering its refusal in the module's own words."""
+    try:
+        return compute()
+    except paper_collections.CollectionError as exc:
+        raise _collection_refusal(exc) from None
+
+
+@app.get("/api/collections", response_model=response_models.CollectionList,
+         response_model_exclude_unset=True)
+def list_collections():
+    """Every collection, the one the app shows, and the default one."""
+    conn = _get_db()
+    try:
+        return {"collections": paper_collections.summaries(conn),
+                "current_id": paper_collections.current(conn),
+                "default_id": paper_collections.DEFAULT_COLLECTION_ID}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/collections", status_code=201, response_model=response_models.CollectionSummary,
+          response_model_exclude_unset=True)
+def create_collection(body: CollectionNameBody):
+    """Make an empty collection. Names are unique without regard to case."""
+    conn = _get_db()
+    try:
+        return _collections_call(lambda: paper_collections.create(conn, body.name))
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/collections/current", response_model=response_models.CollectionCurrent,
+         response_model_exclude_unset=True)
+def set_current_collection(body: CollectionCurrentBody):
+    """Remember the collection the app shows, by its id or its name."""
+    conn = _get_db()
+    try:
+        chosen = _collection_id(conn, body.collection)
+        return {"current_id": _collections_call(lambda: {"id": paper_collections.set_current(conn, chosen)})["id"]}
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/collections/{collection_id}", response_model=response_models.CollectionDetail,
+         response_model_exclude_unset=True)
+def get_collection(collection_id: int):
+    """One collection, and what deleting it would do to its papers and watches."""
+    conn = _get_db()
+    try:
+        return _collections_call(lambda: paper_collections.detail(conn, collection_id))
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/collections/{collection_id}", response_model=response_models.CollectionSummary,
+         response_model_exclude_unset=True)
+def rename_collection(collection_id: int, body: CollectionNameBody):
+    conn = _get_db()
+    try:
+        return _collections_call(lambda: paper_collections.rename(conn, collection_id, body.name))
+    finally:
+        _close_db(conn)
+
+
+@app.delete("/api/collections/{collection_id}", response_model=response_models.CollectionDeleted,
+            response_model_exclude_unset=True)
+def delete_collection(collection_id: int):
+    """Delete a collection, never its papers.
+
+    A paper only it held is kept in the default collection; one in another
+    collection stays there. Its watches put their papers in the default
+    collection from then on. Its map goes with it, since the map holds words
+    from its papers. The default collection is refused (409).
+    """
+    conn = _get_db()
+    try:
+        deleted = _collections_call(lambda: paper_collections.delete(conn, collection_id))
+        from implementation_scripts import collection_map  # noqa: PLC0415 - see the imports
+        collection_map.forget(conn, collection_id)
+        return deleted
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/collections/{collection_id}/papers", response_model=response_models.CollectionPapersChanged,
+          response_model_exclude_unset=True)
+def change_collection_papers(collection_id: int, body: CollectionPapersBody):
+    """Move or copy papers into this collection. No paper leaves the database.
+
+    A copy adds them and every collection they were in keeps them. A move adds
+    them here and then takes them out of the collection they came from, so a
+    paper is never in none. The answer is what an undo sends back.
+    """
+    conn = _get_db()
+    try:
+        if body.matching is not None and body.document_ids:
+            raise HTTPException(400, "Name the papers by id or by a search, not both.")
+        source = None
+        if body.matching is not None:
+            filters = _filter_kwargs(body.matching, conn)
+            source = filters["collection_id"]
+            if body.mode == "move" and body.from_collection is not None \
+                    and _collection_id(conn, body.from_collection) != source:
+                raise HTTPException(400, "A move by a search takes papers out of the collection searched.")
+            skip = set(body.except_ids)
+            ids = [i for i in explorer.matching_ids(conn, **filters) if i not in skip]
+            if len(ids) > paper_collections.IDS_MAX:
+                raise HTTPException(400, f"A search moves or copies at most {paper_collections.IDS_MAX:,} "
+                                         f"papers at once, and this one matches {len(ids):,}.")
+            if body.at_most is not None and len(ids) > body.at_most:
+                raise HTTPException(409, f"This search matches {len(ids):,} papers now, more than the "
+                                         f"{body.at_most:,} you were asked about. Nothing was moved or copied.")
+        else:
+            ids = body.document_ids
+        if body.mode == "copy":
+            return _collections_call(lambda: paper_collections.copy(conn, collection_id, ids))
+        if source is None:
+            source = _collection_id(conn, body.from_collection)
+        return _collections_call(lambda: paper_collections.move(conn, source, collection_id, ids))
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/collections/{collection_id}/papers/undo", response_model=response_models.CollectionPapersUndone,
+          response_model_exclude_unset=True)
+def undo_collection_papers(collection_id: int, body: CollectionPapersUndoBody):
+    """Undo a move or a copy into this collection, from what it answered."""
+    conn = _get_db()
+    try:
+        source = _collection_id(conn, body.from_collection) if body.from_collection is not None else None
+        return _collections_call(lambda: paper_collections.undo(
+            conn, collection_id, body.added, source, [row.model_dump() for row in body.removed]))
+    finally:
+        _close_db(conn)
 
 
 def _embed_query(conn, text: str) -> tuple[Optional[bytes], Optional[str], Optional[str]]:
@@ -4317,6 +5486,12 @@ def _embed_query(conn, text: str) -> tuple[Optional[bytes], Optional[str], Optio
         )
     if not (text or "").strip():
         return None, None, "Ranking by meaning needs a search phrase."
+    key = (str(_db_path or ""), _db_generation, lane, text)
+    with _phrase_vectors_lock:
+        known = _phrase_vectors.get(key)
+        if known is not None:
+            _phrase_vectors.move_to_end(key)
+            return known, lane.model, None
     try:
         vectors = embeddings.embed_texts(lane, [text])
     except embeddings.EmbeddingUnavailable as exc:
@@ -4326,7 +5501,23 @@ def _embed_query(conn, text: str) -> tuple[Optional[bytes], Optional[str], Optio
         return None, None, f"The embedding call failed: {message}"
     if not vectors:
         return None, None, "The embedding model returned nothing for that phrase."
-    return vector_index.pack_vector(vectors[0]), lane.model, None
+    packed = vector_index.pack_vector(vectors[0])
+    with _phrase_vectors_lock:
+        _phrase_vectors[key] = packed
+        while len(_phrase_vectors) > _PHRASE_VECTORS_MAX:
+            _phrase_vectors.popitem(last=False)
+    return packed, lane.model, None
+
+
+# Phrases already embedded, by lane and phrase: each page of a search ranked by
+# meaning asks for the same phrase, and the model's answer for it does not change,
+# so "Show more" asks the model once rather than once a page. A lane names its
+# provider, model, and endpoint, so a changed setting is a different key; the
+# database and its generation are in the key too, so a database swapped in (a
+# restore, a test's fresh one) starts with none.
+_PHRASE_VECTORS_MAX = 32
+_phrase_vectors: "OrderedDict[tuple, bytes]" = OrderedDict()
+_phrase_vectors_lock = threading.Lock()
 
 
 @app.post("/api/explorer/search", response_model=response_models.ExplorerPage,
@@ -4346,7 +5537,7 @@ def explorer_search(body: ExplorerSearchBody):
             vector, model, reason = _embed_query(conn, body.query or "")
         result = explorer.search(
             conn, cursor=body.cursor, limit=body.limit, sort=body.sort,
-            query_vector=vector, model=model, **_filter_kwargs(body),
+            query_vector=vector, model=model, start_date=body.start_date, **_filter_kwargs(body, conn),
         )
         if reason:
             # The request asked for a ranking and did not get one. Saying so is
@@ -4671,7 +5862,7 @@ def explorer_facets(body: ExplorerFilters):
     """Available filter values and their counts, for the current filters."""
     conn = _get_db()
     try:
-        return explorer.facets(conn, **_filter_kwargs(body))
+        return explorer.facets(conn, **_filter_kwargs(body, conn))
     finally:
         _close_db(conn)
 
@@ -4680,14 +5871,167 @@ def explorer_facets(body: ExplorerFilters):
 def explorer_export(body: ExplorerExportBody):
     """Export everything matching the current filters, not just the page shown.
 
-    Reuses the same renderers as the per-execution export; only the way the
-    documents are selected differs.
+    Every match, however many: the papers are read from the database a batch at
+    a time and the file is sent as it is written, so the engine never holds the
+    whole of it (measured: `python -m perf scale`). The count in
+    ``X-Resmon-Document-Count`` and the papers are read in one transaction on a
+    connection of the export's own, so the header is exactly what the file holds
+    even while a run is storing papers. Reuses the same renderers as the
+    per-execution export; only the way the documents are selected differs.
+    """
+    try:
+        reference_export.describe(body.format)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    _close_db(_get_db())  # the database is initialized before a second connection opens it
+    # Its own connection, because the pieces are written on whichever worker
+    # thread the server hands each one to, and a thread's connection belongs to it.
+    conn = sqlite3.connect(_db_file_path(), check_same_thread=False, timeout=30)
+    conn.row_factory = sqlite3.Row
+
+    def close() -> None:
+        try:
+            conn.rollback()
+        finally:
+            conn.close()
+
+    try:
+        conn.execute("PRAGMA busy_timeout=5000;")
+        conn.execute("BEGIN")
+        filters = _filter_kwargs(body, conn)
+        total = explorer.count_matching(conn, **filters)
+        documents = explorer.iter_matching(conn, **filters)
+    except BaseException:
+        close()
+        raise
+    return _reference_response(documents, body.format, "resmon-explorer", total, close=close)
+
+
+# ---------------------------------------------------------------------------
+# The reading queue, many papers at once
+# ---------------------------------------------------------------------------
+#
+# Beside the search routes because a save of every match takes the search's own
+# filters. The rules are the single save's (``reading_queue.save_many``): a paper
+# already in the queue stays exactly as it is and is counted as such, and every
+# entry one save adds carries that save's moment, which is what its Undo names.
+
+
+class ReadingQueueBatchBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    document_ids: list[int] = Field(min_length=1, max_length=reading_queue.BATCH_MOST)
+
+
+class ReadingQueueAllBody(BaseModel):
+    """Every paper of a set the engine reads itself, so a save of 12,000 lists none of them.
+
+    ``scope`` says which set: ``search``, the papers ``search`` matches (the
+    filters as Search › Your collection sends them, the words left out where it
+    ranked by meaning, since there they order the list and do not narrow it);
+    ``run``, the papers run ``execution_id`` stored, or with ``only_new`` the ones
+    it found first; ``today``, Today's new papers in ``collection`` (the default
+    one where none is named). ``except_ids`` are left out.
+    ``at_most`` is how many the person was told would be saved: a set that holds
+    more by the time it is read is refused, so a filter lost on the way can never
+    save the whole collection.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    scope: Literal["search", "run", "today"]
+    search: Optional[ExplorerFilters] = None
+    execution_id: Optional[int] = None
+    collection: CollectionRef = None
+    only_new: bool = False
+    except_ids: list[int] = Field(default_factory=list, max_length=reading_queue.BATCH_MOST)
+    at_most: int = Field(ge=1)
+
+
+class ReadingQueueUndoBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    document_ids: list[int] = Field(min_length=1, max_length=reading_queue.BATCH_MOST)
+    saved_at: str = Field(min_length=1, max_length=40)
+
+
+@app.post("/api/reading-queue/batch", response_model=response_models.ReadingQueueBatchSaved,
+          response_model_exclude_unset=True)
+def save_many_to_reading_queue(body: ReadingQueueBatchBody):
+    """Save many papers at once: each one not in the queue is added, each one in it is left as it is.
+
+    The answer counts both, and the ids it does not hold (``missing``), and
+    lists the ids it added with the moment they carry, for Undo
+    (``POST /api/reading-queue/batch/undo``).
     """
     conn = _get_db()
     try:
-        ids = explorer.matching_ids(conn, **_filter_kwargs(body))
-        documents = get_documents_by_ids(conn, ids)
-        return _reference_response(documents, body.format, "resmon-explorer")
+        return reading_queue.save_many(conn, body.document_ids)
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/reading-queue/batch/all", response_model=response_models.ReadingQueueBatchSaved,
+          response_model_exclude_unset=True)
+def save_all_to_reading_queue(body: ReadingQueueAllBody):
+    """Save every paper of a search, a run, or Today, read by the engine rather than listed.
+
+    At most ``reading_queue.BATCH_MOST`` papers; a larger set is refused with
+    how many it holds. 409 when the set holds more than ``at_most``, the number
+    the person was asked about. Otherwise the answer of ``/batch``.
+    """
+    conn = _get_db()
+    try:
+        most = reading_queue.BATCH_MOST
+        skip = set(body.except_ids)
+        # One more than the limit is read, past the papers left out, so a set too large is known without reading it all.
+        reach = most + len(skip) + 1
+        if body.scope == "search":
+            if body.search is None:
+                raise HTTPException(400, "A save of a search's matches needs the search's filters.")
+            ids = explorer.matching_ids(conn, **_filter_kwargs(body.search, conn), limit=reach)
+            what = "this search matches"
+        elif body.scope == "run":
+            if body.execution_id is None:
+                raise HTTPException(400, "A save of a run's papers needs the run's id.")
+            if get_execution_by_id(conn, body.execution_id) is None:
+                raise HTTPException(404, "Execution not found")
+            ids = reading_queue.run_paper_ids(conn, body.execution_id, only_new=body.only_new, limit=reach)
+            what = f"run {body.execution_id} {'found first' if body.only_new else 'stored'}"
+        else:
+            # Today's new papers in the collection the window shows, as Today reads them.
+            cid = _collection_id(conn, body.collection)
+            floor = today.new_window(conn, None, cid)["floor"]
+            ids = [int(r[0]) for r in conn.execute(
+                f"SELECT d.id FROM {today.NEW_PAPERS_FROM} WHERE {today.NEW_PAPERS_WHERE} "
+                "ORDER BY m.added_at DESC, d.id DESC LIMIT ?", (cid, floor, reach))]
+            what = "Today lists"
+        chosen = [i for i in ids if i not in skip]
+        if len(chosen) > most:
+            raise HTTPException(400, (
+                f"A save takes at most {most:,} papers at once, and {what} more than that. Nothing was saved. "
+                "Narrow it with a filter, or save part of it."))
+        if len(chosen) > body.at_most:
+            raise HTTPException(409, (
+                f"{what[0].upper()}{what[1:]} {len(chosen):,} papers now, more than the {body.at_most:,} you were "
+                "asked about. Nothing was saved."))
+        return reading_queue.save_many(conn, chosen)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/reading-queue/batch/undo", response_model=response_models.ReadingQueueBatchUndone,
+          response_model_exclude_unset=True)
+def undo_save_to_reading_queue(body: ReadingQueueUndoBody):
+    """Undo a save of many: the entries it added go, unless they changed since.
+
+    ``document_ids`` and ``saved_at`` are the save's own answer. An entry marked
+    read since, or removed and saved again, stays, and is counted as ``kept``.
+    """
+    conn = _get_db()
+    try:
+        return reading_queue.unsave_many(conn, body.document_ids, body.saved_at)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
     finally:
         _close_db(conn)
 
@@ -4736,7 +6080,10 @@ def _analytics_fingerprint(conn) -> tuple:
         " (SELECT COUNT(*) FROM execution_sources),"
         " (SELECT IFNULL(MAX(recorded_at), '') FROM execution_sources),"
         " (SELECT COUNT(*) FROM watchdog_mutes),"
-        " (SELECT IFNULL(MAX(muted_at), '') FROM watchdog_mutes)"
+        " (SELECT IFNULL(MAX(muted_at), '') FROM watchdog_mutes),"
+        # A move or a copy changes which papers a collection holds and nothing
+        # above; each collection's revision counts those changes.
+        " (SELECT IFNULL(SUM(revision), 0) || ':' || COUNT(*) FROM collections)"
     ).fetchone()
     return tuple(row)
 
@@ -4760,74 +6107,82 @@ def _cached_analytics(name: str, params: tuple, conn, compute):
 
 @app.get("/api/analytics/overview", response_model=response_models.AnalyticsOverview,
          response_model_exclude_unset=True)
-def analytics_overview():
-    """Everything the Analytics page needs, in one round trip."""
+def analytics_overview(collection: Optional[str] = _COLLECTION_QUERY):
+    """Everything the Analytics page needs about one collection, in one round trip."""
     conn = _get_db()
     try:
-        return _cached_analytics("overview", (), conn, lambda: analytics.overview(conn))
+        chosen = _collection_id(conn, collection)
+        return _cached_analytics("overview", (chosen,), conn, lambda: analytics.overview(conn, chosen))
     finally:
         _close_db(conn)
 
 
 @app.get("/api/analytics/summary", response_model=response_models.CorpusSummary,
          response_model_exclude_unset=True)
-def analytics_summary():
+def analytics_summary(collection: Optional[str] = _COLLECTION_QUERY):
     conn = _get_db()
     try:
+        chosen = _collection_id(conn, collection)
         return _cached_analytics(
-            "summary", (), conn, lambda: analytics.corpus_summary(conn))
+            "summary", (chosen,), conn, lambda: analytics.corpus_summary(conn, chosen))
     finally:
         _close_db(conn)
 
 
 @app.get("/api/analytics/source-contribution", response_model=response_models.SourceContribution,
          response_model_exclude_unset=True)
-def analytics_source_contribution():
+def analytics_source_contribution(collection: Optional[str] = _COLLECTION_QUERY):
     """Per source: papers delivered, and how many nothing else found."""
     conn = _get_db()
     try:
+        chosen = _collection_id(conn, collection)
         return _cached_analytics(
-            "source_contribution", (), conn,
-            lambda: analytics.source_contribution(conn))
+            "source_contribution", (chosen,), conn,
+            lambda: analytics.source_contribution(conn, chosen))
     finally:
         _close_db(conn)
 
 
 @app.get("/api/analytics/discovery-lag", response_model=response_models.DiscoveryLag,
          response_model_exclude_unset=True)
-def analytics_discovery_lag():
+def analytics_discovery_lag(collection: Optional[str] = _COLLECTION_QUERY):
     """Median days between publication and resmon first seeing each paper."""
     conn = _get_db()
     try:
+        chosen = _collection_id(conn, collection)
         return _cached_analytics(
-            "discovery_lag", (), conn, lambda: analytics.discovery_lag(conn))
+            "discovery_lag", (chosen,), conn, lambda: analytics.discovery_lag(conn, chosen))
     finally:
         _close_db(conn)
 
 
 @app.get("/api/analytics/routine-health", response_model=response_models.RoutineHealth,
          response_model_exclude_unset=True)
-def analytics_routine_health():
-    """Per routine: new results per run, and whether it has gone quiet."""
+def analytics_routine_health(collection: Optional[str] = _COLLECTION_QUERY):
+    """Per routine whose papers land in the collection: new results per run, and whether it has gone quiet."""
     conn = _get_db()
     try:
+        chosen = _collection_id(conn, collection)
         return _cached_analytics(
-            "routine_health", (), conn, lambda: analytics.routine_health(conn))
+            "routine_health", (chosen,), conn, lambda: analytics.routine_health(conn, chosen))
     finally:
         _close_db(conn)
 
 
 @app.get("/api/analytics/publication-volume", response_model=response_models.PublicationVolume,
          response_model_exclude_unset=True)
-def analytics_publication_volume(group_by: str = "source", months: int = 12):
+def analytics_publication_volume(group_by: str = "source", months: int = 12,
+                                 collection: Optional[str] = _COLLECTION_QUERY):
     """Papers per publication month, split by source or subject category."""
     if group_by not in ("source", "category"):
         raise HTTPException(400, "group_by must be 'source' or 'category'")
     conn = _get_db()
     try:
+        chosen = _collection_id(conn, collection)
         return _cached_analytics(
-            "publication_volume", (group_by, int(months)), conn,
-            lambda: analytics.publication_volume(conn, group_by=group_by, months=months))
+            "publication_volume", (group_by, int(months), chosen), conn,
+            lambda: analytics.publication_volume(conn, group_by=group_by, months=months,
+                                                 collection_id=chosen))
     finally:
         _close_db(conn)
 
@@ -5120,6 +6475,7 @@ def get_document(doc_id: int):
             raise HTTPException(404, "Document not found")
         paper = dict(row)
         paper["queue_status"] = reading_queue.statuses_for(conn, [doc_id]).get(doc_id)
+        paper["collections"] = paper_collections.of_document(conn, doc_id)
         return paper
     finally:
         _close_db(conn)
@@ -5142,19 +6498,22 @@ def document_why(doc_id: int, execution_id: Optional[int] = None):
 
 @app.get("/api/analytics/keyword-contribution", response_model=response_models.KeywordContribution,
          response_model_exclude_unset=True)
-def analytics_keyword_contribution(execution_id: Optional[int] = None):
+def analytics_keyword_contribution(execution_id: Optional[int] = None,
+                                   collection: Optional[str] = _COLLECTION_QUERY):
     """Per keyword: papers it found that no other keyword did.
 
     Scoped to one execution with ``?execution_id=``, otherwise to every keyword
-    ever searched against the whole corpus. Cached like the other analytics —
-    it reads every candidate document once, which is not free on a large corpus.
+    of the runs that put papers in the collection, against its papers. Cached
+    like the other analytics — it reads every candidate document once, which
+    is not free on a large corpus.
     """
     conn = _get_db()
     try:
+        chosen = _collection_id(conn, collection)
         return _cached_analytics(
-            "keyword_contribution", (execution_id,), conn,
+            "keyword_contribution", (execution_id, chosen), conn,
             lambda: match_explain.keyword_contribution(
-                conn, execution_id=execution_id,
+                conn, execution_id=execution_id, collection_id=chosen,
             ),
         )
     except LookupError as exc:
@@ -5265,14 +6624,14 @@ def calendar_events(
         execs = get_executions(conn, limit=500)
         events = []
         # Status → dot color. ``cancelled`` now uses the same red as the
-        # Dashboard/Results badge-cancelled palette (was amber/orange); the
+        # Dashboard/Results badge-canceled palette (was amber/orange); the
         # orange slot is reclaimed by the new ``scheduled`` status for
         # upcoming routine fires.
         status_color = {
             "completed": "#22c55e",  # green
             "running":   "#3b82f6",  # blue
             "failed":    "#ef4444",  # red
-            "cancelled": "#ef4444",  # red (matches badge-cancelled)
+            "cancelled": "#ef4444",  # red (matches badge-canceled)
             "scheduled": "#f59e0b",  # orange
         }
         for ex in execs:
@@ -5781,43 +7140,46 @@ def _current_embedding_lane(conn):
 
 @app.get("/api/map", response_model=response_models.CollectionMap,
          response_model_exclude_unset=True)
-def get_collection_map():
-    """Where every paper sits on the Atlas plate, and on what basis.
+def get_collection_map(collection: Optional[str] = _COLLECTION_QUERY):
+    """Where every paper of a collection sits on the Atlas plate, and on what basis.
 
     The first call on a collection starts a fit in the background and answers
     ``fitting``; later calls answer from the fit, placing papers that arrived
-    since. See ``collection_map`` for what a position does and does not say.
+    since. Each collection has its own map, fitted over its papers alone. See
+    ``collection_map`` for what a position does and does not say.
     """
     conn = _get_db()
     try:
+        chosen = _collection_id(conn, collection)
         lane = _current_embedding_lane(conn)
         from implementation_scripts import collection_map  # noqa: PLC0415 - see the imports
-        return collection_map.snapshot(conn, lane.model if lane else None, open_connection=_get_db)
+        return collection_map.snapshot(conn, lane.model if lane else None, open_connection=_get_db,
+                                       collection_id=chosen)
     finally:
         _close_db(conn)
 
 
 @app.get("/api/map/facets", response_model=response_models.MapFacets,
          response_model_exclude_unset=True)
-def get_map_facets():
-    """What the map's filters and colors read about every paper: its source,
-    its dates, its place in the reading queue, whether it is new on Today, and
-    the watches that found it. See ``map_facets`` for what each says."""
+def get_map_facets(collection: Optional[str] = _COLLECTION_QUERY):
+    """What the map's filters and colors read about every paper of a collection:
+    its source, its dates, its place in the reading queue, whether it is new on
+    Today, and the watches that found it. See ``map_facets`` for what each says."""
     conn = _get_db()
     try:
-        return map_facets.facets(conn)
+        return map_facets.facets(conn, collection_id=_collection_id(conn, collection))
     finally:
         _close_db(conn)
 
 
 @app.get("/api/map/find", response_model=response_models.MapFind,
          response_model_exclude_unset=True)
-def find_on_map(q: str = Query("", max_length=200)):
-    """The papers whose title or authors contain ``q``, newest first, for
-    lighting them on a map. Fewer than two characters find nothing."""
+def find_on_map(q: str = Query("", max_length=200), collection: Optional[str] = _COLLECTION_QUERY):
+    """The papers of a collection whose title or authors contain ``q``, newest
+    first, for lighting them on a map. Fewer than two characters find nothing."""
     conn = _get_db()
     try:
-        return {"query": q, "ids": map_facets.find(conn, q)}
+        return {"query": q, "ids": map_facets.find(conn, q, collection_id=_collection_id(conn, collection))}
     finally:
         _close_db(conn)
 
@@ -6008,14 +7370,22 @@ def probe_embedding_lane(body: EmbeddingProbeBody | None = None):
 
 @app.get("/api/embeddings/status", response_model=response_models.EmbeddingStatus,
          response_model_exclude_unset=True)
-def embedding_status():
-    """N of M embedded with model X, the run, the index, and the extension."""
+def embedding_status(collection: Optional[str] = _COLLECTION_QUERY):
+    """N of M embedded with model X, the run, the index, and the extension.
+
+    ``coverage`` counts every paper, as a backfill does; with ``collection``,
+    ``collection_coverage`` counts that collection's papers too.
+    """
     conn = _get_db()
     try:
+        chosen = _collection_id(conn, collection) if collection is not None else None
         lane = _current_embedding_lane(conn)
         payload = embedding_job.backfill_job.status(conn, lane.model if lane else None)
         payload["lane"] = lane.to_dict() if lane else None
         payload["capability"] = _embedding_capability(conn)
+        if chosen is not None:
+            payload["collection_coverage"] = embedding_job.collection_coverage(
+                conn, lane.model if lane else None, chosen)
         return payload
     finally:
         _close_db(conn)
@@ -6060,7 +7430,7 @@ def start_embedding_backfill():
 
     Returns immediately; poll ``GET /api/embeddings/status``. Resumable by
     construction — the work remaining is a query, not a stored cursor — so a
-    cancelled run restarts where the corpus is, not where the last run thought
+    canceled run restarts where the corpus is, not where the last run thought
     it was.
     """
     conn = _get_db()
@@ -6193,15 +7563,24 @@ def update_notification_settings(body: SettingsBody):
 
 _APPEARANCE_THEME_KEY = "ui_theme"
 _APPEARANCE_ACCENT_KEY = "ui_accent"
+# Whether the top bar shows the run monitor: "0" hides it, anything else (and
+# nothing stored) shows it.
+_APPEARANCE_RUN_MONITOR_KEY = "ui_run_monitor"
 _APPEARANCE_THEMES = ("system", "light", "dark")
 _ACCENT_PATTERN = r"^#[0-9a-fA-F]{6}$"
 
 
 class AppearanceBody(BaseModel):
-    """The whole appearance, every time: a PUT replaces both values."""
+    """The whole appearance, every time: a PUT replaces the theme and the accent.
+
+    ``run_monitor`` (Settings › Top bar, "Show the run monitor in the top
+    bar") is stored when it is sent and left as it is when it is not, so a
+    caller that knows only the theme and the accent changes only those.
+    """
 
     theme: Literal["system", "light", "dark"]
     accent: Optional[str] = Field(..., pattern=_ACCENT_PATTERN)
+    run_monitor: Optional[bool] = None
 
 
 def _read_appearance(conn) -> dict:
@@ -6212,6 +7591,7 @@ def _read_appearance(conn) -> dict:
     return {
         "theme": theme if theme in _APPEARANCE_THEMES else "system",
         "accent": accent if re.fullmatch(_ACCENT_PATTERN, accent) else None,
+        "run_monitor": str(get_setting(conn, _APPEARANCE_RUN_MONITOR_KEY) or "1") != "0",
     }
 
 
@@ -6232,7 +7612,125 @@ def update_appearance(body: AppearanceBody):
     try:
         set_setting(conn, _APPEARANCE_THEME_KEY, body.theme)
         set_setting(conn, _APPEARANCE_ACCENT_KEY, (body.accent or "").lower())
+        if body.run_monitor is not None:
+            set_setting(conn, _APPEARANCE_RUN_MONITOR_KEY, "1" if body.run_monitor else "0")
         return _read_appearance(conn)
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# The top bar: its sections' order, the ones it hides, and where a window opens
+# ---------------------------------------------------------------------------
+#
+# In the engine for the appearance's reason, and outside ``_SETTINGS_GROUPS`` for
+# the same one: how the window is arranged is the person's to change in Settings,
+# so ``update_settings`` has no path to it.
+#
+# Hiding a section takes it out of the bar and nothing more: its address, its
+# shortcut, and the command palette still open it, and Settings is not a section
+# here, so it cannot be hidden.
+#
+# An order is kept whole. One a build stored before a section existed gets that
+# section back after the section it follows by default, shown, so a section a
+# newer build adds is never lost to an arrangement an older one saved. A name the
+# engine does not know (from a newer build, or a hand edit) is dropped on reading
+# rather than handed to an interface that has no screen for it.
+
+_TOP_BAR_SECTIONS: tuple[str, ...] = get_args(response_models.TopBarSection)
+_TOP_BAR_PAGES: tuple[str, ...] = get_args(response_models.TopBarPage)
+_TOP_BAR_ORDER_KEY = "ui_top_bar_order"
+_TOP_BAR_HIDDEN_KEY = "ui_top_bar_hidden"
+_TOP_BAR_START_KEY = "ui_start_page"
+_TOP_BAR_LOCKUP_KEY = "ui_lockup_page"
+_TOP_BAR_DEFAULT_START = "/today"
+
+
+def _top_bar_order(names: Iterable[str]) -> list[str]:
+    """The sections in ``names``' order, the unknown and repeated dropped, every missing one put back.
+
+    A missing section goes after the section that comes before it in the default
+    order, or first if none does; the missing ones are placed in default order,
+    so two that were added together keep their order too.
+    """
+    order: list[str] = []
+    for name in names:
+        if name in _TOP_BAR_SECTIONS and name not in order:
+            order.append(name)
+    for index, name in enumerate(_TOP_BAR_SECTIONS):
+        if name in order:
+            continue
+        before = next((p for p in reversed(_TOP_BAR_SECTIONS[:index]) if p in order), None)
+        order.insert(order.index(before) + 1 if before else 0, name)
+    return order
+
+
+def _stored_names(conn, key: str) -> list[str]:
+    """A stored JSON list of names; anything else, and nothing stored, reads as an empty list."""
+    try:
+        value = json.loads(str(get_setting(conn, key) or "[]"))
+    except (TypeError, ValueError):
+        return []
+    return [str(v) for v in value if isinstance(v, str)] if isinstance(value, list) else []
+
+
+def _read_top_bar(conn) -> dict:
+    order = _top_bar_order(_stored_names(conn, _TOP_BAR_ORDER_KEY))
+    hidden = set(_stored_names(conn, _TOP_BAR_HIDDEN_KEY))
+    start = str(get_setting(conn, _TOP_BAR_START_KEY) or "")
+    lockup = str(get_setting(conn, _TOP_BAR_LOCKUP_KEY) or "")
+    return {
+        "order": order,
+        "hidden": [name for name in order if name in hidden],
+        "start": start if start in _TOP_BAR_PAGES else _TOP_BAR_DEFAULT_START,
+        "lockup": lockup if lockup in _TOP_BAR_PAGES else None,
+    }
+
+
+class TopBarBody(BaseModel):
+    """The whole arrangement, every time: a PUT replaces all four.
+
+    ``order`` may leave sections out, and they are put back where they go by
+    default; it may not name one twice, and neither may ``hidden``. A section
+    or a page the engine does not know is refused.
+    """
+
+    order: list[response_models.TopBarSection]
+    hidden: list[response_models.TopBarSection]
+    start: response_models.TopBarPage
+    lockup: Optional[response_models.TopBarPage] = Field(...)
+
+    @field_validator("order", "hidden")
+    @classmethod
+    def _each_once(cls, names: list[str]) -> list[str]:
+        repeated = sorted({name for name in names if names.count(name) > 1})
+        if repeated:
+            raise ValueError(f"names {', '.join(repeated)} more than once")
+        return names
+
+
+@app.get("/api/top-bar", response_model=response_models.TopBar,
+         response_model_exclude_unset=True)
+def get_top_bar():
+    """The top bar's sections in order, the hidden ones, the start page, and where the resmon name goes."""
+    conn = _get_db()
+    try:
+        return _read_top_bar(conn)
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/top-bar", response_model=response_models.TopBar,
+         response_model_exclude_unset=True)
+def update_top_bar(body: TopBarBody):
+    """Store the whole arrangement, and answer it as it was stored."""
+    conn = _get_db()
+    try:
+        set_setting(conn, _TOP_BAR_ORDER_KEY, json.dumps(_top_bar_order(body.order)))
+        set_setting(conn, _TOP_BAR_HIDDEN_KEY, json.dumps(list(body.hidden)))
+        set_setting(conn, _TOP_BAR_START_KEY, body.start)
+        set_setting(conn, _TOP_BAR_LOCKUP_KEY, body.lockup or "")
+        return _read_top_bar(conn)
     finally:
         _close_db(conn)
 
@@ -6350,7 +7848,7 @@ def _dispatch_routine_fire(
     Run now needs to be told, with the id of the run that already exists, so
     the endpoint asks for the exception. The scheduler and the drain get
     ``None`` and an info line: a fire arriving while the previous one is still
-    going is expected behaviour of a routine that runs longer than its period,
+    going is expected behavior of a routine that runs longer than its period,
     not a fault, and raising into APScheduler's worker would log it as one.
     A *scheduled* fire refused that way is still written down, as a missed
     fire ``skipped`` because the previous run was still going: the scheduler's
@@ -6445,6 +7943,11 @@ def _dispatch_routine_fire(
             # with fixed dates or none is left exactly as stored. `retractions`
             # searches no source for papers (it checks the ones already
             # matched), so it has no dates to ask.
+            # Where this fire's papers land, resolved here for the same reason:
+            # the run carries its collection, so a watch pointed elsewhere
+            # afterwards does not move papers a run already filed.
+            params["collection_id"] = paper_collections.watch_target(conn, row)
+
             if params.get("entity_mode") != "retractions":
                 try:
                     date_window.apply(conn, routine_id, params)
@@ -6472,23 +7975,15 @@ def _dispatch_routine_fire(
                 config={
                     "ai_enabled": bool(row.get("ai_enabled")),
                     "ai_settings": ai_settings,
+                    # A scheduled fire has nobody waiting on it; a Run now does.
+                    "unattended": not run_now,
                 },
             )
+            # The watch goes in with the run's own INSERT: no reader sees a watch
+            # run that belongs to no watch, and none is left that way.
             exec_id = engine.prepare_execution(
-                "automated_sweep", repositories, params,
+                "automated_sweep", repositories, params, routine_id=int(routine_id),
             )
-
-            try:
-                conn.execute(
-                    "UPDATE executions SET routine_id = ? WHERE id = ?",
-                    (int(routine_id), int(exec_id)),
-                )
-                conn.commit()
-            except Exception:
-                dispatch_logger.exception(
-                    "Failed to stamp routine_id on execution row: routine_id=%s exec_id=%s",
-                    routine_id, exec_id,
-                )
 
             # Bind before the thread starts, so a second fire arriving in the
             # window between the claim and the launch is told *which* run holds
@@ -6797,15 +8292,33 @@ def _next_fire_epochs(conn: sqlite3.Connection) -> dict[str, Optional[float]]:
 
 
 @app.get("/api/today", response_model=response_models.Today, response_model_exclude_unset=True)
-def get_today():
-    """The papers resmon first collected since Today was last looked at, by watch.
+def get_today(collection: Optional[str] = _COLLECTION_QUERY):
+    """The papers runs put in a collection since its Today was last looked at, by watch.
 
     See ``today`` for what "new", "looked" and "watch" mean. Reading this does
     not mark anything looked at; ``POST /api/today/looked`` does.
     """
     conn = _get_db()
     try:
-        return today.build(conn, _next_fire_epochs(conn))
+        return today.build(conn, _next_fire_epochs(conn), collection_id=_collection_id(conn, collection))
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/today/papers", response_model=response_models.TodayPapersPage,
+         response_model_exclude_unset=True)
+def get_today_papers(cursor: str, limit: int = Query(today.PAPER_PAGE, ge=1, le=today.PAPER_PAGE),
+                     collection: Optional[str] = _COLLECTION_QUERY):
+    """The next page of a collection's new papers on Today, after the page before it.
+
+    ``cursor`` is the ``next_cursor`` that page gave, so every new paper can be
+    listed, a page at a time, however many there are.
+    """
+    conn = _get_db()
+    try:
+        return today.papers_after(conn, cursor, limit, collection_id=_collection_id(conn, collection))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
     finally:
         _close_db(conn)
 
@@ -6828,11 +8341,11 @@ def get_document_briefs(body: DocumentBriefsBody):
 
 @app.post("/api/today/looked", response_model=response_models.TodayLooked,
           response_model_exclude_unset=True)
-def mark_today_looked():
-    """Record that Today was looked at now: the next window starts here."""
+def mark_today_looked(collection: Optional[str] = _COLLECTION_QUERY):
+    """Record that a collection's Today was looked at now: its next window starts here."""
     conn = _get_db()
     try:
-        return {"looked_at": today.mark_looked(conn)}
+        return {"looked_at": today.mark_looked(conn, collection_id=_collection_id(conn, collection))}
     finally:
         _close_db(conn)
 
@@ -6943,6 +8456,41 @@ def scheduler_status():
         "service_version": service_version,
         "routines": routines,
     }
+
+
+class SourceSettingsBody(BaseModel):
+    contact_email: Optional[str] = None
+
+
+def _source_settings(conn) -> dict:
+    return {"contact_email": source_contact.read(conn), "sent_to": list(source_contact.SOURCES)}
+
+
+@app.get("/api/settings/sources", response_model=response_models.SourceSettings,
+         response_model_exclude_unset=True)
+def get_source_settings():
+    """The contact address resmon gives Crossref and OpenAlex, and the sources it goes to."""
+    conn = _get_db()
+    try:
+        return _source_settings(conn)
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/settings/sources", response_model=response_models.SourceSettings,
+         response_model_exclude_unset=True)
+def update_source_settings(body: SourceSettingsBody):
+    """Set the contact address, or clear it with null or an empty string, after which nothing is sent."""
+    try:
+        address = source_contact.normalized(body.contact_email)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    conn = _get_db()
+    try:
+        set_setting(conn, source_contact.SETTING, address or "")
+        return _source_settings(conn)
+    finally:
+        _close_db(conn)
 
 
 @app.get("/api/settings/execution", response_model=response_models.ExecutionSettings,
@@ -7122,14 +8670,19 @@ class ServiceInstallBody(BaseModel):
 @app.get("/api/service/status", response_model=response_models.ServiceStatus,
          response_model_exclude_unset=True)
 def service_status():
-    """Return whether the daemon unit file is installed and its path."""
-    return {
+    """Return whether the daemon unit file is installed and its path, and on macOS what launchd holds."""
+    body = {
         "installed": _service_manager.is_installed(),
         "unit_path": str(_service_manager.unit_path()),
         "platform": sys.platform,
         "runs": _service_manager.unit_runs(),
         "app_available": _service_manager.default_app_executable() is not None,
     }
+    if _service_manager.uses_launchd():
+        job = _service_manager.launchd_job()
+        body["loaded"] = job.loaded
+        body["blocked"] = job.disabled
+    return body
 
 
 def _probe_daemon() -> tuple[dict, str]:
@@ -7271,23 +8824,29 @@ def service_install(body: ServiceInstallBody = ServiceInstallBody()):
     unit at login (launchctl / systemctl / schtasks).
     """
     try:
-        path = _service_manager.install(port=body.port, register=body.register_service)
-    except _service_manager.TemporaryPlaceError as exc:
+        done = _service_manager.install_unit(port=body.port, register=body.register_service)
+    except (_service_manager.TemporaryPlaceError, _service_manager.ServiceBlockedError) as exc:
         raise HTTPException(409, str(exc))
     except Exception as exc:  # registration failure
         raise HTTPException(500, f"Service install failed: {exc}")
-    return {"installed": True, "unit_path": str(path)}
+    answer = {"installed": True, "unit_path": str(done.path)}
+    if done.restarting:
+        answer["restarting"] = True
+    return answer
 
 
 @app.post("/api/service/uninstall", response_model=response_models.ServiceUninstalled,
           response_model_exclude_unset=True)
 def service_uninstall(body: ServiceInstallBody = ServiceInstallBody()):
-    """Remove the unit file; optionally deregister with the OS first."""
+    """Remove the unit file; optionally deregister with the OS first, keeping the file if that fails."""
     try:
-        removed = _service_manager.uninstall(deregister=body.register_service)
+        done = _service_manager.uninstall_unit(deregister=body.register_service)
     except Exception as exc:
         raise HTTPException(500, f"Service uninstall failed: {exc}")
-    return {"installed": False, "unit_path": str(_service_manager.unit_path()), "removed": removed}
+    answer = {"installed": False, "unit_path": str(done.path), "removed": done.removed}
+    if done.restarting:
+        answer["restarting"] = True
+    return answer
 
 
 # ---------------------------------------------------------------------------
@@ -7361,7 +8920,7 @@ def flush_running_executions(reason: str = "daemon_restart") -> int:
 # the backend it spawned all leave the row exactly as the worker thread last
 # wrote it: ``status='running'``, ``progress_events`` NULL, and no in-memory
 # ``ProgressStore`` entry on the next start -- so the row was listed nowhere,
-# could not be cancelled, and sat in Results claiming to be running forever.
+# could not be canceled, and sat in Results claiming to be running forever.
 #
 # The rule below is deliberately one-sided. A row is adopted only where resmon
 # can *establish* that the process which owned it is gone; everything else is
@@ -7388,7 +8947,7 @@ _ORPHAN_RUNNING_ADOPT_AFTER = timedelta(hours=24)
 # one implementation the three call sites that need it share. The name stays
 # here because this module's reconciliation reads as prose with it, and because
 # ``test_executions_interrupted.py`` asks for it by name. Here the cost of
-# being wrong towards alive is a row that stays ``running`` a little longer;
+# being wrong toward alive is a row that stays ``running`` a little longer;
 # the cost in the other direction is resmon telling the user a live run is dead.
 _owner_process_is_alive = runtime_identity.process_is_alive
 
@@ -7586,11 +9145,17 @@ def _erase_corpus(conn) -> int:
     count = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
     conn.execute("DELETE FROM documents")
     conn.execute("DELETE FROM sqlite_sequence WHERE name='documents'")
-    # The collection map's cache holds positions and words taken from these
-    # papers, so it goes with them, and so does the shared-wording answer.
+    # The collection maps' caches hold positions and words taken from these
+    # papers, so they go with them (every collection's), and so does the
+    # shared-wording answer. The collections stay, empty.
     from implementation_scripts import collection_map, shared_wording  # noqa: PLC0415 - see the imports
-    collection_map.forget(conn)
+    collection_map.forget(conn, every=True)
     shared_wording.forget(conn)
+    # The copy kept before the last schema upgrade is a whole database, these
+    # papers included, that resmon made on its own beside this one; it goes
+    # with them too. A backup the person wrote to their own folder is theirs
+    # and stays.
+    upgrade_copy.remove_all(upgrade_copy.database_file(conn))
     try:
         conn.execute("INSERT INTO documents_fts(documents_fts) VALUES ('rebuild')")
     except sqlite3.Error:
@@ -7599,14 +9164,28 @@ def _erase_corpus(conn) -> int:
     return int(count)
 
 
+def _reset_collections(conn) -> int:
+    """A factory reset's collections: every one but the default deleted, and the
+    default back to its first name. The papers are erased before this, so no
+    membership is left to move; their maps went with them."""
+    removed = conn.execute("DELETE FROM collections WHERE id <> ?",
+                           (paper_collections.DEFAULT_COLLECTION_ID,)).rowcount
+    conn.execute("UPDATE collections SET name = ? WHERE id = ?",
+                 (DEFAULT_COLLECTION_NAME, paper_collections.DEFAULT_COLLECTION_ID))
+    return int(removed)
+
+
 def _reset_settings(conn) -> int:
-    """Clear settings except the schema marker; Library catalog and files remain."""
-    # Preserve only the schema-version marker so the next daemon start
-    # doesn't re-run migrations.
+    """Clear settings except the records about the database; Library catalog and files remain."""
+    # Kept: the schema-version marker, so the next daemon start doesn't re-run
+    # migrations, and the marker of the one-time recount of earlier runs' new
+    # papers, so it never runs twice. The runs outlive a settings reset, and so
+    # does the record that they were recounted.
+    kept = ",".join("?" * len(KEPT_THROUGH_SETTINGS_RESET))
     count = conn.execute(
-        "SELECT COUNT(*) FROM app_settings WHERE key != 'schema_version'"
+        f"SELECT COUNT(*) FROM app_settings WHERE key NOT IN ({kept})", KEPT_THROUGH_SETTINGS_RESET,
     ).fetchone()[0]
-    conn.execute("DELETE FROM app_settings WHERE key != 'schema_version'")
+    conn.execute(f"DELETE FROM app_settings WHERE key NOT IN ({kept})", KEPT_THROUGH_SETTINGS_RESET)
     return int(count)
 
 
@@ -7748,6 +9327,7 @@ def admin_factory_reset(body: AdminConfirmBody):
         e = _erase_executions(conn)
         d = _erase_corpus(conn)
         s = _reset_settings(conn)
+        k = _reset_collections(conn)
         conn.commit()
     finally:
         _close_db(conn)
@@ -7763,6 +9343,7 @@ def admin_factory_reset(body: AdminConfirmBody):
         "ai_keys_removed": a,
         "repo_keys_removed": r,
         "smtp_credentials_removed": m,
+        "collections_removed": k,
     }
 
 
@@ -7879,8 +9460,8 @@ def _restart_instructions() -> tuple[str, str]:
     """``(restart, stop)``: how to restart, and how to stop, the background service here."""
     if sys.platform == "darwin":
         return (
-            "log out of your Mac and back in, or run "
-            "`launchctl kickstart -k gui/$(id -u)/com.resmon.daemon` in Terminal",
+            "turn Run resmon in the background off and on again in Settings › In the background, "
+            "or log out of your Mac and back in",
             "turn off Run resmon in the background in Settings › In the background",
         )
     if sys.platform == "win32":
@@ -7997,11 +9578,12 @@ def restore_stage(body: RestoreRequest):
 @app.get("/api/backup/last", response_model=response_models.BackupLast,
          response_model_exclude_unset=True)
 def backup_last():
-    """The last bundle, the last restore outcome, and whether an undo copy exists."""
+    """The last bundle, the last restore outcome, the undo copies, and the copy kept before the last upgrade."""
     conn = _get_db()
     try:
         last_path = get_setting(conn, "last_backup_path") or ""
         drive_upload_retired = _drive_upload_was_on(conn)
+        db_file = upgrade_copy.database_file(conn)
     finally:
         _close_db(conn)
     state = _backup_state_dir()
@@ -8038,6 +9620,7 @@ def backup_last():
         "last_restore": backup_module.last_restore(state),
         "undo_copies": backup_module.undo_copies(state),
         "drive_upload_retired": drive_upload_retired,
+        "pre_upgrade_copy": upgrade_copy.latest(db_file),
     }
 
 
@@ -8137,7 +9720,10 @@ def _apply_pending_restore_on_startup() -> dict | None:
             _backup_state_dir(),
             Path(db_path),
             this_schema_version=SCHEMA_VERSION,
-            init_db=lambda path: init_db(path),
+            # The backup being restored is the copy of this database from
+            # before its upgrade, so none is made beside it; and making one
+            # would delete the copy from before the last update.
+            init_db=lambda path: init_db(path, keep_upgrade_copy=False),
             daemon_lock_held=another_process_holds_it,
         )
     except Exception:
@@ -8239,9 +9825,13 @@ class AssistantSessionCreate(BaseModel):
 
 
 class AssistantMessageBody(BaseModel):
+    """One message. ``collection`` is the window's: the turn's tools read it,
+    and a run the turn starts lands in it, where a call names no other."""
+
     model_config = {"extra": "forbid"}
     text: str
     legacy_adoption: Optional[dict] = None
+    collection: CollectionRef = None
 
 
 class AssistantPermissionOpen(BaseModel):
@@ -8308,10 +9898,11 @@ def assistant_status():
     """
     conn = _get_db()
     try:
-        status = assistant_runtime.runtime_status(
-            _assistant_settings(conn), backend_port=serving_port(),
-        )
-        status["composer_choices"] = assistant_choices.descriptor(_assistant_settings(conn), backend_port=serving_port())
+        # One read of the settings for the whole answer, so a save landing between two
+        # reads can never give a runtime and composer choices that disagree.
+        settings = _assistant_settings(conn)
+        status = assistant_runtime.runtime_status(settings, backend_port=serving_port())
+        status["composer_choices"] = assistant_choices.descriptor(settings, backend_port=serving_port())
         status["contract_version"] = _mcp_contract_version()
         return status
     finally:
@@ -8477,7 +10068,22 @@ async def answer_assistant_permission(request_id: str, body: AssistantPermission
 def _run_assistant_turn(session_id: int, prompt: str, resume: bool,
                         cli_session_id: str,
                         history: Optional[list], runtime, user_message_id: int,
-                        events, finished: threading.Event, detached: threading.Event) -> None:
+                        events, finished: threading.Event, detached: threading.Event,
+                        collection_id: Optional[int] = None) -> None:
+    """The worker thread, in the window's collection: every tool call of the
+    turn that names no collection reads it, and a run it starts lands in it,
+    in this thread for resmon's own loop and in the MCP server a CLI starts
+    (``mcp_server.in_collection``)."""
+    import mcp_server  # noqa: PLC0415 - a sibling script, not a package
+    with mcp_server.in_collection(collection_id):
+        _assistant_turn(session_id, prompt, resume, cli_session_id, history, runtime,
+                        user_message_id, events, finished, detached)
+
+
+def _assistant_turn(session_id: int, prompt: str, resume: bool,
+                    cli_session_id: str,
+                    history: Optional[list], runtime, user_message_id: int,
+                    events, finished: threading.Event, detached: threading.Event) -> None:
     """The worker thread: drive the CLI, publish events, store the turn.
 
     Runs on its own thread with its own database connection (``_get_db`` is
@@ -8618,6 +10224,7 @@ async def send_assistant_message(session_id: int, body: AssistantMessageBody):
     text = (body.text or "").strip()
     if not text:
         raise HTTPException(400, "There is nothing to send.")
+    turn_collection = _collection_id(conn, body.collection) if body.collection is not None else None
 
     settings = _assistant_settings(conn)
     binding = assistant_store.get_choices(conn, session_id)
@@ -8669,7 +10276,7 @@ async def send_assistant_message(session_id: int, body: AssistantMessageBody):
         worker = threading.Thread(
             target=_run_assistant_turn,
             args=(session_id, text, admitted['resume'], admitted['cli_session_id'], admitted['history'],
-                  runtime, admitted['user_message_id'], events, finished, detached),
+                  runtime, admitted['user_message_id'], events, finished, detached, turn_collection),
             daemon=True,
         )
         worker.start()
@@ -8977,8 +10584,9 @@ def get_watch_profile_lifecycle(profile_id: int, limit: int = 100):
 @app.get("/api/profiles/{profile_id}/matches",
          response_model=response_models.WatchProfileMatchPage,
          response_model_exclude_unset=True)
-def get_watch_profile_matches(profile_id: int, limit: int = 50, offset: int = 0):
-    """Papers matched to this profile, **each with the basis it was matched on**.
+def get_watch_profile_matches(profile_id: int, limit: int = 50, offset: int = 0,
+                              collection: Optional[str] = _COLLECTION_QUERY):
+    """Papers of a collection matched to this profile, **each with the basis it was matched on**.
 
     The basis rides on every row and is never omitted: a list of papers with no
     basis is exactly the claim resmon refuses to make.
@@ -8987,23 +10595,25 @@ def get_watch_profile_matches(profile_id: int, limit: int = 50, offset: int = 0)
     try:
         if not watch_profiles.get_profile(conn, profile_id):
             raise HTTPException(404, "That profile does not exist.")
+        chosen = _collection_id(conn, collection)
+        within = paper_collections.member_clause("m.document_id")
         rows = conn.execute(
             "SELECT m.document_id, m.basis, m.matched_author, m.evidence, "
             "       m.first_seen_at, d.title, d.source_repository, d.doi, d.url, "
             "       d.publication_date "
             "  FROM watch_profile_matches m "
             "  JOIN documents d ON d.id = m.document_id "
-            " WHERE m.profile_id = ? "
+            f" WHERE m.profile_id = ? AND {within} "
             " ORDER BY m.first_seen_at DESC, m.document_id DESC LIMIT ? OFFSET ?",
-            (profile_id, max(1, min(int(limit), 200)), max(0, int(offset))),
+            (profile_id, chosen, max(1, min(int(limit), 200)), max(0, int(offset))),
         ).fetchall()
         total = conn.execute(
-            "SELECT COUNT(*) FROM watch_profile_matches WHERE profile_id = ?",
-            (profile_id,)).fetchone()[0]
+            f"SELECT COUNT(*) FROM watch_profile_matches m WHERE m.profile_id = ? AND {within}",
+            (profile_id, chosen)).fetchone()[0]
         by_basis = {
             row[0]: row[1] for row in conn.execute(
-                "SELECT basis, COUNT(*) FROM watch_profile_matches "
-                "WHERE profile_id = ? GROUP BY basis", (profile_id,))
+                "SELECT basis, COUNT(*) FROM watch_profile_matches m "
+                f"WHERE m.profile_id = ? AND {within} GROUP BY basis", (profile_id, chosen))
         }
         return {"matches": [dict(r) for r in rows], "total": total,
                 "by_basis": by_basis}
@@ -9161,12 +10771,24 @@ def dismiss_onboarding():
 _serving_port: Optional[int] = None
 
 
+def set_serving_port(port: int) -> None:
+    """Record the port this process serves, for a backend not started by ``main()``.
+
+    The background service (``daemon.run``) serves this app on its own port.
+    Without this it fell back to the port file, which names whichever window's
+    engine last wrote it, so Evidence's answers were bound to a stale port.
+    """
+    global _serving_port
+    _serving_port = port
+
+
 def serving_port() -> Optional[int]:
     """The port this backend is actually answering on.
 
-    Set by ``main()``. The fallbacks exist for a backend started by a test or by
-    an embedder rather than by ``main`` — and they are read in the same order the
-    MCP server uses, so the two cannot disagree about which resmon is meant.
+    Set by ``main()``, and by the service through ``set_serving_port``. The
+    fallbacks exist for a backend started by a test or by an embedder — and they
+    are read in the same order the MCP server uses, so the two cannot disagree
+    about which resmon is meant.
     """
     if _serving_port is not None:
         return _serving_port
@@ -9217,6 +10839,12 @@ def main():
     global _serving_port
 
     import uvicorn
+    from implementation_scripts.logger import install_engine_log
+
+    # Before ``create_app`` opens the database: warnings and errors, and the
+    # lines an upgrade of an older database writes once, go to standard error,
+    # which the app reads and writes to its own output.
+    install_engine_log()
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8742
     _serving_port = port
     # Electron hands its minted token and its renderer's origin over in the

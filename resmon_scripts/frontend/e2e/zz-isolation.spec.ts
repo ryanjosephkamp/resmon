@@ -27,6 +27,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { test, expect } from './fixtures/resmon-app';
 import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, ATLAS_LANDMARK } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 const E2E_DIR = path.join(FRONTEND_ROOT, 'e2e');
 
@@ -149,7 +150,7 @@ test('P12c: a synthetic prior profile retains path/size/mtime metadata after a s
     await candidate.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1.4));
   } finally {
     await candidate.app.close();
-    fs.rmSync(candidate.stateDir, { recursive: true, force: true });
+    removeStateDir(candidate.stateDir);
   }
   try {
     expect(manifest(controlProfile)).toEqual(before);
@@ -164,7 +165,7 @@ test('P12c: a synthetic prior profile retains path/size/mtime metadata after a s
     const restored = manifest(controlProfile);
     expect(restored).toEqual(before);
     console.log('P12c SYNTHETIC METADATA ONLY', JSON.stringify({ controlProfile, files: Object.keys(before).length, negativeRejected: refused, restored }));
-  } finally { fs.rmSync(control.stateDir, { recursive: true, force: true }); }
+  } finally { removeStateDir(control.stateDir); }
 });
 
 test('P14: a full run leaves no modified or untracked file under e2e/', () => {
@@ -182,7 +183,7 @@ test('P14: a full run leaves no modified or untracked file under e2e/', () => {
   console.log('P14 GIT STATUS UNDER e2e/', JSON.stringify(status));
 
   // What a *run* can leave behind: a modified tracked file, or an untracked
-  // artefact — a screenshot, a trace, an image. A hand-added spec file that is
+  // artifact — a screenshot, a trace, an image. A hand-added spec file that is
   // not committed yet is not something the run did, and failing on it would
   // make this red for every work in progress.
   const leftBehind = status.filter((line) => {

@@ -29,6 +29,7 @@ from implementation_scripts import database  # noqa: E402
 from implementation_scripts.api_doaj import DoajClient  # noqa: E402
 from implementation_scripts.normalizer import deduplicate_batch, normalize_result  # noqa: E402
 from implementation_scripts.utils import compute_metadata_hash  # noqa: E402
+from verification_scripts.test_cumulative_upgrade import _as_recounted  # noqa: E402
 
 SCHEMA_21_CORPUS = Path(__file__).parent / "fixtures/schema-21/corpus.sql"
 
@@ -203,7 +204,11 @@ def test_over_a_schema_21_corpus_only_the_named_months_move(tmp_path: Path):
     for external_id, month in (("named-1", "January"), ("named-2", "Oct")):
         _store_as_before_259(conn, external_id, month, ["Ada Okafor"], title=titles[external_id])
     conn.commit()
-    before = _rows(conn)
+    # The launch also recounts the runs' new papers once; the rows are compared
+    # with the corpus as that recount leaves it.
+    recounted = _as_recounted(conn)
+    before = _rows(recounted)
+    recounted.close()
     conn.close()
 
     database.init_db(str(path))
@@ -215,9 +220,13 @@ def test_over_a_schema_21_corpus_only_the_named_months_move(tmp_path: Path):
         assert set(after) >= set(before)
         changed = {t: (set(before[t]) - set(after[t]), set(after[t]) - set(before[t]))
                    for t in before if before[t] != after[t]}
-        # The schema marker is the walk's own rewrite (21 -> 23), not this one.
-        assert set(changed) == {"documents", "app_settings"}
+        # The schema marker is the walk's own rewrite (21 -> 27), not this one,
+        # and so are schema 26's ``routines.collection_id``, which each watch
+        # gains at the end of its row, pointing at the default collection, and
+        # schema 27's ``routines.download_full_text`` after it, off.
+        assert set(changed) == {"documents", "app_settings", "routines"}
         assert {r[0] for r in changed["app_settings"][0]} == {"schema_version"}
+        assert sorted(r + (1, 0) for r in changed["routines"][0]) == sorted(changed["routines"][1])
         gone, came = changed["documents"]
         # ``SELECT *``'s own columns: ``table_info`` leaves out the generated ``pub_sort``.
         columns = [d[0] for d in conn.execute("SELECT * FROM documents LIMIT 0").description]

@@ -1,16 +1,17 @@
 # Read a saved answer offline
 
-In Evidence, open a saved selected-evidence question or manual structured briefing
-and choose **Export HTML**. Save the `.html` file, then open it in a browser. The
-file remains readable after resmon closes. The existing **Export this answer and
-selected text** action still produces the three-member ZIP.
+In Library › Evidence, open a saved selected-evidence question or manual structured
+briefing and choose **Save as HTML**. Open the `.html` file in a browser. The file
+remains readable after resmon closes. **Save as ZIP** produces the three-member ZIP.
 
 Each answer citation links to its exact quote and codepoint range beside the
 corresponding frozen source. **Return to this answer citation** goes back to that
 specific citation, including when the same quote appears more than once. The
 document's section links, ordinary keyboard Tab/Enter navigation and native
 details control require no script. The system-font layout wraps long text and
-identities. Expand the identity disclosure before printing if you collapsed it.
+identities, and joins no letters into ligatures, so an ID, a hash, or a quote copied
+from the page or its printout matches the saved text. Expand the identity disclosure
+before printing if you collapsed it.
 
 The document includes only saved selected excerpts and selected local note bodies.
 Notes retain their saved IDs, revisions and anchors as owner commentary; they are
@@ -20,7 +21,7 @@ unknown. Requested connection/model/effort, literal model observations and repor
 token counts are separate. Reported tokens are not a bill; billing stays unknown.
 
 An admitted or running export is a snapshot, and may be incomplete. Refused,
-failed, cancelled and interrupted results retain their state, available text,
+failed, canceled and interrupted results retain their state, available text,
 saved errors and cleanup limits. Export does not resume or stop the answer, invoke
 a model, re-extract pages or read current originals. Later note or membership
 changes do not update a saved answer. Missing originals do not prevent reading the

@@ -127,9 +127,9 @@ test('Ask: the keyboard, a tool row, a card that really allows, a turn that outl
     await send('SLEEP:30');
     const stop = pane.getByRole('button', { name: 'Stop', exact: true });
     await expect(stop).toBeVisible({ timeout: 30_000 });
-    const cancelled = win.waitForResponse((r) => /\/api\/assistant\/sessions\/\d+\/cancel$/.test(r.url()));
+    const canceled = win.waitForResponse((r) => /\/api\/assistant\/sessions\/\d+\/cancel$/.test(r.url()));
     await stop.click();
-    expect((await cancelled).ok()).toBe(true);
+    expect((await canceled).ok()).toBe(true);
     await settled();
     expect(Date.now() - before, 'Stop did not end the turn before the runtime would have').toBeLessThan(25_000);
     await expect(composer).toBeEnabled();
@@ -161,5 +161,6 @@ test('Ask: the keyboard, a tool row, a card that really allows, a turn that outl
     expect(problems, 'the renderer threw').toEqual([]);
   } finally {
     await app.close().catch(() => {});
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });

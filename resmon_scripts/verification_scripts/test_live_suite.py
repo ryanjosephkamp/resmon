@@ -141,17 +141,11 @@ def test_workflow_preserves_pytest_status_and_publishes_durable_evidence():
         assert name in text
 
 
-def test_workflow_keeps_the_existing_triggers_and_runtime_bounds():
+def test_workflow_runs_only_when_started_by_hand_within_its_runtime_bounds():
     text = WORKFLOW.read_text(encoding="utf-8")
-    path_block = text.split("paths:", 1)[1].split("\n\npermissions:", 1)[0]
-    assert re.findall(r"- '([^']+)'", path_block) == [
-        ".github/workflows/live-network.yml",
-        "resmon_scripts/verification_scripts/live_suite.py",
-        "resmon_scripts/verification_scripts/test_live_suite.py",
-        "pytest.ini",
-    ]
-    assert "- cron: '17 6 * * 1'" in text
-    assert "workflow_dispatch:" in text
+    triggers = text.split("\non:\n", 1)[1].split("\n\n", 1)[0]
+    assert triggers.strip() == "workflow_dispatch:"
+    assert "schedule:" not in text
     assert "timeout-minutes: 45" in text
     assert "cancel-in-progress: false" in text
 
@@ -1404,7 +1398,7 @@ def test_source_outcome_property_keeps_categories_and_drops_text():
 # A live search that records a `source_outcome` is the only kind a quarantine
 # entry can excuse. (OAPEN is retired and both its live cases are removed; its
 # name stays below as the outage these proofs are written against.) The
-# *other* OAPEN live case — the parametrised author query in
+# *other* OAPEN live case — the parametrized author query in
 # `test_entity_search_live.py` — recorded none, so an entry naming it would
 # have printed in the summary as a quarantine and excused nothing:
 # `quarantine_disposition` needs exactly one recorded outcome in total and
@@ -1458,7 +1452,7 @@ def test_a_recorded_author_query_outcome_is_what_lets_the_quarantine_excuse_it(t
         recorded=[recorded],
     ) == ("excused", ["http_500", "timeout"])
 
-    # Today's behaviour without the property: the case is quarantined, runs,
+    # Today's behavior without the property: the case is quarantined, runs,
     # fails with exactly the signature the entry names — and counts anyway.
     assert quarantine_disposition(
         entry, today, call_outcome="failed", assertion_failure=True, recorded=[],

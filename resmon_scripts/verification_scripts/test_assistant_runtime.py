@@ -4,7 +4,7 @@ Two boundaries, and each property below says which:
 
 * **argv** — what the CLI is actually spawned with. This is where P1 lives, and
   it is the boundary because the failure is invisible everywhere else: the
-  constitution can load, memoise and stay under 16 KB while a lane still sends
+  constitution can load, memoize and stay under 16 KB while a lane still sends
   "follow the attached constitution" with nothing attached.
 * **a real subprocess running a hermetic double** — a Python script that speaks
   stream-json and performs the real permission handshake, but hosts no model.
@@ -32,6 +32,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
 
 import mcp_server  # noqa: E402
+from implementation_scripts import ai_cli  # noqa: E402
 from implementation_scripts import assistant_runtime as ar  # noqa: E402
 from implementation_scripts.assistant_constitution import (  # noqa: E402
     load_assistant_constitution,
@@ -93,7 +94,7 @@ def test_the_constitution_is_re_sent_on_a_resumed_turn():
     on, a resume replays whatever system prompt was recorded on the first launch
     and an edited constitution never reaches an existing conversation. Verified
     against claude 2.1.258 by resuming a session and getting the appended rule's
-    behaviour back.
+    behavior back.
     """
     argv = argv_for(ar.ClaudeCliRuntime(), resume=True)
     assert "--resume" in argv and "--session-id" not in argv
@@ -104,7 +105,7 @@ def test_the_constitution_is_re_sent_on_a_resumed_turn():
 def test_every_runtime_kind_has_a_transmission_test():
     """The denominator, so a second runtime cannot ship without answering P1.
 
-    Modelled on ``test_every_lane_kind_has_a_transmission_test``, the guard
+    Modeled on ``test_every_lane_kind_has_a_transmission_test``, the guard
     against a constitution that reaches only some of the lanes.
     """
     tested = set(_TRANSMISSION_TESTS)
@@ -119,7 +120,7 @@ _TRANSMISSION_TESTS = {
     # Codex has no system-prompt flag; the constitution is the AGENTS.md in the
     # turn's working directory, read back from what the double found there.
     "codex_cli": "test_assistant_codex.py::test_the_constitution_arrives_as_agents_md_and_not_in_the_turn",
-    # In ``test_assistant_api_runtime.py``, parametrised over the three
+    # In ``test_assistant_api_runtime.py``, parametrized over the three
     # request families, against a loopback server that records what was actually
     # sent — the argv equivalent for a runtime that speaks HTTP.
     "api_key": (
@@ -165,11 +166,11 @@ def test_the_pre_approved_tools_are_exactly_the_read_tools():
     assert allowed == {f"mcp__resmon__{n}" for n in mcp_server.READ_TOOLS}
     for name in mcp_server.WRITE_TOOLS:
         assert f"mcp__resmon__{name}" not in allowed, name
-    # 18 pre-approved read tools, including the three watch-profile reads
-    # (`list_watch_profiles`, `get_watch_profile`, `get_profile_matches`); the
-    # watch-profile write tool is *not* here — which is the whole assertion
-    # above, stated as a number so a silent drift is a failure.
-    assert len(allowed) == 18
+    # 19 pre-approved read tools, including the three watch-profile reads
+    # (`list_watch_profiles`, `get_watch_profile`, `get_profile_matches`) and
+    # `list_collections`; the watch-profile write tool is *not* here — which is
+    # the whole assertion above, stated as a number so a silent drift is a failure.
+    assert len(allowed) == 19
 
 
 def test_the_permission_tool_is_named_and_is_not_a_tool_the_model_has():
@@ -183,6 +184,19 @@ def test_stream_json_carries_the_verbose_flag_it_requires():
     argv = argv_for(ar.ClaudeCliRuntime())
     assert flag_value(argv, "--output-format") == "stream-json"
     assert "--verbose" in argv
+
+
+def test_the_mcp_servers_the_clis_start_read_the_windows_collection():
+    """A turn sent from a window on a collection gives that collection to the MCP server each CLI
+    starts, so a call that names none reads it; a turn with none set gives none."""
+    with mcp_server.in_collection(2):
+        claude = ar.ClaudeCliRuntime(backend_port=51234).mcp_config(7, "/tmp/wd")["mcpServers"]
+        codex = ar.CodexCliRuntime(backend_port=51234).mcp_overrides()
+    assert claude["resmon"]["env"][mcp_server.COLLECTION_ENV] == "2"
+    assert f'mcp_servers.resmon.env.{mcp_server.COLLECTION_ENV}="2"' in codex
+    plain = ar.ClaudeCliRuntime(backend_port=51234).mcp_config(7, "/tmp/wd")["mcpServers"]
+    assert mcp_server.COLLECTION_ENV not in plain["resmon"]["env"]
+    assert not any(mcp_server.COLLECTION_ENV in o for o in ar.CodexCliRuntime(backend_port=51234).mcp_overrides())
 
 
 def test_the_mcp_config_names_the_backend_port_explicitly():
@@ -249,16 +263,16 @@ def test_model_and_effort_ride_only_when_they_are_set():
 
 
 # ---------------------------------------------------------------------------
-# P6 — normalising the stream
+# P6 — normalizing the stream
 # ---------------------------------------------------------------------------
 
 def test_an_unknown_cli_event_is_dropped_rather_than_rendered_raw():
     """P6. The CLI's stream carries plenty the panel has no business showing."""
-    assert ar._normalise(json.dumps({"type": "rate_limit_event", "info": {}})) == []
-    assert ar._normalise(json.dumps({"type": "hook_event"})) == []
-    assert ar._normalise("not json at all") == []
-    assert ar._normalise("") == []
-    assert ar._normalise(json.dumps(["a", "list"])) == []
+    assert ar._normalize(json.dumps({"type": "rate_limit_event", "info": {}})) == []
+    assert ar._normalize(json.dumps({"type": "hook_event"})) == []
+    assert ar._normalize("not json at all") == []
+    assert ar._normalize("") == []
+    assert ar._normalize(json.dumps(["a", "list"])) == []
 
 
 def test_every_event_the_panel_can_receive_is_in_the_declared_set():
@@ -272,14 +286,14 @@ def test_every_event_the_panel_can_receive_is_in_the_declared_set():
             {"type": "tool_result", "tool_use_id": "t1", "content": "{}"}]}},
         {"type": "result", "subtype": "success", "usage": {}},
     ]
-    produced = [e for line in lines for e in ar._normalise(json.dumps(line))]
+    produced = [e for line in lines for e in ar._normalize(json.dumps(line))]
     assert {e["type"] for e in produced} <= set(ar.EVENT_TYPES)
     assert {e["type"] for e in produced} == {
         "started", "text_delta", "tool_call", "tool_result", "done"}
 
 
 def test_a_tool_name_is_shown_the_way_the_app_names_it():
-    event = ar._normalise(json.dumps({"type": "assistant", "message": {"content": [
+    event = ar._normalize(json.dumps({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "id": "t", "name": "mcp__resmon__list_routines",
          "input": {}}]}}))[0]
     assert event["tool_name"] == "list_routines"
@@ -290,10 +304,10 @@ def test_a_tool_name_is_shown_the_way_the_app_names_it():
 
 def test_an_unreported_cost_is_none_rather_than_zero():
     """Zero is a measurement. Absent is not, and the panel says so differently."""
-    done = ar._normalise(json.dumps({"type": "result", "usage": {}}))[0]
+    done = ar._normalize(json.dumps({"type": "result", "usage": {}}))[0]
     assert done["cost_usd"] is None
     assert done["input_tokens"] is None
-    priced = ar._normalise(json.dumps({
+    priced = ar._normalize(json.dumps({
         "type": "result", "total_cost_usd": 0.5,
         "usage": {"input_tokens": 3, "output_tokens": 4}}))[0]
     assert priced["cost_usd"] == 0.5
@@ -419,7 +433,7 @@ def test_the_clis_own_last_word_beats_a_bare_exit_code(tmp_path):
     assert "not signed in" in events[-1]["message"]
 
 
-def test_an_unrecognised_failure_says_it_is_unrecognised(tmp_path):
+def test_an_unrecognized_failure_says_it_is_unrecognized(tmp_path):
     """Never a guess. The exit code and "resmon cannot tell you more"."""
     runtime = ar.ClaudeCliRuntime(cli_path=fake_binary(tmp_path))
     events = list(runtime.run_turn(1, "FAIL:", cli_session_id="s", resume=False))
@@ -428,10 +442,80 @@ def test_an_unrecognised_failure_says_it_is_unrecognised(tmp_path):
 
 
 def test_a_missing_binary_is_an_error_event_not_an_exception(tmp_path):
-    """Nothing escapes ``run_turn``. A streaming response cannot become a 500."""
-    runtime = ar.ClaudeCliRuntime(cli_path=str(tmp_path / "no-such-binary"))
+    """Nothing escapes ``run_turn``. A streaming response cannot become a 500.
+
+    The command was found when the conversation was admitted and is gone by
+    the turn, so starting it fails in ``Popen`` itself.
+    """
+    runtime = ar.ClaudeCliRuntime(cli_path=fake_binary(tmp_path))
+    runtime.resolved_binary = str(tmp_path / "no-such-binary")
     events = list(runtime.run_turn(1, "SAY:x", cli_session_id="s", resume=False))
     assert [e["type"] for e in events] == ["error"]
+    assert events[0]["detail"] == "FileNotFoundError"
+
+
+# ---------------------------------------------------------------------------
+# A missing command starts nothing
+# ---------------------------------------------------------------------------
+
+def record_starts(monkeypatch) -> list[list[str]]:
+    """The argv of every program this test starts from here on.
+
+    Wraps ``Popen._execute_child``, which every ``Popen`` and
+    ``subprocess.run`` goes through, around ``conftest.py``'s guard: a start
+    is recorded before the guard decides whether it may run.
+    """
+    started: list[list[str]] = []
+    inner = subprocess.Popen._execute_child
+
+    def recording(self, args, *rest, **kwargs):
+        listed = [args] if isinstance(args, (str, bytes, os.PathLike)) else list(args)
+        started.append([os.fsdecode(arg) for arg in listed])
+        return inner(self, args, *rest, **kwargs)
+
+    monkeypatch.setattr(subprocess.Popen, "_execute_child", recording)
+    return started
+
+
+def bare_name_on_path(tmp_path: Path, monkeypatch, name: str = "claude") -> Path:
+    """Put a *name* on PATH, as a developer's machine has; return the file it writes when run.
+
+    It is a stub under the temporary folder, so the suite's guard would let it
+    run: a runtime that started the bare name would leave this file behind.
+    """
+    folder = tmp_path / "on-path"
+    folder.mkdir(exist_ok=True)
+    stub = folder / name
+    stub.write_text(f'#!/bin/sh\necho ran >> "{folder / "ran.txt"}"\n')
+    stub.chmod(0o755)
+    monkeypatch.setenv("PATH", os.pathsep.join([str(folder), "/usr/bin", "/bin"]))
+    return folder / "ran.txt"
+
+
+@pytest.mark.parametrize("configured", ["a path that is not there", "no path"])
+def test_a_missing_command_starts_nothing_and_says_what_the_routes_say(tmp_path, monkeypatch, configured):
+    """``cli_missing``, with discovery's sentence, and never the ``claude`` on PATH."""
+    ran = bare_name_on_path(tmp_path, monkeypatch)
+    path = str(tmp_path / "no-such-claude") if configured != "no path" else None
+    started = record_starts(monkeypatch)
+    runtime = ar.ClaudeCliRuntime(cli_path=path)
+    events = list(runtime.run_turn(1, "SAY:x", cli_session_id="s", resume=False))
+    sentence = ai_cli.discover_cli("claude_code", path).describe()
+    # The sentence Ask's routes refuse a turn with (``status().reason``).
+    assert runtime.status().reason == sentence
+    assert events == [{"type": "error", "message": sentence, "detail": "cli_missing", "code": "failed"}]
+    assert started == [] and not ran.exists()
+
+
+def test_the_command_found_is_the_one_that_starts(tmp_path, monkeypatch):
+    ran = bare_name_on_path(tmp_path, monkeypatch)
+    command = fake_binary(tmp_path)
+    started = record_starts(monkeypatch)
+    events = list(ar.ClaudeCliRuntime(cli_path=command).run_turn(
+        1, "SAY:x", cli_session_id="s", resume=False))
+    assert [e["text"] for e in events if e["type"] == "text_delta"] == ["x"]
+    assert events[-1]["type"] == "done"
+    assert [argv[0] for argv in started] == [command] and not ran.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -465,7 +549,7 @@ def test_cancel_kills_the_running_turn(tmp_path):
     assert "after" not in [e.get("text") for e in collected]
 
 
-def test_cancelling_nothing_says_so_rather_than_claiming_success():
+def test_canceling_nothing_says_so_rather_than_claiming_success():
     assert ar.cancel_turn(123456) is False
 
 
@@ -601,7 +685,7 @@ def test_the_status_reports_codex_even_when_it_is_not_found(monkeypatch):
 # (recorded in ``fixtures/fake_claude.py`` and re-established live by
 # ``test_assistant_live.py``), then make the double answer with exactly it.
 
-def test_the_cannot_resume_shape_is_recognised_from_the_errors_array():
+def test_the_cannot_resume_shape_is_recognized_from_the_errors_array():
     """The sentence is in ``errors``, and there is no ``result`` text at all.
 
     Matched on the errors array first because that is where the real CLI puts
@@ -615,9 +699,9 @@ def test_the_cannot_resume_shape_is_recognised_from_the_errors_array():
     assert ar._is_cannot_resume(["Invalid API key"], "some other failure") is False
 
 
-def test_a_normalised_result_carries_the_clis_errors_array():
-    """The recovery hangs off this field, so normalising must keep it."""
-    (done,) = ar._normalise(json.dumps({
+def test_a_normalized_result_carries_the_clis_errors_array():
+    """The recovery hangs off this field, so normalizing must keep it."""
+    (done,) = ar._normalize(json.dumps({
         "type": "result", "subtype": "error_during_execution", "is_error": True,
         "errors": ["No conversation found with session ID: zzz"], "usage": {},
     }))
@@ -731,7 +815,7 @@ print(json.dumps({'type':'result','subtype':'success','result':'answer'}))
 @pytest.mark.parametrize('reported', [None, '', 2, {}, []])
 def test_r04c_missing_invalid_cli_model_is_not_inferred(reported):
     from implementation_scripts import assistant_runtime as runtime
-    event = runtime._normalise(json.dumps({'type':'system','subtype':'init','model':reported}))[0]
+    event = runtime._normalize(json.dumps({'type':'system','subtype':'init','model':reported}))[0]
     assert event['model_report'] is None
 
 
@@ -771,7 +855,7 @@ def test_a_result_names_the_models_it_was_billed_for_biggest_writer_first():
                        "claude-opus-5-5": {"outputTokens": 120},
                        "": {"outputTokens": 9}},
     })
-    done = ar._normalise(line)[0]
+    done = ar._normalize(line)[0]
     assert [(r["model"], r["source"]) for r in done["model_reports"]] == [
         ("claude-opus-5-5", "claude_result_model_usage"),
         ("claude-haiku-4-5-20251001", "claude_result_model_usage"),
@@ -779,5 +863,5 @@ def test_a_result_names_the_models_it_was_billed_for_biggest_writer_first():
 
 
 def test_a_result_with_no_model_usage_reports_no_model():
-    done = ar._normalise(json.dumps({"type": "result", "subtype": "success"}))[0]
+    done = ar._normalize(json.dumps({"type": "result", "subtype": "success"}))[0]
     assert done["model_reports"] == []

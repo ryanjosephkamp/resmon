@@ -36,10 +36,14 @@ journey.describe('J45 Source wall: what every source did on recent runs', () => 
     expect(routes, 'this build serves no Source wall').toContain('/api/coverage/source-wall');
 
     const quiet = await resmon.runDive({ source: 'arxiv', keywords: ['perovskite'] });
-    console.log(`[J45] the quiet run settled ${JSON.stringify(await resmon.waitForRunToSettle(quiet))}`);
+    const quietFacts = await resmon.waitForRunToSettle(quiet);
+    expect(quietFacts.status).toBe('completed');
+    console.log(`[J45] the quiet run settled ${JSON.stringify(quietFacts)}`);
     resmon.theSourceGoesDown();
     const broken = await resmon.runSweep({ sources: ['arxiv', 'springer'], query: 'perovskite' });
-    console.log(`[J45] the broken run settled ${JSON.stringify(await resmon.waitForRunToSettle(broken))}`);
+    const brokenFacts = await resmon.waitForRunToSettle(broken);
+    expect(brokenFacts.status, 'the keyless source cannot hide the failure of every asked source').toBe('failed');
+    console.log(`[J45] the broken run settled ${JSON.stringify(brokenFacts)}`);
 
     const catalog = await resmon.backend.sourceCatalog();
     const nameOf = (slug: string): string => String(catalog.find((entry) => entry.slug === slug)?.name ?? slug);

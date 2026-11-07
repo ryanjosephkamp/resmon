@@ -7,7 +7,7 @@ Dedup at insert is hash equality over ``title|authors|date`` (``normalizer.py``)
 It catches the same record arriving twice; it does not catch the same *paper*
 arriving from two repositories, because a preprint on arXiv and its published
 version on Crossref differ in date, in author formatting, in punctuation, and
-often in the title's capitalisation or a trailing subtitle. Those rows sit in the
+often in the title's capitalization or a trailing subtitle. Those rows sit in the
 corpus as two papers and every count treats them as two.
 
 What this does about it, and what it refuses to do
@@ -61,7 +61,7 @@ that chose the thresholds is fitted to its own training set. The first rule scor
 **10%**; the rule that ships scores **83%** and **87%** on the two samples that
 did not choose it.
 
-The 102 pairs that share a DOI are the labelled positives: same work by
+The 102 pairs that share a DOI are the labeled positives: same work by
 definition, and their distances (median 0.037, p95 0.493, max 0.542) are what the
 gates are set against. A threshold nobody measured is a number the interface would
 present as a finding.
@@ -95,7 +95,7 @@ __all__ = [
     "find_links",
     "links_for",
     "links_job",
-    "normalise_title",
+    "normalize_title",
     "title_similarity",
 ]
 
@@ -164,7 +164,7 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def normalise_title(title: Optional[str]) -> list[str]:
+def normalize_title(title: Optional[str]) -> list[str]:
     """A title as a bag of comparable words.
 
     Accents are folded — the same paper arrives "Modele" from one source and
@@ -198,13 +198,13 @@ def title_similarity(left: Optional[str], right: Optional[str]) -> float:
     denominator and would be linked. Those are different papers. Against ``max``
     it scores 5/11, well under the gate.
     """
-    a, b = set(normalise_title(left)), set(normalise_title(right))
+    a, b = set(normalize_title(left)), set(normalize_title(right))
     if not a or not b:
         return 0.0
     return len(a & b) / max(len(a), len(b))
 
 
-def _normalised_doi(doi: Optional[str]) -> Optional[str]:
+def _normalized_doi(doi: Optional[str]) -> Optional[str]:
     """A DOI reduced to what identifies it, or ``None`` if there is nothing usable.
 
     Sources hand over the same DOI as a bare ``10.x/y``, as an ``https://doi.org``
@@ -285,7 +285,7 @@ def find_links(
     meta = {
         int(r["document_id"]): {
             "title": r["title"],
-            "doi": _normalised_doi(r["doi"]),
+            "doi": _normalized_doi(r["doi"]),
             "source": r["source_repository"],
             # Whether there is anything behind the vector but the title. This is
             # the field that took precision from 10% to 60% on the graded
@@ -303,7 +303,7 @@ def find_links(
     for index, row in enumerate(rows):
         if should_cancel is not None and should_cancel():
             result["cancelled"] = True
-            result["reason"] = "Cancelled. The pairs already found are returned."
+            result["reason"] = "Canceled. The pairs already found are returned."
             break
         doc_id = int(row["document_id"])
         if scope is not None and doc_id not in scope:
@@ -549,7 +549,7 @@ def collapse_groups(conn: sqlite3.Connection, document_ids: list[int]) -> dict:
 
 
 class LinksJob:
-    """One near-duplicate scan at a time, cancellable, on the D3 pattern.
+    """One near-duplicate scan at a time, cancelable, on the D3 pattern.
 
     Deliberately the same shape as :class:`embedding_job.BackfillJob` — module
     singleton, daemon thread, cooperative stop, status read from the database
@@ -641,7 +641,7 @@ class LinksJob:
                 should_cancel=self._cancel.is_set, on_progress=_progress,
             )
             # A completed scan replaces the previous answer wholesale: a pair that
-            # no longer qualifies must stop being asserted. A *cancelled* scan
+            # no longer qualifies must stop being asserted. A *canceled* scan
             # does not, because it only looked at part of the corpus and clearing
             # would delete links it never re-examined.
             if not found["cancelled"] and found["reason"] is None:

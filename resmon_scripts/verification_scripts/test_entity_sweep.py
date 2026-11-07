@@ -69,7 +69,7 @@ class _EntitySource(BaseAPIClient):
 
 
 class _CannotBeAsked(_EntitySource):
-    """A source with no author query. `BaseAPIClient`'s default behaviour."""
+    """A source with no author query. `BaseAPIClient`'s default behavior."""
 
     def search_entity(self, profile, date_from=None, date_to=None,
                       max_results=100, **kwargs):
@@ -184,7 +184,7 @@ def test_a_paper_already_in_the_corpus_still_produces_a_match(engine, conn):
     """A watch routine that only surfaced brand-new documents would go quiet.
 
     Someone whose work you already collect is exactly the person you are most
-    likely to watch, and dedup recognising their paper is not a reason to stop
+    likely to watch, and dedup recognizing their paper is not a reason to stop
     telling you it is theirs.
     """
     profile = _profile(conn)
@@ -507,7 +507,7 @@ def test_a_person_watch_records_what_each_source_was_sent(conn, monkeypatch, tmp
 
     search = search_record.build(conn, exec_id)["search"]
     assert search["query_as_sent"] == (
-        'HAL: authFullName_s:"Jane Doe"; CrossRef: author "Jane Doe"; '
+        'HAL: authFullName_s:"Jane Doe"; Crossref: author "Jane Doe"; '
         f"OpenAlex: ORCID {ORCID}")
     assert "stale" not in search["query_as_sent"]
     assert "Query as sent" in search_record.to_markdown(search_record.build(conn, exec_id))

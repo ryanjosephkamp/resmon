@@ -78,7 +78,7 @@ test('a watch since its previous run: made in the editor, run twice, and the dat
     await win.getByRole('radio', { name: 'No date limit' }).check();
     await expect(win.locator('[data-editor="window-hint"]')).toContainText('newest first from arXiv');
     await expect(win.locator('[data-editor="window-hint"]')).toContainText('the most relevant of all years from');
-    await expect(win.locator('[data-editor="window-hint"]')).toContainText('CrossRef, DataCite');
+    await expect(win.locator('[data-editor="window-hint"]')).toContainText('Crossref, DataCite');
     await win.getByRole('radio', { name: 'Papers published since the previous run' }).check();
 
     await win.locator('#watch-name').fill('Graphs since the last run');

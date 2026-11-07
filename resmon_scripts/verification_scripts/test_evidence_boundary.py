@@ -52,7 +52,7 @@ EXPECTED_READS = {'health', 'search_corpus', 'find_similar', 'list_sources',
                   'get_execution_results', 'get_search_record', 'explain_match',
                   'get_paper_lifecycle', 'get_analytics', 'get_watchdog_findings',
                   'export_references', 'list_watch_profiles', 'get_watch_profile',
-                  'get_profile_matches'}
+                  'get_profile_matches', 'list_collections'}
 
 
 def _source_root() -> Path:
@@ -332,11 +332,11 @@ def test_cancel_after_canonical_read_prevents_note_transaction(selected, monkeyp
     assert cancel.is_set() and _snapshot(ctx['record']['database']) == before
 
 
-def test_parser_pre_cancelled_request_never_spawns(monkeypatch):
+def test_parser_pre_canceled_request_never_spawns(monkeypatch):
     from implementation_scripts import evidence, evidence_pdf as supervisor
     cancel = threading.Event(); cancel.set()
     def must_not_spawn(*args, **kwargs):
-        raise AssertionError('A pre-cancelled parser request launched a child')
+        raise AssertionError('A pre-canceled parser request launched a child')
     monkeypatch.setattr(supervisor.subprocess, 'Popen', must_not_spawn)
     with pytest.raises(evidence.EvidenceError) as refused:
         supervisor.extract(two_pages(), 1, cancel=cancel)
@@ -563,10 +563,10 @@ def test_actual_stdio_inventory_and_two_old_expected_instance_reads(selected):
     replies = _stdio(source, env, requests)
     assert [r['id'] for r in replies] == [1, 2, 3, 4]
     tools = replies[0]['result']['tools']
-    assert len(tools) == 25
+    assert len(tools) == 26
     assert {t['name'] for t in tools if t['requires_confirmation']} == EXPECTED_WRITES
     assert {t['name'] for t in tools if not t['requires_confirmation']} == EXPECTED_READS
-    assert len(EXPECTED_READS) == 18 and len(EXPECTED_WRITES) == 7
+    assert len(EXPECTED_READS) == 19 and len(EXPECTED_WRITES) == 7
     for index in (1, 2):
         assert replies[index]['result']['isError'] is False
         value = json.loads(replies[index]['result']['content'][0]['text'])

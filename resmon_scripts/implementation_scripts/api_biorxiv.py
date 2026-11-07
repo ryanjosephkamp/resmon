@@ -107,6 +107,9 @@ def _describe_request(url: str, params: Mapping | None, body: Mapping | None) ->
     """
     if not url.startswith(_BIORXIV_API_BASE + "/"):
         return None
+    server, *rest = url[len(_BIORXIV_API_BASE) + 1:].split("/", 1)
+    if rest and rest[0].startswith("10.1101/"):
+        return f"path /details/{server}/{rest[0]}"
     server, *dates = url[len(_BIORXIV_API_BASE) + 1:].split("/")[:3]
     if len(dates) != 2:
         return None
@@ -179,6 +182,26 @@ class BiorxivClient(BaseAPIClient):
 
     def get_name(self) -> str:
         return "bioRxiv" if self._server == "biorxiv" else "medRxiv"
+
+    def lookup(self, kind: str, value: str, max_results: int = 5) -> list[NormalizedResult]:
+        """A DOI at ``/details/{server}/{doi}``, its every version; the newest is kept.
+
+        Only a DOI under bioRxiv's and medRxiv's prefix, 10.1101, can be
+        theirs; Find a paper does not ask either about any other
+        (``paper_find.plan``). /details answers "no posts found" for a DOI the
+        server does not hold.
+        """
+        from .api_base import LookupUnsupported  # noqa: PLC0415
+
+        doi = value.strip()
+        if kind != "doi" or not doi.lower().startswith("10.1101/"):
+            raise LookupUnsupported(f"{self.get_name()} holds only DOIs that begin 10.1101.")
+        payload = _request_json(f"{_BIORXIV_API_BASE}/{self._server}/{doi}",
+                                time.monotonic() + _SEARCH_BUDGET_SECONDS)
+        items = (payload or {}).get("collection") or []
+        parsed = [p for p in (self._parse_item(item) for item in items) if p is not None]
+        # One record per version; the newest version is the paper as it stands.
+        return parsed[-1:] if parsed else []
 
     def search(
         self,
@@ -442,7 +465,26 @@ class BiorxivClient(BaseAPIClient):
             publication_date=publication_date,
             url=url,
             categories=categories,
+            open_access=self._open_copy(item, doi),
         )
+
+    def _open_copy(self, item: dict, doi: str) -> list:
+        """The preprint's own PDF, with the license the record states (``cc_by``, ``cc_no``).
+
+        ``/details`` names each version's ``license``; ``cc_no`` (no reuse
+        without permission) is kept as stated and is not an open license.
+        """
+        from . import open_access  # noqa: PLC0415
+
+        version = str(item.get("version") or "").strip()
+        if not doi or not version.isdigit():
+            return []
+        found = open_access.location(
+            self._server,
+            pdf_url=f"https://www.{self._server}.org/content/{doi}v{version}.full.pdf",
+            landing_url=f"https://www.{self._server}.org/content/{doi}v{version}",
+            license=item.get("license"), version="submitted")
+        return [found] if found is not None else []
 
 
 class MedrxivClient(BiorxivClient):

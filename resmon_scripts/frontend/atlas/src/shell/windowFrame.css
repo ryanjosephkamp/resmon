@@ -1,0 +1,27 @@
+/*
+ * macOS's tab bar. While the windows are in tabs, macOS draws it over the top
+ * of the window, where the top bar is, and moves nothing down; `--tab-strip` is
+ * how tall it is (`electron/windows.ts`, set by `WindowFrame.tsx`). The page
+ * starts below it, the strip is drawn in the bar's color so a window alone in
+ * tabs mode reads as a title bar and can be dragged by it, and the window
+ * controls sit in the tab bar's row, so the top bar no longer leaves room for
+ * them at its left.
+ */
+:root[data-tab-strip] .frame { padding-top: var(--tab-strip); }
+:root[data-tab-strip] .frame::before {
+  content: ""; position: fixed; inset: 0 0 auto; z-index: 4; height: var(--tab-strip);
+  background: var(--bar); -webkit-app-region: drag;
+}
+:root[data-tab-strip] .is-mac .bar { padding-left: 20px; }
+
+/* The Library's reader, filling the window, starts below the tab bar too. */
+:root[data-tab-strip] .ev-reader[data-focus="true"],
+:root[data-tab-strip] .ev-body[data-notes="open"] .ev-notes { top: var(--tab-strip); }
+:root[data-tab-strip] .is-mac .ev-reader[data-focus="true"] .ev-tools { padding-left: 20px; }
+
+/* The command palette's hint under a screen it can open in a new window. */
+.palette-foot {
+  margin: 0; padding: 8px 14px; border-top: 1px solid var(--rule);
+  font: 400 12px/1.3 var(--sans); color: var(--ink-3);
+}
+.palette-foot kbd { margin-right: 6px; }

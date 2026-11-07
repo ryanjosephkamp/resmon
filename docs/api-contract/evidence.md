@@ -1,4 +1,4 @@
-# Evidence workspace v1
+# Evidence workspace
 
 Evidence joins explicit projects to immutable local Library versions. Start in
 Library, import or choose a file, follow **Open in Evidence / add to project**,
@@ -21,7 +21,7 @@ Schema 17 adds exactly `evidence_projects`, `evidence_project_files` and
 `idx_evidence_notes_order`. The atomic 16→17 migration creates and validates exact
 object SQL under a savepoint before advancing the marker. Existing partial or
 wrong shapes refuse; restart validates rather than repairs. There is no backfill,
-vault creation, file access or old-row rewrite. The physical table census is
+vault creation, file access or rewrite of existing rows. The physical table census is
 32 application/FTS tables plus SQLite's internal `sqlite_sequence` before,
 35 application/FTS tables plus that internal table afterward. Implicit unique
 indexes are separate from the two explicit indexes.
@@ -29,8 +29,8 @@ indexes are separate from the two explicit indexes.
 Existing settings resets and corpus erasure retain projects, notes, the Library
 catalog and managed bytes. Corpus erasure still removes paper associations to
 those deleted papers. Database backup alone does not preserve managed files.
-Library's existing no-follow/descriptor-relative platform requirements remain;
-this phase does not establish new Windows Library support.
+Library's no-follow, descriptor-relative platform requirements apply, so the
+Library, and Evidence with it, is unavailable on Windows.
 
 ## Twelve HTTP operations
 
@@ -38,10 +38,10 @@ Every operation requires the exact loopback renderer Origin
 `http://127.0.0.1:<port>` and `X-Resmon-Library: 1`. This is browser Origin
 protection, not authentication of another local program capable of forging a
 header. The guard applies before parsing. Evidence responses use `no-store` and
-expose only their named download/identity headers to the renderer; existing
-global CORS and other routes are unchanged. The Evidence client requires an
-explicit desktop backend port and refuses the reserved daemon port; it has no
-default-instance fallback.
+expose only their named download/identity headers to the renderer; global CORS
+and other routes are not affected. The Evidence client uses the port of the
+engine its window talks to, the background service's included, and has no
+default-instance fallback: with no port from the window it sends nothing.
 
 | Method | Path under `/api/evidence/projects` | Request and result |
 |---|---|---|
@@ -83,10 +83,10 @@ explicit refresh. A ceiling is not a time-travel snapshot across removals.
 Collection file/note lists include current project revision; a mixed refresh
 is rejected by the renderer. Bundle generation uses a single SQL read snapshot.
 
-No Evidence tool is added to MCP or to the assistant. The existing manifest
-remains 25 tools, 18 reads and seven confirmation writes; notes are not implicitly
-sent to any model. Route counts describe declared surfaces, not proof that every
-historical capability has been exercised.
+No Evidence tool is in MCP or the assistant. The manifest is 26 tools, 19 reads
+and seven confirmation writes; notes are not implicitly sent to any model. Route
+counts describe declared surfaces, not proof that every capability has been
+exercised.
 
 ## Reading and immutable passages
 
@@ -95,8 +95,8 @@ no NUL, one logical page. Only CRLF/CR→LF changes the text projection; retaine
 bytes and Unicode composition remain unchanged. HTML, Markdown and links stay
 literal. A text projection has the `library-text-lf/v1` extraction contract.
 
-PDF input is at most 16 MiB and 200 physical pages. The existing Library 64 MiB
-import limit is unchanged: a larger retained PDF is explicitly unreadable in-app.
+PDF input is at most 16 MiB and 200 physical pages. The Library's 64 MiB
+import limit still applies: a larger retained PDF is explicitly unreadable in-app.
 One fixed pypdf 6.18.1 child receives only already-verified bytes and one requested
 page. The parent owns a 20-second timeout, bounded pipes, cancellation and exact
 process reaping. Child output is at most 200,000 codepoints and 1 MiB of JSON.
@@ -107,7 +107,7 @@ row length to 1 MiB, XMP input/elements to 1 MiB/10,000 and outline entries/dept
 to 1,000/32. `jbig2dec_binary=None`; no image, attachment, XMP or outline extraction
 API is called. Strict parsing or parser warnings refuse rather than save
 silently shortened text. Encrypted files, including empty-password encryption,
-refuse without password collection. No extras, OCR or external decoder is added.
+refuse without password collection. No extras, OCR or external decoder is used.
 
 The fixed child uses an empty owned directory and a minimal environment; it has
 no app database handle, arbitrary command/path input or credential environment.
@@ -149,7 +149,7 @@ latest-version fallback.
 Select 1–20 distinct current file versions in one project. Metadata-only is the
 default and explicitly says retained bytes were not checked. Optional file mode
 rehashes every included retained descriptor against the captured identity while
-streaming into an owned spool. Missing, corrupt, over-limit or cancelled input
+streaming into an owned spool. Missing, corrupt, over-limit or canceled input
 cannot become a completed partial archive. A consistent SQLite read snapshot
 captures project revision, membership, file metadata and all notes for exactly
 the selected versions. Removed or unselected members are excluded.
@@ -174,7 +174,7 @@ judgment. Review selected files, original names and notes before sharing.
 ## Verification and distribution
 
 `test_evidence*.py` uses authored SQLite/filesystem/parser/socket fixtures and
-labelled failure injection. `e2e/evidence.spec.ts` exercises the actual desktop
+labeled failure injection. `e2e/evidence.spec.ts` exercises the actual desktop
 journey with isolated source/state/profile and scripted native destinations.
 The five ordinary local gates and e2e typecheck remain required. A requirements
 change also triggers the existing four-target sqlite-vec packaging probe; its
@@ -182,22 +182,22 @@ success is not proof of a reader journey on all packaged platforms.
 
 There are 188 pinned PDF.js/CMap/font/notice source assets, 3,700,085 bytes.
 Webpack preserves all publisher bytes. Only the two built module filenames map
-from `.mjs` to `.js`, allowing the unchanged renderer HTTP server to assign its
-existing JavaScript MIME type. Both remain native ES modules; this is not a
+from `.mjs` to `.js`, allowing the renderer HTTP server to assign its
+JavaScript MIME type. Both remain native ES modules; this is not a
 source modification, transpilation or extra asset. The scoped loader preserves
 native `import()` rather than CommonJS require. No npm PDF runtime, native
 canvas, package scripts, Node upgrade or new build dependency is used.
 
 See [third-party notices](../third-party-notices.md) and the exact asset-hash
-assertion in `src/__tests__/pdfjs.test.ts`. Installer launch/release verification
-and independent acceptance remain separate from implementing-session tests.
+assertion in `src/__tests__/pdfjs.test.ts`. Installer launch and release verification
+and independent acceptance are separate from these tests.
 
 
 ## Selected answers (schema 18)
 
-The separate [selected-answer contract](selected-evidence.md) adds seven explicit
-preview, answer, event, history and selected-text export routes. The original
-12 Evidence routes retain their request, origin, storage and effect contracts.
+The separate [selected-answer contract](selected-evidence.md) defines seven explicit
+preview, answer, event, history and selected-text export routes. The 12 Evidence
+routes above keep their own request, origin, storage and effect contracts.
 Schema 18 adds one answer table and its project-order index without backfilling
 or rewriting existing Evidence records. Selecting a passage does not select its
 note body; answers have separate consent and history from ordinary Ask.

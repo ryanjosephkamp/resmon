@@ -156,6 +156,7 @@ class EuropepmcClient(BaseAPIClient):
             if name:
                 categories.append(name)
 
+        locations, identifiers = _open_access(item)
         return NormalizedResult(
             source_repository="europepmc",
             external_id=external_id,
@@ -166,7 +167,56 @@ class EuropepmcClient(BaseAPIClient):
             publication_date=publication_date,
             url=url,
             categories=categories[:10],
+            open_access=locations,
+            identifiers=identifiers,
         )
+
+
+#: Europe PMC's ``availabilityCode`` for a copy anyone can read: ``OA`` (open
+#: access) and ``F`` (free to read). ``S`` is a subscription.
+_READABLE = frozenset({"OA", "F"})
+#: The ``site`` values of Europe PMC's own copies, the ones its record's
+#: ``license`` is for. A record also lists the publisher's copy (``DOI``) and
+#: Unpaywall's (``Unpaywall``), marked ``OA`` from elsewhere; Europe PMC does
+#: not state their license.
+_OWN_SITES = frozenset({"Europe_PMC", "PubMedCentral"})
+
+
+def _open_access(item: dict) -> tuple[list, list]:
+    """The PDFs a ``resultType=core`` record lists, and its PMID and PMCID.
+
+    ``fullTextUrlList`` names each copy's site, style and availability. A PDF
+    on Europe PMC's or PubMed Central's own site that is open access (``OA``)
+    carries the record's ``license`` when the record says ``isOpenAccess: Y``.
+    Any other copy carries none: one that is only free to read (``F``), and one
+    on another site (a publisher's, Unpaywall's), whose license the record does
+    not state.
+    """
+    from . import open_access  # noqa: PLC0415
+
+    licensed = str(item.get("isOpenAccess") or "").upper() == "Y"
+    license_text = item.get("license") if licensed else None
+    locations = []
+    seen: set[str] = set()
+    for entry in ((item.get("fullTextUrlList") or {}).get("fullTextUrl") or []):
+        if not isinstance(entry, dict):
+            continue
+        code = str(entry.get("availabilityCode") or "").upper()
+        if code not in _READABLE or str(entry.get("documentStyle") or "").lower() != "pdf":
+            continue
+        own = str(entry.get("site") or "") in _OWN_SITES
+        found = open_access.location(
+            "europepmc", pdf_url=entry.get("url"),
+            license=license_text if code == "OA" and own else None)
+        if found is not None and found.location not in seen:
+            seen.add(found.location)
+            locations.append(found)
+    identifiers: list[tuple[str, str]] = []
+    if str(item.get("pmid") or "").isdigit():
+        identifiers.append(("pmid", str(item["pmid"])))
+    if str(item.get("pmcid") or "").upper().startswith("PMC"):
+        identifiers.append(("pmcid", str(item["pmcid"]).upper()))
+    return locations, identifiers
 
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,6 @@
-import { app, BrowserWindow, Menu, Notification, clipboard, dialog, ipcMain, nativeTheme, shell, systemPreferences } from 'electron';
+import { app, BrowserWindow, Menu, Notification, clipboard, dialog, ipcMain, nativeTheme, screen, shell, systemPreferences } from 'electron';
 import { installDownloads } from './downloads';
+import { libraryRemovedFile } from './libraryTrash';
 import {
   installCommandLine, refreshInstalledArchive, systemContext, uninstallCommandLine, type Outcome,
 } from './commandLineInstall';
@@ -7,8 +8,16 @@ import {
   appExecutable, engineFlags, isServiceLaunch, opensWindowFor, routeForNotice, servicePort, startNoticeListener,
   type Notice, type NoticeListener,
 } from './host';
+import {
+  START_WAIT_MS, disabledIn, ensureService, pidFromPrint, replaceHolder, temporaryPlace, unitFromPlist,
+  type Facts, type HolderOutcome, type HolderWorld, type Running, type Unit, type World,
+} from './service';
+import {
+  RELAYED, RunOwners, TabsMode, WindowSet, cascade, cleanRoute, noticeWindow, relayToOtherWindows, routeOf, tabStripHeight,
+  type CollectionId,
+} from './windows';
 import { autoUpdater } from 'electron-updater';
-import { ChildProcess, spawn } from 'child_process';
+import { ChildProcess, execFile, execFileSync, spawn } from 'child_process';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as http from 'http';
@@ -24,7 +33,7 @@ import * as path from 'path';
  * was doing — they had to click back, or wait for the window to close. That is
  * the only thing this flag is for.
  *
- * It is a *launch* flag, not a behaviour flag. The same windows open, at the
+ * It is a *launch* flag, not a behavior flag. The same windows open, at the
  * same size, with the same contents, in the same order; only the activation
  * changes. With the variable unset every branch it gates takes the path it took
  * before the flag existed, which is the same contract `isE2E()` carries.
@@ -66,7 +75,7 @@ function isBackgroundWindow(): boolean {
  * changed nothing (363 frames), so this flag does not touch `webPreferences`.
  * That is one machine and one Electron; see the pull request.
  *
- * Unlike `isBackgroundWindow()`, this *is* a behaviour flag and it is named as
+ * Unlike `isBackgroundWindow()`, this *is* a behavior flag and it is named as
  * one: a suite running under it cannot see anything that needs a window on a
  * screen. The one CI job whose subject is the window is held off it by
  * `e2e/background-window.ts`, which throws rather than letting that job quietly
@@ -111,6 +120,31 @@ if (isBackgroundWindow() && process.platform === 'darwin') {
  */
 const SERVICE = isServiceLaunch(process.argv, process.env);
 
+/**
+ * Which build this is. Every build of a version gives the same version, so a
+ * build is named by what the packager recorded of the app's code: on a Mac the
+ * hash of app.asar that electron-builder writes into Info.plist
+ * (`ElectronAsarIntegrity`), elsewhere app.asar's size and time. The engines
+ * this app starts carry it in their lock and health (`setAppExecutable`), which
+ * is how a launch tells this build's service from another's (`service.ts`).
+ */
+function buildId(): string {
+  const version = app.getVersion();
+  if (!app.isPackaged) return `${version}+checkout`;
+  try {
+    if (process.platform === 'darwin') {
+      const plist = fs.readFileSync(path.join(process.resourcesPath, '..', 'Info.plist'), 'utf8');
+      const found = /<key>ElectronAsarIntegrity<\/key>[\s\S]*?<key>hash<\/key>\s*<string>([0-9a-f]{16,})<\/string>/.exec(plist);
+      if (found?.[1]) return `${version}+${found[1].slice(0, 20)}`;
+    }
+    const asar = fs.statSync(path.join(process.resourcesPath, 'app.asar'));
+    return `${version}+${asar.size.toString(36)}.${Math.round(asar.mtimeMs).toString(36)}`;
+  } catch {
+    return `${version}+unknown`;
+  }
+}
+const BUILD_ID = buildId();
+
 // The service has no window until one is asked for, so no Dock icon and no
 // menu bar either; opening a window gives it both (`showWindow`). Module
 // scope for the reason given above for background windows: from `whenReady`
@@ -135,17 +169,39 @@ if (process.env.RESMON_STATE_DIR && !process.argv.some((a) => a.startsWith('--us
   app.setPath('userData', path.join(process.env.RESMON_STATE_DIR, 'electron-user-data'));
 }
 const SOLE_INSTANCE = app.requestSingleInstanceLock();
-if (!SOLE_INSTANCE) {
+
+/**
+ * Whether this launch makes sure of the background service before it opens
+ * (`service.ts`): a window launch of the packaged app on a Mac.
+ * `RESMON_SERVICE_AT_LAUNCH=1` turns it on for a checkout, which a test does
+ * with a label and a launchctl of its own.
+ */
+const CHECKS_SERVICE = !SERVICE && process.platform === 'darwin'
+  && (app.isPackaged || process.env.RESMON_SERVICE_AT_LAUNCH === '1');
+
+if (!SOLE_INSTANCE && !CHECKS_SERVICE) {
   // `quit`, the pattern Electron documents for a launch that did not get the
   // lock: the app's normal quit path, which exits 0.
   app.quit();
 }
+// Electron gives a launch that did not get the lock no `ready`, so the check
+// in `whenReady` never runs for it: this one runs once the module has loaded.
+if (!SOLE_INSTANCE && CHECKS_SERVICE) setImmediate(() => { void launchWithoutLock(); });
 
 
-let mainWindow: BrowserWindow | null = null;
+/**
+ * The app's own windows (`windows.ts`): every one shows the renderer, on the
+ * same engine. Link windows and the window that says resmon is starting are
+ * not among them.
+ */
+const appWindows = new WindowSet<BrowserWindow>();
+/** Which window started each run, so the run's notification shows it there. */
+const runOwners = new RunOwners();
+/** Whether the windows are in macOS's tabs, and so leave room for the tab bar. */
+const tabsMode = new TabsMode();
 let backendProcess: ChildProcess | null = null;
 // Null until attach-or-spawn has settled which backend this app is using. It
-// was initialised to the daemon's port, which meant any read before that point
+// was initialized to the daemon's port, which meant any read before that point
 // — the backend-connection IPC is the one that matters — handed the renderer a
 // port nothing had chosen. The window is only created after this is set, so the
 // null is unreachable in a normal start; it is here so that a start which goes
@@ -219,6 +275,7 @@ interface LockPayload {
   pid: number;
   port: number;
   version: string;
+  build?: string | null;
   started_at?: string;
 }
 
@@ -238,6 +295,7 @@ function readLockFile(): LockPayload | null {
 interface HealthPayload {
   status?: string;
   version?: string;
+  build?: string | null;
   pid?: number;
 }
 
@@ -422,11 +480,16 @@ function stopOwnBackend(): Promise<void> {
   });
 }
 
-/** Tell an engine this app starts which executable runs this app, or that none does. */
+/**
+ * Tell an engine this app starts which executable runs this app, or that none
+ * does, and which build this is, which the engine puts in its lock and health
+ * so a launch can tell this build's service from another's.
+ */
 function setAppExecutable(env: NodeJS.ProcessEnv): void {
   const executable = appExecutable(process.platform, process.execPath, app.isPackaged);
   if (executable) env.RESMON_APP_EXECUTABLE = executable;
   else delete env.RESMON_APP_EXECUTABLE;
+  env.RESMON_BUILD_ID = BUILD_ID;
 }
 
 /** Spawn the Python backend and return the child process. */
@@ -585,21 +648,30 @@ function startServiceEngine(port: number, token: string, rendererOrigin: string)
 }
 
 /**
- * Post a notification the engine sent, as resmon. Clicking it opens the run.
+ * Post a notification the engine sent, as resmon. Clicking it opens the run,
+ * in the window that started it while that window is open, else in the window
+ * in front (`noticeWindow`); a window is made only when none is open.
  *
  * Under the e2e suites, and under the performance harness
  * (`RESMON_NOTICES_TO_LOG`), nothing is put on the screen of the person at the
- * Mac: the notice is written to the log, as a line a spec can read, and the
- * answer to the engine is the same as for a posted one.
+ * Mac: the notice is written to the log, as a line a spec can read, with the
+ * window a click would show it in and the window focused then, and the answer
+ * to the engine is the same as for a posted one.
  */
 function postNotice(notice: Notice): boolean {
   // The OS shows the app's name on every notification it posts; a title that
   // starts with it says it twice.
   const title = notice.title.replace(/^resmon:\s*/i, '') || 'resmon';
   if (isE2E() || process.env.RESMON_NOTICES_TO_LOG === '1') {
-    console.log(`[main] notice ${JSON.stringify({ title, body: notice.body, executionId: notice.executionId })}`);
+    void settleNotice(notice.executionId).then(() => {
+      const shownIn = noticeWindow(appWindows, runOwners, notice.executionId, BrowserWindow.getFocusedWindow());
+      const focused = BrowserWindow.getFocusedWindow()?.id ?? null;
+      console.log(`[main] notice ${JSON.stringify({ title, body: notice.body, executionId: notice.executionId, window: shownIn?.id ?? null, focused })}`);
+    });
     return true;
   }
+  // Settled now, while the notice is fresh, so a click needs no read of its own.
+  void settleNotice(notice.executionId);
   if (!Notification.isSupported()) return false;
   const shown = new Notification({ title, body: notice.body });
   // A long-lived service must not keep every notification it ever posted.
@@ -607,7 +679,7 @@ function postNotice(notice: Notice): boolean {
   liveNotices.add(shown);
   shown.on('click', () => {
     liveNotices.delete(shown);
-    void showWindow(routeForNotice(notice));
+    void showWindow(routeForNotice(notice), notice.executionId);
   });
   shown.on('close', () => liveNotices.delete(shown));
   // The OS took it: the one fact about the screen this process can know.
@@ -621,56 +693,183 @@ function postNotice(notice: Notice): boolean {
 }
 
 /**
- * Bring the window up at `route`, creating it if there is none.
+ * Bring a window up at `route`, creating one only when none is open.
  *
  * A window launch has one from the start; the service makes one when it is
  * asked to (a second launch of resmon, the Dock icon, a notification clicked)
- * and takes the Dock icon and menu bar back while it is open.
+ * and takes the Dock icon and menu bar back while it is open. With windows
+ * open, the one brought up is the one that started the run a notification is
+ * about, else the one in front, else the one focused last: a second launch or a
+ * notification never opens another window beside them.
  */
-async function showWindow(route: string | null): Promise<void> {
-  if (mainWindow) {
+async function showWindow(route: string | null, executionId: number | null = null): Promise<void> {
+  await settleNotice(executionId);
+  const window = noticeWindow(appWindows, runOwners, executionId, BrowserWindow.getFocusedWindow());
+  if (window) {
     if (route) {
-      await mainWindow.webContents.executeJavaScript(`window.location.hash = ${JSON.stringify(`#${route}`)};`);
+      await window.webContents.executeJavaScript(`window.location.hash = ${JSON.stringify(`#${route}`)};`);
     }
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
-    mainWindow.focus();
+    if (window.isMinimized()) window.restore();
+    window.show();
+    window.focus();
     return;
   }
-  // Still starting: the engine is not up, so there is nothing to show yet.
-  if (backendPort === null || backendToken === null || rendererOriginValue === null) return;
-  if (SERVICE && process.platform === 'darwin') app.setActivationPolicy('regular');
-  createWindow(await atlasGround(backendPort, backendToken), route);
-  if (mainWindow) installDownloads(mainWindow);
+  await openAppWindow(route);
 }
 
-/** Poll GET /api/health until the backend responds with 200. */
-function waitForBackend(port: number, token: string, retries = 30, delay = 500): Promise<void> {
-  return new Promise((resolve, reject) => {
-    let attempts = 0;
-    const check = () => {
-      attempts++;
-      const req = http.get({ host: '127.0.0.1', port, path: '/api/health', headers: bearer(token) }, (res) => {
-        res.resume();
-        if (res.statusCode === 200) {
-          resolve();
-        } else if (attempts < retries) {
-          setTimeout(check, delay);
-        } else {
-          reject(new Error(`Backend health check failed after ${retries} attempts`));
-        }
-      });
-      req.on('error', () => {
-        if (attempts < retries) {
-          setTimeout(check, delay);
-        } else {
-          reject(new Error(`Backend not reachable after ${retries} attempts`));
-        }
-      });
-      req.end();
-    };
-    check();
+/**
+ * A run no window claimed, while a window waits for a run it queued: read the
+ * run's row, whose `request_id` is the queued run's ticket (`RunOwners`).
+ * Never throws; a row that cannot be read leaves the run to the window in front.
+ */
+async function settleNotice(executionId: number | null): Promise<void> {
+  if (!runOwners.unsettled(executionId) || backendPort === null || backendToken === null) return;
+  const row = await readRun(backendPort, backendToken, executionId);
+  if (row) runOwners.settle(executionId, row);
+}
+
+/** One run's row, `GET /api/executions/{id}`, or null when it does not answer. */
+function readRun(port: number, token: string, id: number): Promise<{ request_id?: unknown; routine_id?: unknown } | null> {
+  return new Promise((resolve) => {
+    const req = http.get(
+      { host: '127.0.0.1', port, path: `/api/executions/${id}`, timeout: 3_000, headers: bearer(token) },
+      (res) => {
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk: string) => { body += chunk; });
+        res.on('end', () => {
+          try {
+            resolve(res.statusCode === 200 ? JSON.parse(body) as { request_id?: unknown; routine_id?: unknown } : null);
+          } catch {
+            resolve(null);
+          }
+        });
+      },
+    );
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.on('error', () => resolve(null));
   });
+}
+
+/** How a new window opens: beside the window it was asked from, or as a tab of it, and on which collection. */
+interface Opening {
+  /** The window it was asked from, which it opens one step down and to the right of. */
+  from?: BrowserWindow | null;
+  /** On macOS, the window whose tabs it joins. */
+  tabOf?: BrowserWindow | null;
+  collection?: CollectionId;
+}
+
+/**
+ * Open another window on the engine, at `route` or the start page. Nothing
+ * opens while the engine is still starting: there is nothing to show yet.
+ */
+/**
+ * Released once the IPC an app window's preload asks synchronously is answered
+ * (`whenReady`). A window opened before then, such as one a launch asks the
+ * service for while the service's engine is still starting, would wait 30 s in
+ * `sendSync`, which Electron gives up on only then.
+ */
+let windowsCanOpen: () => void = () => undefined;
+const ipcAnswered = new Promise<void>((resolve) => { windowsCanOpen = resolve; });
+
+async function openAppWindow(route: string | null, how: Opening = {}): Promise<BrowserWindow | null> {
+  await ipcAnswered;
+  if (backendPort === null || backendToken === null || rendererOriginValue === null) return null;
+  // Window tabs are macOS's; elsewhere a tab asked for is a window beside the one it was asked from.
+  if (how.tabOf && process.platform !== 'darwin') how = { from: how.tabOf, collection: how.collection };
+  if (SERVICE && process.platform === 'darwin') app.setActivationPolicy('regular');
+  return createWindow(await atlasGround(backendPort, backendToken), route, how);
+}
+
+/** The app window a menu item, a key, or the tab bar acted on: the one in front, or the one focused last. */
+function actedOn(window: unknown): BrowserWindow | null {
+  return appWindows.target(window ?? BrowserWindow.getFocusedWindow());
+}
+
+/**
+ * New Tab (⌘T), and the tab bar's new-tab button: a window at the start page,
+ * in `host`'s tabs. Off macOS, where there are no window tabs, a new window.
+ */
+async function openTab(host: BrowserWindow | null): Promise<void> {
+  if (process.platform !== 'darwin' || !host) {
+    await openAppWindow(null, { from: host });
+    return;
+  }
+  await openAppWindow(null, { tabOf: host });
+}
+
+/**
+ * Merge All Windows: every window into the tabs of the one in front. Done a
+ * window at a time rather than through macOS's own merge, which acts only on
+ * the key window, and an app that is not active has none.
+ */
+function mergeAllWindows(host: BrowserWindow | null): void {
+  if (!host || process.platform !== 'darwin') return;
+  tabsMode.use();
+  for (const window of appWindows.all()) if (window !== host) host.addTabbedWindow(window);
+  windowsChanged();
+}
+
+/** What a window's renderer is told about itself: its collection, and the room to leave for the tab bar. */
+function windowState(window: BrowserWindow): { collection: CollectionId; tabStrip: number } {
+  return {
+    collection: appWindows.collectionOf(window),
+    tabStrip: tabStripHeight(process.platform, process.getSystemVersion(), tabsMode.active),
+  };
+}
+
+/**
+ * The windows or their tabs changed: tell every window, set each title again
+ * so macOS lays out its tab bar in the title bar's row (`tabStripHeight`), and
+ * write the Window menu's Show Tab Bar or Hide Tab Bar.
+ */
+function windowsChanged(): void {
+  for (const window of appWindows.all()) {
+    if (!window.webContents.isDestroyed()) window.webContents.send('resmon:window-state', windowState(window));
+  }
+  if (process.platform !== 'darwin') return;
+  if (tabsMode.active) for (const window of appWindows.all()) relayTitle(window);
+  installApplicationMenu();
+}
+
+/**
+ * Set a window's title again, changed by a trailing space, which no tab or
+ * menu shows. macOS lays out a window's tab bar in the title bar's own row
+ * only once its title changes after it joined the tabs; until then the bar
+ * sits in a second row, over the top of the page (measured on macOS 26).
+ */
+function relayTitle(window: BrowserWindow): void {
+  if (window.isDestroyed()) return;
+  const title = window.getTitle();
+  window.setTitle(title.endsWith(' ') ? title.trimEnd() : `${title} `);
+}
+
+/**
+ * How long an engine this app started is given to answer, while it runs. A
+ * first start after an update migrates the database before it answers; the
+ * 15 seconds once allowed ran out in the middle of that, and the engine was
+ * stopped there.
+ */
+const ENGINE_START_LIMIT_MS = START_WAIT_MS;
+
+/** Wait for an engine this app started to answer health, for as long as it runs, up to `limitMs`. */
+async function waitForEngine(child: ChildProcess, port: number, token: string, limitMs = ENGINE_START_LIMIT_MS): Promise<void> {
+  const started = Date.now();
+  let said = false;
+  for (;;) {
+    if (await fetchHealth(port, token, 2_000)) return;
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error(`The engine stopped (${child.exitCode ?? child.signalCode}) before it answered`);
+    }
+    const waited = Date.now() - started;
+    if (waited > limitMs) throw new Error(`The engine did not answer within ${Math.round(limitMs / 1000)} s`);
+    if (!said && waited > 15_000) {
+      said = true;
+      console.log('[main] The engine is still starting; a first start after an update brings the database up to date first.');
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
 }
 
 function contentTypeFor(filePath: string): string {
@@ -742,11 +941,11 @@ function startRendererServer(rendererRoot: string): Promise<number> {
 /**
  * True when the app is being driven by the end-to-end suite.
  *
- * Everything this flag gates is *test determinism only* — never behaviour a
+ * Everything this flag gates is *test determinism only* — never behavior a
  * user could want, and never anything that changes what the app shows. With the
  * variable unset every branch below takes the path a person's launch takes;
- * `e2e/default-behaviour.spec.ts` is the check that says so by
- * launching the app without it and asserting the default behaviour.
+ * `e2e/default-behavior.spec.ts` is the check that says so by
+ * launching the app without it and asserting the default behavior.
  */
 function isE2E(): boolean {
   return process.env.RESMON_E2E === '1';
@@ -786,7 +985,7 @@ function atlasGround(port: number, token: string): Promise<string> {
   });
 }
 
-function createWindow(ground: string, route: string | null = null): void {
+function createWindow(ground: string, route: string | null = null, how: Opening = {}): BrowserWindow {
   if (rendererPort === null) {
     throw new Error('Renderer server has not been started');
   }
@@ -800,9 +999,19 @@ function createWindow(ground: string, route: string | null = null): void {
       height: Number(process.env.RESMON_E2E_HEIGHT) || 900,
     }
     : null;
-  mainWindow = new BrowserWindow({
-    width: e2eSize ? e2eSize.width : 1280,
-    height: e2eSize ? e2eSize.height : 820,
+  // A window opened from another takes its size, one step down and to the
+  // right of it, and opens maximized if that one is; the first opens maximized.
+  const from = how.tabOf ?? (appWindows.has(how.from) ? how.from : appWindows.target(BrowserWindow.getFocusedWindow()));
+  const place = from && !from.isDestroyed()
+    ? cascade(from.getNormalBounds(), screen.getDisplayMatching(from.getBounds()).workArea)
+    : null;
+  const maximize = !isE2E() && (!from || from.isDestroyed() || from.isMaximized() || from.isFullScreen());
+  // Into tabs before the window's page first asks how much room to leave for the tab bar.
+  if (how.tabOf) tabsMode.use();
+  const mainWindow = new BrowserWindow({
+    width: e2eSize ? e2eSize.width : place?.width ?? 1280,
+    height: e2eSize ? e2eSize.height : place?.height ?? 820,
+    ...(place ? { x: place.x, y: place.y } : {}),
     minWidth: 960,
     minHeight: 600,
     title: 'resmon',
@@ -822,7 +1031,9 @@ function createWindow(ground: string, route: string | null = null): void {
     backgroundColor: ground,
     // Atlas draws its own top bar on macOS, with the window controls inset in
     // it, so the bar is the only chrome. Elsewhere the system frame stays.
-    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const } : {}),
+    // Every window on macOS can join the others' tabs (New Tab, Merge All
+    // Windows, the Window menu), which the shared identifier allows.
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, tabbingIdentifier: 'resmon' } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -839,6 +1050,8 @@ function createWindow(ground: string, route: string | null = null): void {
       // the synchronous `resmon:backend-connection` IPC instead.
     },
   });
+  // In the set before its page loads: its preload's first question is answered only to the set's windows.
+  appWindows.add(mainWindow, how.collection ?? null);
 
   // Every external link opens the same way: an in-app window, not the system
   // browser.
@@ -852,9 +1065,29 @@ function createWindow(ground: string, route: string | null = null): void {
   // it is where a license or a rate-limit page is usually only glanced at. The
   // window carries the URL in its title bar so it is never hidden, and a
   // right-click offers copying it or handing it to the real browser.
+  //
+  // A link to one of resmon's own pages asked for in a new window (⌘-click,
+  // Ctrl-click, a middle click) opens another window of the app there.
+  const rendererOrigin = `http://127.0.0.1:${rendererPort}`;
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    openLinkWindow(url);
+    const own = routeOf(url, rendererOrigin);
+    if (own) void openAppWindow(own.route, { from: mainWindow, collection: appWindows.collectionOf(mainWindow) });
+    else openLinkWindow(url, mainWindow);
     return { action: 'deny' };
+  });
+
+  // A right-click on a link to one of resmon's own pages offers it in a new
+  // window, and on macOS in a new tab. Nothing else in the page has a menu.
+  mainWindow.webContents.on('context-menu', (_event, params) => {
+    const own = routeOf(params.linkURL, rendererOrigin);
+    if (!own) return;
+    const collection = appWindows.collectionOf(mainWindow);
+    Menu.buildFromTemplate([
+      { label: 'Open in New Window', click: () => void openAppWindow(own.route, { from: mainWindow, collection }) },
+      ...(process.platform === 'darwin'
+        ? [{ label: 'Open in New Tab', click: () => void openAppWindow(own.route, { tabOf: mainWindow, collection }) }]
+        : []),
+    ]).popup({ window: mainWindow });
   });
 
   // The main window only ever shows the renderer. A navigation anywhere else —
@@ -863,13 +1096,12 @@ function createWindow(ground: string, route: string | null = null): void {
   // also what keeps the backend's token in resmon's own document: the preload
   // hands it to the main window's top frame, so that frame must never hold
   // somebody else's page.
-  const rendererOrigin = `http://127.0.0.1:${rendererPort}`;
   const keepToRenderer = (event: Electron.Event, url: string) => {
     let origin = '';
     try { origin = new URL(url).origin; } catch { /* unparseable: refuse */ }
     if (origin !== rendererOrigin) {
       event.preventDefault();
-      if (origin) openLinkWindow(url);
+      if (origin) openLinkWindow(url, mainWindow);
     }
   };
   mainWindow.webContents.on('will-navigate', keepToRenderer);
@@ -892,15 +1124,21 @@ function createWindow(ground: string, route: string | null = null): void {
     // journey, which is a different variable in a different file with nothing
     // tying the two together. `launchEnv(stateDir, false)` already exists one
     // opt-in away.
+    // Into its tabs before it is shown, so it never appears as a window of its own first.
+    const host = how.tabOf && !how.tabOf.isDestroyed() ? how.tabOf : null;
+    if (host) host.addTabbedWindow(mainWindow);
+    // The window that said resmon is starting goes once this one is ready.
+    closeStartingWindow();
     if (isHiddenWindow()) return;
-    if (!isE2E()) mainWindow?.maximize();
+    if (maximize && !host) mainWindow.maximize();
     // `showInactive()` puts the window up without making it the key window, so
     // an automated run does not take the keyboard from the person at the Mac.
     // **This is the line that fixes the complaint** — measured, against each
     // half alone; see the table above `setActivationPolicy`. Unset, this is
     // `show()` exactly as before.
-    if (isBackgroundWindow()) mainWindow?.showInactive();
-    else mainWindow?.show();
+    if (isBackgroundWindow()) mainWindow.showInactive();
+    else mainWindow.show();
+    if (host) windowsChanged();
   });
 
   // Browser-style history navigation.
@@ -918,14 +1156,33 @@ function createWindow(ground: string, route: string | null = null): void {
   // `resmon:swipe-history`; a `swipe` that lands just after one of its moves
   // is the same gesture, and is not taken as a second.
   mainWindow.on('swipe', (_event, direction) => {
-    if (Date.now() - lastScrollSwipe < SWIPE_SETTLE_MS) return;
-    if (direction === 'left') navigateHistory('back');
-    if (direction === 'right') navigateHistory('forward');
+    if (Date.now() - (lastScrollSwipe.get(mainWindow) ?? 0) < SWIPE_SETTLE_MS) return;
+    if (direction === 'left') navigateHistory('back', mainWindow);
+    if (direction === 'right') navigateHistory('forward', mainWindow);
   });
 
+  // Each window keeps its own downloads, and is the one a notice goes to once focused.
+  installDownloads(mainWindow);
+  mainWindow.on('focus', () => appWindows.focus(mainWindow));
+  // The tab bar's new-tab button, on macOS.
+  mainWindow.on('new-window-for-tab', () => void openTab(mainWindow));
+  // A tab dragged into another window's tab bar moves its window to that
+  // group's frame, and its bar is laid out again once its title changes.
+  let settle: NodeJS.Timeout | null = null;
+  const moved = () => {
+    if (!tabsMode.active || process.platform !== 'darwin') return;
+    if (settle) clearTimeout(settle);
+    settle = setTimeout(() => { settle = null; relayTitle(mainWindow); }, 250);
+  };
+  mainWindow.on('moved', moved);
+  mainWindow.on('resized', moved);
   mainWindow.on('closed', () => {
-    mainWindow = null;
+    if (settle) clearTimeout(settle);
+    appWindows.remove(mainWindow);
+    tabsMode.windowsNow(appWindows.size);
+    windowsChanged();
   });
+  return mainWindow;
 }
 
 /**
@@ -939,7 +1196,7 @@ function createWindow(ground: string, route: string | null = null): void {
  * access to resmon's IPC bridge. It shows somebody else's page, so it gets the
  * privileges a stranger's page should have.
  */
-function openLinkWindow(url: string): void {
+function openLinkWindow(url: string, opener: BrowserWindow | null = null): void {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -951,15 +1208,17 @@ function openLinkWindow(url: string): void {
     return;
   }
 
+  const parentWindow = opener && !opener.isDestroyed() ? opener : actedOn(null);
   const win = new BrowserWindow({
     width: 900,
     height: 700,
     title: url,
-    // The main window's own ground, so the link window opens on the theme the
-    // app is showing rather than flashing another color before its page paints.
-    backgroundColor: mainWindow?.getBackgroundColor() ?? (nativeTheme.shouldUseDarkColors ? '#0a0a0b' : '#ffffff'),
+    // The ground of the window it was opened from, so the link window opens on
+    // the theme the app is showing rather than flashing another color before
+    // its page paints.
+    backgroundColor: parentWindow?.getBackgroundColor() ?? (nativeTheme.shouldUseDarkColors ? '#0a0a0b' : '#ffffff'),
     show: false,
-    parent: mainWindow ?? undefined,
+    parent: parentWindow ?? undefined,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -1019,9 +1278,13 @@ function openLinkWindow(url: string): void {
   void win.loadURL(url);
 }
 
-/** Go back or forward one page, if there is one; whether it moved. Never throws. */
-function navigateHistory(direction: 'back' | 'forward'): boolean {
-  const history = mainWindow?.webContents.navigationHistory;
+/**
+ * Go back or forward one page in a window, if there is one; whether it moved.
+ * Never throws. Each window has its own history: the History menu moves the
+ * window in front, or the one focused last.
+ */
+function navigateHistory(direction: 'back' | 'forward', window: unknown = null): boolean {
+  const history = actedOn(window)?.webContents.navigationHistory;
   if (!history) return false;
   try {
     if (direction === 'back' && history.canGoBack()) { history.goBack(); return true; }
@@ -1032,8 +1295,8 @@ function navigateHistory(direction: 'back' | 'forward'): boolean {
   return false;
 }
 
-/** When the renderer last moved for a two-finger swipe, and how long a `swipe` after it is the same gesture. */
-let lastScrollSwipe = 0;
+/** When each window's renderer last moved for a two-finger swipe, and how long a `swipe` after it is the same gesture. */
+const lastScrollSwipe = new WeakMap<BrowserWindow, number>();
 const SWIPE_SETTLE_MS = 1000;
 
 /**
@@ -1058,11 +1321,12 @@ function twoFingerSwipeNavigates(): boolean {
  * shortcut does (`atlas/src/shell/shortcuts.ts`), bringing the window forward
  * first: the menu is also there while a link window is in front.
  */
-function sendCommand(command: string): void {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.focus();
-  mainWindow.webContents.send('resmon:command', command);
+function sendCommand(command: string, window: unknown = null): void {
+  const target = actedOn(window);
+  if (!target) return;
+  if (target.isMinimized()) target.restore();
+  target.focus();
+  target.webContents.send('resmon:command', command);
 }
 
 /**
@@ -1093,7 +1357,8 @@ async function runCommandLineItem(action: 'install' | 'uninstall'): Promise<void
     detail: outcome.detail,
     buttons: ['OK'],
   };
-  if (mainWindow && !mainWindow.isDestroyed()) await dialog.showMessageBox(mainWindow, options);
+  const window = actedOn(null);
+  if (window) await dialog.showMessageBox(window, options);
   else await dialog.showMessageBox(options);
 }
 
@@ -1104,7 +1369,7 @@ async function runCommandLineItem(action: 'install' | 'uninstall'): Promise<void
  * all — so there was no Back, no Forward, and no keyboard shortcut for either.
  * This adds a History menu carrying the shortcuts macOS users expect
  * (Cmd+[ / Cmd+]) alongside the Cmd+Left / Cmd+Right pair, and keeps the rest
- * of the standard menu so Copy, Paste, Minimise and the window list behave as
+ * of the standard menu so Copy, Paste, Minimize and the window list behave as
  * they always have.
  *
  * With the Atlas renderer, File also starts a new conversation, Deep Dive, or
@@ -1113,10 +1378,15 @@ async function runCommandLineItem(action: 'install' | 'uninstall'): Promise<void
  * and takes them, so a menu item's accelerator runs it only when the
  * renderer left the key alone; a click is sent to the renderer, which does
  * what the key does. ⌘W stays Close Window.
+ *
+ * File opens another window (⌘N, Ctrl+N elsewhere) at the start page, and on
+ * macOS another tab of the window in front (⌘T); the Window menu there holds
+ * macOS's tab commands. Each item acts on the window in front, or on the one
+ * focused last when a link window is in front.
  */
 function installApplicationMenu(): void {
   const isMac = process.platform === 'darwin';
-  const send = (command: string) => () => sendCommand(command);
+  const send = (command: string) => (_item: Electron.MenuItem, window: unknown) => sendCommand(command, window);
   const settings: Electron.MenuItemConstructorOptions = {
     id: 'app-settings', label: isMac ? 'Settings…' : 'Settings', accelerator: 'CmdOrCtrl+,', click: send('settings'),
   };
@@ -1124,7 +1394,10 @@ function installApplicationMenu(): void {
     label: 'File',
     id: 'file-menu',
     submenu: [
-      { id: 'file-new-conversation', label: 'New Conversation', accelerator: 'CmdOrCtrl+N', click: send('new-conversation') },
+      { id: 'file-new-window', label: 'New Window', accelerator: 'CmdOrCtrl+N', click: (_item, window) => void openAppWindow(null, { from: actedOn(window) }) },
+      ...(isMac ? [{ id: 'file-new-tab', label: 'New Tab', accelerator: 'Cmd+T', click: (_item: Electron.MenuItem, window: unknown) => void openTab(actedOn(window)) }] : []),
+      { type: 'separator' },
+      { id: 'file-new-conversation', label: 'New Conversation', accelerator: 'Shift+CmdOrCtrl+N', click: send('new-conversation') },
       { id: 'file-new-dive', label: 'New Deep Dive', accelerator: 'CmdOrCtrl+D', click: send('new-dive') },
       { id: 'file-new-sweep', label: 'New Deep Sweep', accelerator: 'Shift+CmdOrCtrl+D', click: send('new-sweep') },
       { type: 'separator' },
@@ -1171,13 +1444,13 @@ function installApplicationMenu(): void {
           id: 'history-back',
           label: 'Back',
           accelerator: isMac ? 'Cmd+[' : 'Alt+Left',
-          click: () => navigateHistory('back'),
+          click: (_item, window) => navigateHistory('back', window),
         },
         {
           id: 'history-forward',
           label: 'Forward',
           accelerator: isMac ? 'Cmd+]' : 'Alt+Right',
-          click: () => navigateHistory('forward'),
+          click: (_item, window) => navigateHistory('forward', window),
         },
         { type: 'separator' },
         // The other pair macOS users reach for. Electron allows one accelerator
@@ -1187,19 +1460,19 @@ function installApplicationMenu(): void {
           label: 'Back',
           accelerator: isMac ? 'Cmd+Left' : 'Backspace',
           visible: false,
-          click: () => navigateHistory('back'),
+          click: (_item, window) => navigateHistory('back', window),
         },
         {
           id: 'history-forward-alt',
           label: 'Forward',
           accelerator: isMac ? 'Cmd+Right' : 'Shift+Backspace',
           visible: false,
-          click: () => navigateHistory('forward'),
+          click: (_item, window) => navigateHistory('forward', window),
         },
       ],
     },
     { role: 'viewMenu' },
-    { role: 'windowMenu' },
+    isMac ? macWindowMenu() : { role: 'windowMenu' },
     {
       role: 'help' as const,
       submenu: [
@@ -1209,6 +1482,51 @@ function installApplicationMenu(): void {
     },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+/**
+ * The Window menu on macOS: the system's own items, macOS's tab commands with
+ * their usual keys, and the list of open windows, which macOS adds to the menu
+ * given the `window` role. Show Tab Bar, Merge All Windows, and Move Tab to New
+ * Window are resmon's own items rather than the system's, so the windows know
+ * to leave room for the tab bar (`TabsMode`).
+ */
+function macWindowMenu(): Electron.MenuItemConstructorOptions {
+  const acting = (act: (window: BrowserWindow | null) => void) =>
+    (_item: Electron.MenuItem, window: unknown) => act(actedOn(window));
+  return {
+    role: 'window',
+    id: 'window-menu',
+    submenu: [
+      { role: 'minimize' },
+      { role: 'zoom' },
+      { type: 'separator' },
+      { id: 'window-previous-tab', role: 'selectPreviousTab', accelerator: 'Ctrl+Shift+Tab' },
+      { id: 'window-next-tab', role: 'selectNextTab', accelerator: 'Ctrl+Tab' },
+      { id: 'window-move-tab', label: 'Move Tab to New Window', click: acting(moveTabToNewWindow) },
+      { id: 'window-merge', label: 'Merge All Windows', click: acting(mergeAllWindows) },
+      { type: 'separator' },
+      { id: 'window-tab-bar', label: tabsMode.active ? 'Hide Tab Bar' : 'Show Tab Bar', click: acting(toggleTabBar) },
+      { id: 'window-all-tabs', role: 'showAllTabs' },
+      { type: 'separator' },
+      { role: 'front' },
+    ],
+  };
+}
+
+/** Move Tab to New Window: the tab in front becomes a window of its own. */
+function moveTabToNewWindow(window: BrowserWindow | null): void {
+  if (!window || process.platform !== 'darwin') return;
+  window.moveTabToNewWindow();
+  windowsChanged();
+}
+
+/** Show Tab Bar or Hide Tab Bar, for the window in front and its tabs. */
+function toggleTabBar(window: BrowserWindow | null): void {
+  if (!window || process.platform !== 'darwin') return;
+  window.toggleTabBar();
+  tabsMode.toggleBar(appWindows.size);
+  windowsChanged();
 }
 
 // ---------------------------------------------------------------------------
@@ -1225,6 +1543,317 @@ function installApplicationMenu(): void {
 // the user chooses restart-now or on-next-quit. Failed checks are logged and
 // never surfaced — a laptop being offline is not an event.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// The background service at launch (`service.ts`)
+// ---------------------------------------------------------------------------
+
+function launchctl(args: string[]): Promise<{ code: number; out: string; err: string }> {
+  return new Promise((resolve) => {
+    execFile(process.env.RESMON_LAUNCHCTL || 'launchctl', args, { timeout: 30_000 }, (error, stdout, stderr) => {
+      const status = error && typeof (error as { code?: unknown }).code === 'number' ? (error as { code: number }).code : 1;
+      resolve({ code: error ? status : 0, out: String(stdout), err: String(stderr) });
+    });
+  });
+}
+
+/** Runs in progress on an engine, or null when it does not say. */
+function activeRuns(port: number, token: string): Promise<number | null> {
+  return new Promise((resolve) => {
+    const req = http.get(
+      { host: '127.0.0.1', port, path: '/api/executions/active', timeout: 2_000, headers: bearer(token) },
+      (res) => {
+        let body = '';
+        res.on('data', (chunk) => { body += chunk; });
+        res.on('end', () => {
+          try {
+            const ids = (JSON.parse(body) as { active_ids?: unknown }).active_ids;
+            resolve(res.statusCode === 200 && Array.isArray(ids) ? ids.length : null);
+          } catch {
+            resolve(null);
+          }
+        });
+      },
+    );
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.on('error', () => resolve(null));
+  });
+}
+
+/** The service's engine as its lock and health say, or null when none answers. */
+async function runningService(): Promise<Running | null> {
+  const lock = readLockFile();
+  const token = lock ? readTokenFile(lock.port) : null;
+  if (!lock || !token) return null;
+  const health = await fetchHealth(lock.port, token, 1_500);
+  if (!health) return null;
+  return { build: health.build ?? null, version: health.version ?? null, active: await activeRuns(lock.port, token) };
+}
+
+/** Write the unit again to start this copy, keeping its port, through the engine's own `service_manager`. */
+function rewriteUnit(port: number | null): Promise<boolean> {
+  const { scriptDir, pythonPath } = backendLocation();
+  const env: NodeJS.ProcessEnv = { ...process.env, RESMON_APP_EXECUTABLE: process.execPath };
+  if (port !== null) env.RESMON_DAEMON_PORT = String(port);
+  if (app.isPackaged) {
+    // The same state the service's engine is given (`startServiceEngine`).
+    const state = stateDir();
+    env.RESMON_DB_PATH = env.RESMON_DB_PATH || path.join(state, 'resmon.db');
+    env.RESMON_REPORTS_DIR = env.RESMON_REPORTS_DIR || path.join(state, 'resmon_reports');
+  }
+  const write = 'import sys; sys.path.insert(0, sys.argv[1]); '
+    + 'from implementation_scripts import service_manager as m; m.install(register=False)';
+  return new Promise((resolve) => {
+    execFile(pythonPath, ['-I', '-c', write, scriptDir], { env, timeout: 60_000 }, (error, _out, stderr) => {
+      if (error) console.error(`[service] The unit could not be written again: ${String(stderr).trim() || error.message}`);
+      resolve(!error);
+    });
+  });
+}
+
+function serviceWorld(): World {
+  const label = process.env.RESMON_SERVICE_LABEL || 'com.resmon.daemon';
+  const domain = `gui/${os.userInfo().uid}`;
+  const target = `${domain}/${label}`;
+  const unitFile = path.join(
+    process.env.RESMON_SERVICE_UNIT_DIR || path.join(os.homedir(), 'Library', 'LaunchAgents'), `${label}.plist`);
+  const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+  return {
+    async facts(): Promise<Facts> {
+      // No unit, no service: launchd is not asked at all.
+      if (!fs.existsSync(unitFile)) {
+        return { unit: null, job: { loaded: false, pid: null, disabled: false }, running: null, programExists: false };
+      }
+      let unit: Unit | null;
+      try {
+        unit = unitFromPlist(JSON.parse(execFileSync('plutil', ['-convert', 'json', '-o', '-', unitFile],
+          { encoding: 'utf8', timeout: 10_000 })));
+      } catch {
+        unit = { program: null, runsApp: false, port: null };
+      }
+      const shown = await launchctl(['print', target]);
+      const listed = await launchctl(['print-disabled', domain]);
+      return {
+        unit,
+        job: {
+          loaded: shown.code === 0,
+          pid: shown.code === 0 ? pidFromPrint(shown.out) : null,
+          disabled: disabledIn(listed.out, label),
+        },
+        running: await runningService(),
+        programExists: !!unit?.program && fs.existsSync(unit.program),
+      };
+    },
+    async bootout(): Promise<boolean> {
+      await launchctl(['bootout', target]);
+      // The service quits its engine first, which gives a running search 20 s to stop.
+      for (let i = 0; i < 120; i++) {
+        if ((await launchctl(['print', target])).code !== 0) return true;
+        await sleep(250);
+      }
+      return false;
+    },
+    async bootstrap() {
+      const started = await launchctl(['bootstrap', domain, unitFile]);
+      return { ok: started.code === 0, said: (started.err || started.out).trim() };
+    },
+    async kickstart() {
+      return (await launchctl(['kickstart', '-k', target])).code === 0;
+    },
+    rewrite: rewriteUnit,
+    async askToRestart(active: number): Promise<boolean> {
+      const runs = active === 1 ? 'a run' : `${active} runs`;
+      const { response } = await dialog.showMessageBox({
+        type: 'question',
+        message: 'Restart the background service on this version of resmon?',
+        detail: `The background service is running ${runs} on another build of resmon. Restarting it stops `
+          + `${active === 1 ? 'that run' : 'those runs'}, and Restart on a run’s page starts one again. `
+          + 'Kept, the service goes on running its own build, and this window opens on it.',
+        buttons: ['Restart the service', 'Keep it running'],
+        defaultId: 0,
+        cancelId: 1,
+      });
+      return response === 0;
+    },
+    releaseLock: () => app.releaseSingleInstanceLock(),
+    holdsLock: () => app.hasSingleInstanceLock(),
+    sleep,
+    log: (line: string) => console.log(`[service] ${line}`),
+    waiting: showStartingWindow,
+  };
+}
+
+/** The small window shown while this launch waits for the background service, and the timer that holds it back. */
+let startingWindow: BrowserWindow | null = null;
+let startingTimer: NodeJS.Timeout | null = null;
+/** How long a wait for the service lasts before the window shows: a service that answers at once shows nothing. */
+const STARTING_QUIET_MS = 1_500;
+
+/**
+ * The starting window's page: what is happening and why it can take minutes.
+ * No script and no preload, and nothing loaded from anywhere: the page is the
+ * whole of it. The engine is not up, so the stored theme cannot be read; the
+ * system's stands in, in the app's own two grounds and inks.
+ */
+function startingPage(why: 'starting' | 'started', dark: boolean): string {
+  const [ground, ink, ink2, ink3, rule] = dark
+    ? ['#0a0a0b', '#f1eee6', '#bfbab0', '#8f8b82', '#232322']
+    : ['#ffffff', '#141413', '#45433e', '#69665f', '#e3e1dc'];
+  const doing = why === 'starting'
+    ? 'Waiting for its background service to finish starting.'
+    : 'Waiting for its background service to start on this version of resmon.';
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<title>resmon</title><style>
+html, body { margin: 0; height: 100%; background: ${ground}; color: ${ink}; cursor: default; user-select: none; }
+body { box-sizing: border-box; padding: 44px 32px 24px; font: 13px/1.5 -apple-system, "Helvetica Neue", "Segoe UI", sans-serif; -webkit-app-region: drag; }
+h1 { margin: 0 0 6px; font-size: 15px; font-weight: 600; letter-spacing: -.005em; }
+p { margin: 0; color: ${ink2}; }
+.track { position: relative; height: 2px; margin: 0 0 16px; overflow: hidden; border-radius: 1px; background: ${rule}; }
+.track::after { content: ""; position: absolute; inset: 0 auto 0 0; width: 30%; background: ${ink3}; animation: go 1.6s cubic-bezier(.45, 0, .55, 1) infinite; }
+@keyframes go { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+@media (prefers-reduced-motion: reduce) { .track::after { animation: none; width: 100%; opacity: .5; } }
+.small { margin-top: 12px; font-size: 12px; color: ${ink3}; }
+</style></head><body>
+<div class="track" role="progressbar" aria-label="Waiting for the background service"></div>
+<h1>resmon is starting</h1>
+<p>${doing} After an update, the service’s first start updates the database that holds your collection, which can take a few minutes. Before it changes anything, it keeps a copy of the database in the same folder, if the disk has room.</p>
+<p class="small">This window closes when resmon opens. Close it to stop waiting; the service goes on starting.</p>
+</body></html>`;
+}
+
+/**
+ * Say that resmon is starting, once a wait for its background service has
+ * lasted `STARTING_QUIET_MS`. Without it a launch waiting for a service that
+ * migrates its database showed nothing for minutes. Closing the window quits
+ * this launch, as closing the last window does; the service is left starting.
+ */
+function showStartingWindow(why: 'starting' | 'started'): void {
+  if (startingWindow || startingTimer) return;
+  startingTimer = setTimeout(() => {
+    startingTimer = null;
+    const dark = nativeTheme.shouldUseDarkColors;
+    const window = new BrowserWindow({
+      width: 440,
+      height: 248,
+      useContentSize: true,
+      resizable: false,
+      maximizable: false,
+      fullscreenable: false,
+      title: 'resmon',
+      show: false,
+      backgroundColor: dark ? '#0a0a0b' : '#ffffff',
+      ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const } : {}),
+      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+    });
+    startingWindow = window;
+    window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    window.webContents.on('will-navigate', (event) => event.preventDefault());
+    window.once('ready-to-show', () => {
+      if (isHiddenWindow() || window.isDestroyed()) return;
+      if (isBackgroundWindow()) window.showInactive();
+      else window.show();
+    });
+    window.on('closed', () => { if (startingWindow === window) startingWindow = null; });
+    console.log(`[service] Showing that resmon is starting (${why})`);
+    void window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(startingPage(why, dark))}`);
+  }, STARTING_QUIET_MS);
+}
+
+/** The wait is over before the window showed: it never will. One already shown stays until resmon's window is ready. */
+function holdBackStartingWindow(): void {
+  if (startingTimer) clearTimeout(startingTimer);
+  startingTimer = null;
+}
+
+/** resmon's window is ready, or this launch is done: the starting window goes. */
+function closeStartingWindow(): void {
+  holdBackStartingWindow();
+  const window = startingWindow;
+  startingWindow = null;
+  if (window && !window.isDestroyed()) window.destroy();
+}
+
+/**
+ * Hand this launch's window to the resmon that holds the profile now: the
+ * service it waited for or started. Asking for the lock again sends that
+ * resmon this launch's request, and it opens the window on its own engine
+ * (`second-instance`) while this launch quits. True when it did; false when
+ * nothing holds the profile any more, and this launch, holding it again,
+ * opens on its own.
+ *
+ * It does not open again (`app.relaunch`) and leave the request to a new
+ * launch: Electron starts that one only once this one has exited, so the
+ * window would wait on this launch's whole exit, which the e2e suite measured
+ * at 15 to 63 s under load, with nothing on the screen meanwhile.
+ */
+function handOver(): boolean {
+  if (app.requestSingleInstanceLock()) return false;
+  console.log('[service] Asked the resmon that holds the profile for the window');
+  app.quit();
+  return true;
+}
+
+/**
+ * Make sure of the background service before this launch opens anything
+ * (`service.ts`). True when this process is done: it handed over, or another
+ * resmon has the window.
+ */
+async function checkServiceAtLaunch(): Promise<boolean> {
+  let outcome: Awaited<ReturnType<typeof ensureService>>;
+  try {
+    outcome = await ensureService(serviceWorld(), {
+      exe: process.execPath, build: BUILD_ID, temporary: temporaryPlace(process.execPath),
+    });
+  } catch (err) {
+    outcome = { done: 'failed', why: err instanceof Error ? err.message : String(err) };
+  }
+  console.log(`[service] At launch: ${JSON.stringify(outcome)}`);
+  holdBackStartingWindow();
+  if (outcome.done === 'started') return handOver();
+  // The lock was let go for a service that did not come up: taken back, or, if
+  // something took it meanwhile, handed over to that.
+  if (!app.hasSingleInstanceLock()) return handOver();
+  return false;
+}
+
+/**
+ * A launch that did not get the profile's lock. Electron gives it no `ready`:
+ * it can open no window and ask nothing, and the resmon holding the profile
+ * opened the window when this launch asked for the lock. An older build of this
+ * copy's idle service is replaced with this build's (`replaceHolder`), which
+ * then gets the window when this launch asks again; anything else is left as it
+ * is. Then this launch exits.
+ */
+async function launchWithoutLock(): Promise<void> {
+  let outcome: HolderOutcome;
+  try {
+    const world: HolderWorld = { ...serviceWorld(), alive: processAlive };
+    outcome = await replaceHolder(world, {
+      exe: process.execPath, build: BUILD_ID, temporary: temporaryPlace(process.execPath),
+    });
+  } catch (err) {
+    outcome = { done: 'failed', why: err instanceof Error ? err.message : String(err) };
+  }
+  console.log(`[service] Another resmon holds the profile: ${JSON.stringify(outcome)}`);
+  if ((outcome.done === 'replaced' || outcome.done === 'starting') && app.requestSingleInstanceLock()) {
+    // Nothing holds the profile yet: the relaunch gets `ready`, and opens on
+    // the service or waits for it with the starting window.
+    app.releaseSingleInstanceLock();
+    app.relaunch();
+  }
+  app.exit(0);
+}
+
+/** Whether a process is still running. */
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
 
 function initAutoUpdater(): void {
   if (!app.isPackaged) return;
@@ -1273,8 +1902,11 @@ function initAutoUpdater(): void {
 }
 
 app.whenReady().then(async () => {
-  // A second instance has handed over and is exiting (`SOLE_INSTANCE`).
-  if (!SOLE_INSTANCE) return;
+  // Before anything else: this launch may hand over to the service it starts.
+  if (CHECKS_SERVICE && await checkServiceAtLaunch()) return;
+  // A second instance has handed over and is exiting (`SOLE_INSTANCE`). One
+  // that took the lock back after the check (`handOver`) opens on its own.
+  if (!app.hasSingleInstanceLock()) return;
   try {
     // The renderer server comes first: the backend has to be told the
     // renderer's exact origin, which is only known once this port is bound.
@@ -1292,8 +1924,8 @@ app.whenReady().then(async () => {
       backendProcess = startServiceEngine(backendPort, backendToken, rendererOrigin);
       // The engine takes the daemon lock and imports the whole app before it
       // answers; a cold start of the packaged engine was measured at a few
-      // seconds, and the health wait allows 15.
-      await waitForBackend(backendPort, backendToken);
+      // seconds, and one that migrates the database takes longer.
+      await waitForEngine(backendProcess, backendPort, backendToken);
       console.log('[main] The service is running');
     }
 
@@ -1314,13 +1946,13 @@ app.whenReady().then(async () => {
       backendToken = mintToken();
       console.log(`[main] Starting backend on port ${backendPort}`);
       backendProcess = startBackend(backendPort, backendToken, rendererOrigin);
-      await waitForBackend(backendPort, backendToken);
+      await waitForEngine(backendProcess, backendPort, backendToken);
       console.log('[main] Backend is ready');
     }
 
     // IPC: the backend's port and token, for the preload only. Synchronous
     // because the renderer's `getBaseUrl()` is, and it is called during the
-    // first render. Answered only to the main window's own top frame. That
+    // first render. Answered only to an app window's own top frame. That
     // frame can only ever hold a document from the renderer origin — the
     // `will-navigate` guard in `createWindow` sends every other navigation to a
     // link window, which has no preload — so the frame check is the origin
@@ -1328,13 +1960,15 @@ app.whenReady().then(async () => {
     // it is still "" (observed under Playwright), and a handler that throws
     // never sets `returnValue`, which leaves the renderer blocked in sendSync.
     // Link windows have no preload and are refused anyway.
-    const fromRenderer = (event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): boolean => {
+    // Every app window gets the same answer: one engine, one port, one token.
+    // The handlers below answer each window about itself, through
+    // `senderWindow`, the window that asked.
+    const senderWindow = (event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): BrowserWindow | null => {
       const frame = event.senderFrame;
-      return mainWindow !== null
-        && event.sender === mainWindow.webContents
-        && frame !== null && frame === mainWindow.webContents.mainFrame
-        && (frame.url === '' || frame.url.startsWith(`${rendererOrigin}/`));
+      const window = appWindows.forSender(event.sender, frame);
+      return window && frame && (frame.url === '' || frame.url.startsWith(`${rendererOrigin}/`)) ? window : null;
     };
+    const fromRenderer = (event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): boolean => senderWindow(event) !== null;
     ipcMain.on('resmon:backend-connection', (event) => {
       let answer: { port: string; token: string | null } | null = null;
       try {
@@ -1364,20 +1998,89 @@ app.whenReady().then(async () => {
     // is known for the same gesture. Answered only to the renderer's own frame.
     ipcMain.handle('resmon:swipe-navigation', (event) => fromRenderer(event) && twoFingerSwipeNavigates());
     ipcMain.handle('resmon:swipe-history', (event, direction: unknown) => {
-      if (!fromRenderer(event) || (direction !== 'back' && direction !== 'forward')) return false;
-      lastScrollSwipe = Date.now();
-      return navigateHistory(direction);
+      const window = senderWindow(event);
+      if (!window || (direction !== 'back' && direction !== 'forward')) return false;
+      lastScrollSwipe.set(window, Date.now());
+      return navigateHistory(direction, window);
+    });
+
+    // IPC: the windows. `resmon:window-state` is what a window's page reads
+    // before it first draws (its collection, and the room to leave for macOS's
+    // tab bar), asked synchronously like the connection; later changes are
+    // sent on the same channel. `resmon:open-window` opens another window at a
+    // page of the app, or the start page, beside the one that asked or, on
+    // macOS, in its tabs; it shows the same collection. `resmon:run-started`
+    // says which window started a run, so the run's notification shows it there.
+    ipcMain.on('resmon:window-state', (event) => {
+      let answer: ReturnType<typeof windowState> | null = null;
+      try {
+        const window = senderWindow(event);
+        if (window) answer = windowState(window);
+      } finally {
+        event.returnValue = answer;
+      }
+    });
+    // `resmon:window-collection` is the switch in a window's top bar: that
+    // window shows another collection, by id, and no other window changes.
+    ipcMain.on('resmon:window-collection', (event, collection: unknown) => {
+      const window = senderWindow(event);
+      if (!window) return;
+      const id = typeof collection === 'string' && /^\d{1,12}$/.test(collection) ? collection : null;
+      if (appWindows.setCollection(window, id) && !window.webContents.isDestroyed()) {
+        window.webContents.send('resmon:window-state', windowState(window));
+      }
+    });
+    ipcMain.on('resmon:open-window', (event, route: unknown, tab: unknown) => {
+      const window = senderWindow(event);
+      if (!window) return;
+      const collection = appWindows.collectionOf(window);
+      void openAppWindow(cleanRoute(route), tab === true ? { tabOf: window, collection } : { from: window, collection });
+    });
+    ipcMain.on('resmon:run-started', (event, executionId: unknown) => {
+      const window = senderWindow(event);
+      if (window) runOwners.claim(executionId, window.id);
+    });
+    ipcMain.on('resmon:run-queued', (event, what: unknown) => {
+      const window = senderWindow(event);
+      if (window && what && typeof what === 'object') runOwners.claimQueued(what as { ticket?: unknown; routineId?: unknown }, window.id);
+    });
+    // One window changed the runs going now, or how the app looks: the others
+    // read it again at once (`relayToOtherWindows`).
+    for (const channel of RELAYED) {
+      ipcMain.on(channel, (event) => { relayToOtherWindows(appWindows, senderWindow(event), channel); });
+    }
+    // The theme the app shows (`/api/appearance`), so the parts of a window the
+    // system draws follow it: macOS's tab bar drew its titles for the system's
+    // dark theme over a light page, where they could not be read.
+    // A tab bar already drawn kept its titles in the old theme's color after a
+    // change (measured on macOS 26) until the titles were set again, after the
+    // new theme had reached the window, so they are set again then: for every
+    // window after a change, and for a window once its own page has followed.
+    ipcMain.on('resmon:theme-source', (event, theme: unknown) => {
+      const window = senderWindow(event);
+      if (!window || (theme !== 'system' && theme !== 'light' && theme !== 'dark')) return;
+      const changed = nativeTheme.themeSource !== theme;
+      if (changed) {
+        nativeTheme.themeSource = theme;
+        // Each window's own ground follows too, as `atlasGround` paints a new one.
+        const ground = nativeTheme.shouldUseDarkColors ? '#0a0a0b' : '#ffffff';
+        for (const each of appWindows.all()) each.setBackgroundColor(ground);
+      }
+      if (process.platform === 'darwin' && tabsMode.active) {
+        setTimeout(() => { for (const each of changed ? appWindows.all() : [window]) relayTitle(each); }, 800);
+      }
     });
 
     // IPC: choose a directory via native folder picker.
-    ipcMain.handle('resmon:choose-directory', async (_evt, defaultPath?: string) => {
+    ipcMain.handle('resmon:choose-directory', async (evt, defaultPath?: string) => {
       const opts: Electron.OpenDialogOptions = {
         title: 'Select folder',
         properties: ['openDirectory', 'createDirectory'],
       };
       if (defaultPath) opts.defaultPath = defaultPath;
+      // On the window that asked, as a sheet of its own.
       const result = await dialog.showOpenDialog(
-        mainWindow ?? (undefined as unknown as BrowserWindow),
+        senderWindow(evt) ?? (undefined as unknown as BrowserWindow),
         opts,
       );
       if (result.canceled || result.filePaths.length === 0) return null;
@@ -1402,14 +2105,15 @@ app.whenReady().then(async () => {
     // Both are the documented install locations resmon already probes in
     // ``ai_cli.known_locations``; a picker that cannot reach them would be a
     // button that fails for exactly the users who need it.
-    ipcMain.handle('resmon:choose-file', async (_evt, defaultPath?: string) => {
+    ipcMain.handle('resmon:choose-file', async (evt, defaultPath?: string) => {
       const opts: Electron.OpenDialogOptions = {
         title: 'Select command',
         properties: ['openFile', 'showHiddenFiles', 'treatPackageAsDirectory'],
       };
       if (defaultPath) opts.defaultPath = defaultPath;
+      // On the window that asked, as a sheet of its own.
       const result = await dialog.showOpenDialog(
-        mainWindow ?? (undefined as unknown as BrowserWindow),
+        senderWindow(evt) ?? (undefined as unknown as BrowserWindow),
         opts,
       );
       if (result.canceled || result.filePaths.length === 0) return null;
@@ -1433,6 +2137,25 @@ app.whenReady().then(async () => {
       return true;
     });
 
+    // IPC: send a file the Library holds as removed to the system's Trash,
+    // where the person can still put it back. Only a file directly inside
+    // `resmon-library-<id>/removed/<id>/` is taken: the engine hands this path
+    // over after checking it (`library_removal.release_request`), and nothing
+    // else on the disk can be sent to the Trash through this channel. Asked only by the
+    // renderer's own top frame in one of resmon's windows, as the other window channels are.
+    ipcMain.handle('resmon:trash-path', async (evt, targetPath: string) => {
+      if (!fromRenderer(evt)) return 'Only resmon\u2019s own window can move a file to the Trash.';
+      if (!libraryRemovedFile(targetPath)) return 'Only a file the Library holds as removed can be moved to the Trash.';
+      try {
+        await shell.trashItem(targetPath);
+        return '';
+      } catch (err) {
+        return err instanceof Error ? err.message : String(err);
+      }
+    });
+
+    // Every handler an app window's preload asks synchronously is registered above.
+    windowsCanOpen();
     installApplicationMenu();
     // An AppImage mounts at a new path on every run; the `resmon` command the
     // menu installed runs a copy of the command line, which is kept current.
@@ -1462,7 +2185,7 @@ app.on('second-instance', (_event, argv) => {
 
 // The Dock icon clicked, or the app opened again from the Finder, on macOS.
 app.on('activate', () => {
-  if (SERVICE && BrowserWindow.getAllWindows().length === 0) void showWindow(null);
+  if (SERVICE && appWindows.size === 0) void showWindow(null);
 });
 
 // launchd and systemd stop a service with SIGTERM. Node's default is to exit on

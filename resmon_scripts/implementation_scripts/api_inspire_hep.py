@@ -14,8 +14,10 @@ from .api_base import (
     NormalizedResult,
     RateLimiter,
     note_parse_failure_unless_transport,
+    note_retry,
     safe_request,
     sent_params,
+    waiting,
 )
 from .config import DEFAULT_BACKOFF_BASE, DEFAULT_MAX_RETRIES
 
@@ -39,7 +41,7 @@ _cooldown_until = 0.0
 # INSPIRE's Terms of Use §5(ii) permit reuse of an abstract only where that
 # abstract's own `source` field is arXiv or CERN; the rest are carried under
 # licenses INSPIRE cannot pass on. The API returns the field the license turns
-# on, so honouring it is a matter of reading it rather than of judgment.
+# on, so honoring it is a matter of reading it rather than of judgment.
 #
 # Scanning the whole list rather than testing abstracts[0] is defensive, not
 # measured: a record can carry more than one abstract and INSPIRE documents no
@@ -90,7 +92,8 @@ def _single_request(params: dict[str, object]) -> httpx.Response:
     with _REQUEST_LOCK:
         cooldown_remaining = _cooldown_until - time.monotonic()
         if cooldown_remaining > 0:
-            time.sleep(cooldown_remaining)
+            with waiting("cooldown", cooldown_remaining):
+                time.sleep(cooldown_remaining)
         response = safe_request(
             "GET",
             _INSPIRE_API_URL,
@@ -120,7 +123,9 @@ def _request_page(params: dict[str, object]) -> httpx.Response:
                 DEFAULT_MAX_RETRIES,
                 wait,
             )
-            time.sleep(wait)
+            note_retry()
+            with waiting("retry", wait):
+                time.sleep(wait)
             continue
 
         if (
@@ -135,7 +140,9 @@ def _request_page(params: dict[str, object]) -> httpx.Response:
                 DEFAULT_MAX_RETRIES,
                 wait,
             )
-            time.sleep(wait)
+            note_retry()
+            with waiting("retry", wait):
+                time.sleep(wait)
             continue
         return response
 
@@ -307,6 +314,13 @@ class InspireHepClient(BaseAPIClient):
                 if isinstance(term, str) and term.strip():
                     categories.append(term.strip())
 
+        # The arXiv ids the record names (``arxiv_eprints``, already requested):
+        # each is the paper's copy at arXiv, whose license arXiv states.
+        identifiers = []
+        for eprint in metadata.get("arxiv_eprints") or []:
+            if isinstance(eprint, dict) and isinstance(eprint.get("value"), str):
+                identifiers.append(("arxiv", eprint["value"].strip()))
+
         external_id = str(control_number)
         return NormalizedResult(
             source_repository="inspire_hep",
@@ -318,6 +332,7 @@ class InspireHepClient(BaseAPIClient):
             publication_date=publication_date,
             url=f"https://inspirehep.net/literature/{external_id}",
             categories=categories,
+            identifiers=identifiers,
         )
 
 

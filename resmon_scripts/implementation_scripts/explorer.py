@@ -6,7 +6,7 @@ date, and free text across titles and abstracts.
 
 Scale
 -----
-The design target is a corpus of ~100,000 papers, and three decisions follow
+The design target is a corpus of ~100,000 papers, and four decisions follow
 from it. Each is a deliberate trade, not a default:
 
 **Free text goes through FTS5, not LIKE.** ``LIKE '%term%'`` has no usable
@@ -26,12 +26,30 @@ of truth; these are derived.
 **Pagination is keyset, not OFFSET.** ``LIMIT 50 OFFSET 90000`` makes SQLite
 walk ninety thousand rows to discard them. A cursor on the sort key seeks
 directly instead, so page 1,800 costs what page 1 costs. The price is that
-pages must be walked in order rather than jumped to, which suits a "load more"
-list and is why the interface is built that way.
+pages must be walked in order rather than jumped to by number, which suits a
+list that reads more as it scrolls and is why the interface is built that way.
+A jump goes to a date instead (``start_date``), which the same seek reaches.
 
-Result counts are capped (:data:`COUNT_CAP`). Counting an unbounded match set
-is the one remaining full scan, and "10,000+" is as useful to a person as an
-exact five-digit number.
+**Counts are exact, within a time budget** (:data:`COUNT_BUDGET_S`). Counting
+every match is the one remaining full scan, and at 100,000 papers the broadest
+word search counts in under a tenth of a second, so the count is made, not
+estimated. The budget is for what that measurement does not cover: a larger
+collection, a slower machine, the LIKE fallback. A count that runs out of time
+stops and says so, with the number it reached: ``total_is_exact`` is false and
+``total`` is a floor, never a guess. A later page of the same search reuses the
+first page's count rather than counting again.
+
+One collection at a time
+------------------------
+Every read takes the collection it searches (``collection_id``), and the
+filters narrow that collection's papers: the clause is one lookup per paper in
+the membership's primary key (``paper_collections.MEMBER_SQL``), tested before
+the other filters when the collection holds a minority of the papers and after
+them otherwise. A count of a whole collection reads the membership table
+instead of walking the papers. While there is one collection it holds every
+paper, and the clause is left out.
+``collection_id=None`` searches every paper in the database, which no route
+asks for: an absent collection there means the default one.
 
 Sorting by meaning
 ------------------
@@ -45,10 +63,16 @@ That exception was bought with a measurement. The text filter is an ``AND`` over
 every word typed, so a plain-English query matches no paper and the sort has
 nothing to re-order. On the real 15,707-paper corpus, **eleven of twenty natural
 queries returned an empty page** while the same vectors, unfiltered, found a
-relevant paper for almost every one. A control labelled "Closest to" that
+relevant paper for almost every one. A control labeled "Closest to" that
 answers from a keyword slice is not doing what it says.
 
-Three consequences follow, and all are deliberate.
+Four consequences follow, and all are deliberate.
+
+**Every match is ranked.** The ranking reads every stored vector in scope
+(:func:`vector_index.rank_all`), not a nearest-neighbour query: ``vec0``'s
+``k`` stops at 4,096, so a ranking asked of more papers than that was refused
+whole and every paper came back unranked. Measured on 100,000 papers with
+768-dimension vectors: 0.24 s to rank all of them.
 
 **Papers with no vector are appended, not dropped.** A corpus mid-backfill, or
 one holding papers whose sources' terms permitted no abstract, would otherwise
@@ -62,23 +86,33 @@ the keyword set asks for ``newest``.
 
 **Pagination becomes an offset.** Keyset pagination needs a sort key stored in an
 index; a ranking is computed per query and has none. The cursor in this mode is
-the number of rows already returned. That is the thing keyset pagination exists
-to avoid, and it is affordable here for a reason the newest sort cannot rely on:
-the ranking is bounded by :data:`COUNT_CAP`, already materialised in memory, and
-walking to row 9,000 of a Python list costs nothing.
+the number of rows already returned, into a ranking the first page computes and
+later pages of the same search reuse (:data:`_RANKINGS`), so "Show more" costs a
+slice of a list rather than another ranking.
 """
 
 from __future__ import annotations
 
+import hashlib
+import re
 import sqlite3
-from typing import Any, Optional
+import threading
+import time
+from array import array
+from collections import OrderedDict
+from dataclasses import dataclass
+from typing import Any, Iterator, Optional
 
 from . import vector_index
+from .paper_collections import holds_every_paper, member_clause, revision as collection_revision
 
-# Above this, the total is reported as "N+" rather than counted exactly. The
-# exact number of matches beyond ten thousand changes no decision a user makes,
-# and counting it is the only unbounded scan left in the query.
-COUNT_CAP = 10_000
+# How long counting the matches may take before the count stops and says what
+# it reached. At 100,000 papers the slowest count measured (every paper with
+# "model" in it, 92,934 of them) took 0.09 s, so this is a bound on the cases
+# that measurement did not cover, not a limit anyone meets in ordinary use.
+COUNT_BUDGET_S = 1.5
+# How often, in SQLite virtual-machine steps, a count looks at the clock.
+_COUNT_CHECK_STEPS = 10_000
 
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 200
@@ -125,6 +159,128 @@ def _fts_query(text: str) -> str:
     return " AND ".join(quoted)
 
 
+@dataclass(frozen=True)
+class Count:
+    """How many papers match, and whether that is all of them.
+
+    ``exact`` is false only when counting ran out of :data:`COUNT_BUDGET_S`; then
+    ``total`` is how many it had counted by then, which every match is at least.
+    """
+
+    total: int
+    exact: bool
+
+
+# Counts and rankings already made, for the later pages of the same search. Keyed
+# by the database file, the query, and a fingerprint of what it reads, so a paper
+# added or removed since is a miss rather than a stale answer; the collection's
+# revision is in the fingerprint, so a move or a copy that changed which papers
+# it holds is one too. Only a database in a file is cached: two in-memory
+# databases cannot be told apart by name.
+_COUNTS: "OrderedDict[tuple, Count]" = OrderedDict()
+_COUNTS_MAX = 64
+_RANKINGS: "OrderedDict[tuple, _Ranking]" = OrderedDict()
+# A ranking of 100,000 papers holds 1.6 MB here (an id and a distance each), so
+# a few searches' worth is a few megabytes.
+_RANKINGS_MAX = 4
+_CACHE_LOCK = threading.Lock()
+
+
+def _db_file(conn: sqlite3.Connection) -> str:
+    for row in conn.execute("PRAGMA database_list"):
+        if row[1] == "main":
+            return str(row[2] or "")
+    return ""
+
+
+def _documents_fingerprint(conn: sqlite3.Connection, collection_id: Optional[int] = None) -> tuple:
+    papers = tuple(conn.execute("SELECT COUNT(*), IFNULL(MAX(id), 0) FROM documents").fetchone())
+    if collection_id is None:
+        return papers
+    return (*papers, int(collection_id), collection_revision(conn, collection_id))
+
+
+def _collection_only(where: str) -> bool:
+    """Whether *where* is the collection's clause and nothing else."""
+    return where == f" WHERE {member_clause()}"
+
+
+def _cached(store: OrderedDict, key: Optional[tuple]):
+    if key is None:
+        return None
+    with _CACHE_LOCK:
+        hit = store.get(key)
+        if hit is not None:
+            store.move_to_end(key)
+        return hit
+
+
+def _remember(store: OrderedDict, key: Optional[tuple], value, most: int) -> None:
+    if key is None:
+        return
+    with _CACHE_LOCK:
+        store[key] = value
+        store.move_to_end(key)
+        while len(store) > most:
+            store.popitem(last=False)
+
+
+def count_where(conn: sqlite3.Connection, where: str, params: list[Any], *,
+                budget_s: Optional[float] = None) -> Count:
+    """Count the papers ``where`` matches, exactly, unless *budget_s* runs out first.
+
+    With no filter at all this is SQLite's count of the table, which reads the
+    smallest index and takes milliseconds at any size. With one, the matches are
+    walked and counted as they come, with the clock checked every
+    :data:`_COUNT_CHECK_STEPS` steps: a single ``COUNT(*)`` stopped by the clock
+    says nothing about how far it got, and the count it reached is the one fact
+    a stopped count still has. ``budget_s=None`` counts to the end.
+    """
+    if not where:
+        return Count(int(conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]), True)
+    if _collection_only(where):
+        # A whole collection: its rows in the membership's primary key, counted
+        # where they lie, rather than every paper walked and looked up.
+        return Count(int(conn.execute(
+            "SELECT COUNT(*) FROM collection_documents WHERE collection_id = ?", params).fetchone()[0]), True)
+    deadline = None if budget_s is None else time.monotonic() + budget_s
+    counted = 0
+    if deadline is not None:
+        conn.set_progress_handler(lambda: time.monotonic() > deadline, _COUNT_CHECK_STEPS)
+    try:
+        for _row in conn.execute(f"SELECT documents.id FROM documents {where}", params):
+            counted += 1
+    except sqlite3.OperationalError as exc:
+        if deadline is None or "interrupt" not in str(exc).lower():
+            raise
+        return Count(counted, False)
+    finally:
+        if deadline is not None:
+            conn.set_progress_handler(None, 0)
+    return Count(counted, True)
+
+
+def _count_for(conn: sqlite3.Connection, where: str, params: list[Any], *, fresh: bool,
+               collection_id: Optional[int] = None) -> Count:
+    """The search's count: made afresh for a first page, reused by its later pages."""
+    file = _db_file(conn)
+    key = (file, where, tuple(params), _documents_fingerprint(conn, collection_id)) if file else None
+    if not fresh:
+        hit = _cached(_COUNTS, key)
+        if hit is not None:
+            return hit
+    made = count_where(conn, where, params, budget_s=COUNT_BUDGET_S)
+    _remember(_COUNTS, key, made, _COUNTS_MAX)
+    return made
+
+
+# A day as the newest sort's jump takes it: a year, a month, or a day, written
+# as publication dates are stored.
+_START_DATE = re.compile(r"^\d{4}(-\d{2}(-\d{2})?)?$")
+# The largest id SQLite can hold, so a jump's seek includes every paper of its day.
+_LAST_ID = 2**63 - 1
+
+
 def _build_where(
     conn: sqlite3.Connection,
     *,
@@ -134,8 +290,9 @@ def _build_where(
     categories: list[str] | None,
     date_from: str | None,
     date_to: str | None,
+    collection_id: Optional[int] = None,
 ) -> tuple[str, list[Any], bool]:
-    """Return ``(where_sql, params, used_fts)`` for the given filters."""
+    """Return ``(where_sql, params, used_fts)`` for the given filters, within one collection."""
     clauses: list[str] = []
     params: list[Any] = []
     used_fts = False
@@ -184,8 +341,31 @@ def _build_where(
         clauses.append("documents.publication_date <= ?")
         params.append(date_to)
 
+    if collection_id is not None and not holds_every_paper(conn, collection_id):
+        # SQLite tests these clauses in the order written. A collection that
+        # holds a minority of the papers turns most away, so its clause goes
+        # first; a larger one's goes last, after the filters that turn more
+        # away. With no other filter the search is exactly this clause, which
+        # ``count_where`` counts from the membership table. The only
+        # collection holds every paper and needs none.
+        if clauses and not _a_minority(conn, int(collection_id)):
+            clauses.append(member_clause())
+            params.append(int(collection_id))
+        else:
+            clauses.insert(0, member_clause())
+            params.insert(0, int(collection_id))
+
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     return where, params, used_fts
+
+
+def _a_minority(conn: sqlite3.Connection, collection_id: int) -> bool:
+    """Whether a collection holds fewer than half the papers stored: two counts
+    read from indexes, a millisecond or two each at 100,000 papers."""
+    held = conn.execute("SELECT COUNT(*) FROM collection_documents WHERE collection_id = ?",
+                        (collection_id,)).fetchone()[0]
+    stored = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+    return held * 2 < stored
 
 
 def search(
@@ -202,8 +382,10 @@ def search(
     sort: str = "newest",
     query_vector: Optional[bytes] = None,
     model: Optional[str] = None,
+    start_date: Optional[str] = None,
+    collection_id: Optional[int] = None,
 ) -> dict:
-    """Search the corpus. Returns one page plus a cursor for the next.
+    """Search one collection. Returns one page plus a cursor for the next.
 
     *cursor* is the opaque ``"<publication_date>|<id>"`` of the last row of the
     previous page. Ordering is (publication_date DESC, id DESC), which the
@@ -220,6 +402,13 @@ def search(
     *query_vector* and *model* are supplied by the caller rather than resolved
     here. This module knows about the corpus and nothing about lanes, settings or
     credentials, and it stays that way.
+
+    *start_date* is the newest sort's jump: with no cursor, the page starts at
+    the newest match published on or before that day (``YYYY``, ``YYYY-MM`` or
+    ``YYYY-MM-DD``, compared as stored dates are), and ``newer_count`` says how
+    many matches come before it. The count above the list is still every match.
+    It is ignored with a cursor, which already says where the list is, and under
+    the similarity sort, which is not in date order.
     """
     limit = max(1, min(int(limit), MAX_PAGE_SIZE))
     if sort == "similarity":
@@ -227,13 +416,21 @@ def search(
             conn, query=query, sources=sources, authors=authors,
             categories=categories, date_from=date_from, date_to=date_to,
             cursor=cursor, limit=limit, query_vector=query_vector, model=model,
+            collection_id=collection_id,
         )
     where, params, used_fts = _build_where(
         conn, query=query, sources=sources, authors=authors,
         categories=categories, date_from=date_from, date_to=date_to,
+        collection_id=collection_id,
     )
 
     page_where, page_params = where, list(params)
+    jump = None
+    if not cursor and start_date:
+        if not _START_DATE.match(start_date):
+            raise ValueError(f"start_date must be YYYY, YYYY-MM or YYYY-MM-DD, not {start_date!r}")
+        jump = start_date
+        cursor = f"{start_date}|{_LAST_ID}"
     if cursor:
         try:
             cur_date, cur_id = cursor.rsplit("|", 1)
@@ -268,23 +465,26 @@ def search(
         # undated paper produces '' rather than the string "None".
         next_cursor = f"{last.get('publication_date') or ''}|{last['id']}"
 
-    # Bounded count: stop at the cap instead of counting an unbounded match set.
-    counted = conn.execute(
-        f"SELECT COUNT(*) FROM (SELECT documents.id FROM documents {where} LIMIT ?)",
-        (*params, COUNT_CAP + 1),
-    ).fetchone()[0]
-
-    return {
+    counted = _count_for(conn, where, params, fresh=cursor is None or jump is not None,
+                         collection_id=collection_id)
+    out = {
         "results": page,
         "next_cursor": next_cursor,
         "has_more": has_more,
-        "total": min(counted, COUNT_CAP),
-        "total_is_capped": counted > COUNT_CAP,
-        "count_cap": COUNT_CAP,
+        "total": counted.total,
+        "total_is_exact": counted.exact,
+        "count_budget_ms": int(COUNT_BUDGET_S * 1000),
         "used_full_text_index": used_fts,
         "page_size": limit,
         "sort": "newest",
     }
+    if jump:
+        # The matches published after the day jumped to: the ones the list
+        # starts below. Counted under the same budget, and said the same way.
+        newer_where = f"{where} AND documents.pub_sort > ?" if where else " WHERE documents.pub_sort > ?"
+        newer = count_where(conn, newer_where, [*params, jump], budget_s=COUNT_BUDGET_S)
+        out.update(start_date=jump, newer_count=newer.total, newer_count_is_exact=newer.exact)
+    return out
 
 
 def _search_by_similarity(
@@ -300,8 +500,9 @@ def _search_by_similarity(
     limit: int,
     query_vector: Optional[bytes],
     model: Optional[str],
+    collection_id: Optional[int] = None,
 ) -> dict:
-    """The corpus, ranked by distance, within the structured filters.
+    """The collection, ranked by distance, within the structured filters.
 
     **The free-text phrase is the ranking query and not a filter here** — the one
     thing that separates this from the newest sort, and what lets a
@@ -316,21 +517,21 @@ def _search_by_similarity(
     control says "Closest to", and a control that says that and then answers
     from a keyword slice is not doing what its label promises.
 
-    The invariant that holds is about the *structured* filters: switching sort never changes which sources, authors,
-    categories or dates are in scope. It is kept by construction — the candidate
-    set is :func:`matching_ids` with ``query=None``, the same ``_build_where``
-    the other sort uses minus the one clause — and everything after is a
+    The invariant that holds is about the *structured* filters: switching sort
+    never changes which sources, authors, categories or dates are in scope. It is
+    kept by construction — the scope is ``_build_where`` with ``query=None``, the
+    same clause the other sort uses minus the phrase — and everything after is a
     permutation of it plus an append of whatever the ranking did not cover.
     """
     if not query_vector or not model:
         # A similarity sort with nothing to be similar to. Rather than silently
         # falling back to newest -- which would leave a user looking at a list
-        # labelled by a sort it is not in -- the response says the ranking did
+        # labeled by a sort it is not in -- the response says the ranking did
         # not happen and carries the filtered set in the default order.
         page = search(
             conn, query=query, sources=sources, authors=authors,
             categories=categories, date_from=date_from, date_to=date_to,
-            cursor=cursor, limit=limit,
+            cursor=cursor, limit=limit, collection_id=collection_id,
         )
         page["sort"] = "newest"
         page["similarity_unavailable"] = (
@@ -341,52 +542,100 @@ def _search_by_similarity(
 
     # ``query=None`` is the whole of R1. Everything else the user set still
     # narrows the corpus; the phrase they typed only orders what is left.
-    candidates = matching_ids(
+    where, params, _ = _build_where(
         conn, query=None, sources=sources, authors=authors,
         categories=categories, date_from=date_from, date_to=date_to,
-        limit=COUNT_CAP,
+        collection_id=collection_id,
     )
-    total_is_capped = len(candidates) >= COUNT_CAP
-
-    ranked = vector_index.nearest(
-        conn, model, query_vector, k=max(1, len(candidates)), within_ids=candidates
-    )
-    distances = {doc_id: distance for doc_id, distance in ranked}
-
-    # Unembedded ids keep their default-order position relative to each other and
-    # go last as a block. A paper without a vector has not been judged distant --
-    # it has not been judged -- and the response distinguishes the two by carrying
-    # ``distance: None`` rather than a large number.
-    ordered_ids = [doc_id for doc_id, _ in ranked]
-    unranked_ids = [doc_id for doc_id in candidates if doc_id not in distances]
-    ordered_ids.extend(unranked_ids)
-
     offset = _offset_from(cursor)
-    window = ordered_ids[offset : offset + limit]
-    rows = _rows_in_order(conn, window)
-    for row in rows:
-        row["distance"] = distances.get(row["id"])
+    ranking = _ranking_for(conn, where, params, model, query_vector, fresh=offset == 0,
+                           collection_id=collection_id)
 
-    has_more = offset + limit < len(ordered_ids)
+    window = list(ranking.ids[offset : offset + limit])
+    rows = _rows_in_order(conn, window)
+    position = {doc_id: offset + k for k, doc_id in enumerate(window)}
+    for row in rows:
+        at = position[row["id"]]
+        row["distance"] = ranking.distances[at] if at < ranking.ranked else None
+
+    total = len(ranking.ids)
+    has_more = offset + limit < total
     return {
         "results": rows,
         "next_cursor": str(offset + len(window)) if has_more else None,
         "has_more": has_more,
-        "total": min(len(ordered_ids), COUNT_CAP),
-        "total_is_capped": total_is_capped,
-        "count_cap": COUNT_CAP,
+        # Every paper in scope is in the ranking, ranked or appended, so its
+        # length is the count, and an exact one.
+        "total": total,
+        "total_is_exact": True,
+        "count_budget_ms": int(COUNT_BUDGET_S * 1000),
         # False, always, and not an oversight: this sort does not run the phrase
         # through FTS at all. Reporting True because an index exists would tell
         # a caller the text index shaped this result set when it did not.
         "used_full_text_index": False,
         "page_size": limit,
         "sort": "similarity",
-        "ranked_count": len(ranked),
+        "ranked_count": ranking.ranked,
         # Reported so the interface can say "312 of 400 ranked; 88 not yet
         # embedded" rather than presenting a partial ranking as a whole one.
-        "unranked_count": len(unranked_ids),
+        "unranked_count": total - ranking.ranked,
         "model": model,
     }
+
+
+@dataclass(frozen=True)
+class _Ranking:
+    """One search's whole order: the ranked papers closest first, then the rest.
+
+    ``ids[:ranked]`` are ranked, with ``distances`` beside them; the ids after
+    those have no vector for the model and are in the newest order.
+    """
+
+    ids: array
+    distances: array
+    ranked: int
+
+
+def _ranking_for(conn: sqlite3.Connection, where: str, params: list[Any], model: str,
+                 vector: bytes, *, fresh: bool, collection_id: Optional[int] = None) -> _Ranking:
+    """Rank every paper in scope; a first page ranks afresh, its later pages reuse it."""
+    file = _db_file(conn)
+    key = None
+    if file:
+        embedded = tuple(conn.execute(
+            "SELECT COUNT(*), IFNULL(MAX(embedded_at), '') FROM document_embeddings WHERE model = ?",
+            (model,),
+        ).fetchone())
+        key = (file, model, hashlib.sha256(vector).hexdigest(), where, tuple(params),
+               _documents_fingerprint(conn, collection_id), embedded)
+    if not fresh:
+        hit = _cached(_RANKINGS, key)
+        if hit is not None:
+            return hit
+
+    ranked = vector_index.rank_all(conn, model, vector, documents_where=where, params=params)
+    ids = array("q", (doc_id for doc_id, _ in ranked))
+    distances = array("d", (distance for _, distance in ranked))
+    in_scope = count_where(conn, where, params)
+    if in_scope.total > len(ranked):
+        # Unembedded ids keep their default-order position relative to each
+        # other and go last as a block. A paper without a vector has not been
+        # judged distant -- it has not been judged -- and the response
+        # distinguishes the two by carrying ``distance: None`` rather than a
+        # large number. Read only when something is missing: the query costs a
+        # look-up per paper in scope even when it finds none.
+        dims = len(vector) // 4
+        cond = f"{where} AND" if where else " WHERE"
+        ids.extend(int(row[0]) for row in conn.execute(
+            f"SELECT documents.id FROM documents{cond} NOT EXISTS ("
+            "SELECT 1 FROM document_embeddings de WHERE de.document_id = documents.id "
+            "AND de.model = ? AND de.dims = ? AND length(de.vector) = ?) "
+            f"ORDER BY {_ORDER_BY}",
+            (*params, model, dims, dims * 4),
+        ))
+    made = _Ranking(ids=ids, distances=distances, ranked=len(ranked))
+    _remember(_RANKINGS, key, made, _RANKINGS_MAX)
+    return made
 
 
 def _offset_from(cursor: str | None) -> int:
@@ -498,6 +747,7 @@ def facets(
     categories: list[str] | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    collection_id: Optional[int] = None,
 ) -> dict:
     """Available filter values and their counts, for the current filter set.
 
@@ -506,30 +756,33 @@ def facets(
     reason.
     """
     def _counts(column_sql: str, join: str, exclude: str,
-                standalone: str | None = None) -> list[dict]:
+                standalone: str | None = None, column: str = "documents.id") -> list[dict]:
         where, params, _ = _build_where(
             conn, query=query,
             sources=None if exclude == "sources" else sources,
             authors=None if exclude == "authors" else authors,
             categories=None if exclude == "categories" else categories,
-            date_from=date_from, date_to=date_to,
+            date_from=date_from, date_to=date_to, collection_id=collection_id,
         )
 
         # With no filters at all, counting straight out of the facet table beats
         # joining to documents by a wide margin -- 12 ms against 542 ms on
         # 100,000 papers, because (document_id, author) is the primary key so
         # the join adds nothing but work. The join is only needed once a filter
-        # has to be applied to the documents themselves.
-        if not where and standalone:
+        # has to be applied to the documents themselves. A whole collection is
+        # still no filter on the documents: the facet table's rows are kept to
+        # its papers by the same lookup, with no join.
+        if (not where or _collection_only(where)) and standalone:
+            within = f" WHERE {member_clause(column)}" if where else ""
             rows = conn.execute(
                 f"""
-                SELECT value, COUNT(*) AS count FROM ({standalone})
+                SELECT value, COUNT(*) AS count FROM ({standalone}{within})
                 GROUP BY value
                 HAVING value IS NOT NULL AND TRIM(value) <> ''
                 ORDER BY count DESC, value ASC
                 LIMIT ?
                 """,
-                (MAX_FACET_VALUES,),
+                (*params, MAX_FACET_VALUES),
             ).fetchall()
             return [{"value": r["value"], "count": r["count"]} for r in rows]
 
@@ -547,6 +800,7 @@ def facets(
         ).fetchall()
         return [{"value": r["value"], "count": r["count"]} for r in rows]
 
+    # A facet table's rows are kept to the collection by their ``document_id``.
     return {
         "sources": _counts(
             "documents.source_repository", "", "sources",
@@ -557,12 +811,14 @@ def facets(
             "JOIN document_authors da ON da.document_id = documents.id",
             "authors",
             standalone="SELECT author AS value FROM document_authors",
+            column="document_authors.document_id",
         ),
         "categories": _counts(
             "dc.category",
             "JOIN document_categories dc ON dc.document_id = documents.id",
             "categories",
             standalone="SELECT category AS value FROM document_categories",
+            column="document_categories.document_id",
         ),
         "max_values": MAX_FACET_VALUES,
     }
@@ -577,23 +833,79 @@ def matching_ids(
     categories: list[str] | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
-    limit: int = COUNT_CAP,
+    limit: Optional[int] = None,
+    collection_id: Optional[int] = None,
 ) -> list[int]:
-    """Every document id matching the filters, for exporting a filtered view.
+    """Every document id matching the filters, newest first; *limit* stops it early."""
+    where, params, _ = _build_where(
+        conn, query=query, sources=sources, authors=authors,
+        categories=categories, date_from=date_from, date_to=date_to,
+        collection_id=collection_id,
+    )
+    sql = f"SELECT documents.id FROM documents {where} ORDER BY {_ORDER_BY}"
+    if limit is not None:
+        sql += " LIMIT ?"
+        params = [*params, int(limit)]
+    return [r["id"] for r in conn.execute(sql, params).fetchall()]
 
-    Bounded by *limit* so an accidental unfiltered export cannot try to
-    serialize the entire corpus into one BibTeX file.
+
+def count_matching(
+    conn: sqlite3.Connection,
+    *,
+    query: str | None = None,
+    sources: list[str] | None = None,
+    authors: list[str] | None = None,
+    categories: list[str] | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    collection_id: Optional[int] = None,
+) -> int:
+    """How many documents match the filters, counted to the end (no time budget).
+
+    For an export, which says how many papers its file holds before sending the
+    first of them: the count and the papers are read in one transaction, so the
+    number is the file's.
     """
     where, params, _ = _build_where(
         conn, query=query, sources=sources, authors=authors,
         categories=categories, date_from=date_from, date_to=date_to,
+        collection_id=collection_id,
     )
-    rows = conn.execute(
-        f"""
-        SELECT documents.id FROM documents {where}
-        ORDER BY {_ORDER_BY}
-        LIMIT ?
-        """,
-        (*params, int(limit)),
-    ).fetchall()
-    return [r["id"] for r in rows]
+    return count_where(conn, where, params).total
+
+
+def iter_matching(
+    conn: sqlite3.Connection,
+    *,
+    query: str | None = None,
+    sources: list[str] | None = None,
+    authors: list[str] | None = None,
+    categories: list[str] | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    batch: int = 500,
+    collection_id: Optional[int] = None,
+) -> Iterator[dict]:
+    """Every matching document, newest first, read *batch* rows at a time.
+
+    One query, walked with a cursor, so an export of the whole collection holds
+    one batch of papers at a time rather than all of them.
+    """
+    where, params, _ = _build_where(
+        conn, query=query, sources=sources, authors=authors,
+        categories=categories, date_from=date_from, date_to=date_to,
+        collection_id=collection_id,
+    )
+    cursor = conn.execute(f"SELECT documents.* FROM documents {where} ORDER BY {_ORDER_BY}", params)
+    try:
+        while True:
+            rows = cursor.fetchmany(batch)
+            if not rows:
+                return
+            for row in rows:
+                yield dict(row)
+    finally:
+        try:
+            cursor.close()
+        except sqlite3.ProgrammingError:
+            pass  # the export's connection closed first, when its reader went away

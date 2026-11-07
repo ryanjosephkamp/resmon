@@ -46,7 +46,7 @@ AttributionRequirement = Literal["none", "requested", "required"]
 # them was the temptation here. DBLP, ERIC and Open Library **refuse** a
 # window shorter than a calendar year, because a record they returned would
 # have unknowable in-window status. DataCite, DOAJ, NASA ADS and Semantic
-# Scholar answer the coarser window instead. Both behaviours are honest; only
+# Scholar answer the coarser window instead. Both behaviors are honest; only
 # the first produces a ``window_unanswerable`` zero, and ``window_rounding``
 # is the field that says which a source does.
 DateGranularity = Literal["day", "month", "year"]
@@ -107,8 +107,7 @@ ResultOrder = Literal["newest_first", "relevance", "unstated"]
 #   them to nothing, leaving their verdicts to A and B alone.
 #
 # ``unknown`` is a real answer and is used rather than a guess: four sources
-# need a key this machine does not hold and one has been answering HTTP 500
-# since it was added. Nothing about them is claimed.
+# need a key this machine does not hold. Nothing about them is claimed.
 EntityQuery = Literal["none", "field", "param", "endpoint", "unknown"]
 EntityIdentifier = Literal["none", "orcid", "native", "unknown"]
 
@@ -273,11 +272,14 @@ KeywordSearch = Literal["upstream", "client_side", "none"]
 # upstream date bound at all and filters every record locally, which is the
 # case where "a run can come back with fewer in-window records than the cap
 # you set" is most true -- and the approximation would hide it there. The
-# near-enough state is the trap, not the missing one.
+# near-enough state is the trap, not the missing one. NIST RMM was withdrawn
+# in November 2026 (``api_registry.RETIRED_REPOSITORIES``) and has no entry
+# below, so no row uses this scope today; it stays because the rule it applies
+# still holds, and a revived NIST RMM would need it.
 #
 # An enum rather than a pile of booleans, and separate from ``kind`` rather
-# than read off it: two of the fifteen window-scoped notices are record
-# filters rather than date-window notices, and relabelling them to get the
+# than read off it: two of the thirteen window-scoped notices are record
+# filters rather than date-window notices, and relabeling them to get the
 # display right would make ``kind`` lie about what they are. Both counts are
 # asserted in ``test_source_constraints.py``, because a number written into
 # a comment is a number nobody re-measures.
@@ -411,6 +413,175 @@ def _notice(
     )
 
 
+# ---------------------------------------------------------------------------
+# paper_lookup — whether a source can be asked for one paper, and by what
+# ---------------------------------------------------------------------------
+#
+# Find a paper asks a source for one paper by a DOI, an arXiv id, a PMID or a
+# title, and only by a kind this capability names. A kind with a field syntax
+# is asked through the client's ordinary ``search()`` with the syntax filled in
+# (``BaseAPIClient.lookup``, as ``entity_search`` asks about a person); a kind
+# with none is asked through the client's own lookup endpoint (Crossref's
+# ``/works/{doi}``), which the client implements.
+#
+# What comes back is never taken on trust: ``paper_find.best_match`` keeps a
+# record only when it carries the identifier asked for, or when its title is
+# the title asked for or close to it. So a field a source ignores costs a
+# search, not a false match; ``established`` says what was seen when the
+# capability was checked, and a source that could not be checked (its key is
+# not on this machine) can be asked by nothing.
+LookupKind = Literal["doi", "arxiv", "pmid", "title"]
+
+
+@dataclass(frozen=True)
+class PaperLookup:
+    """The kinds of query a source can be asked for one paper by, and how."""
+
+    kinds: tuple[str, ...] = ()
+    #: ``(kind, syntax)``, with ``{value}`` where the DOI, id or title goes.
+    syntax: tuple[tuple[str, str], ...] = ()
+    #: What was run and what came back, or why the source is asked by nothing.
+    established: str = ""
+    #: For a source asked by nothing: why, in the words Find a paper shows a
+    #: person under "not asked, and why". ``established`` is the record of the
+    #: check, with its dates and queries; this is the sentence.
+    why_not: str = ""
+
+    def syntax_for(self, kind: str) -> str:
+        return next((text for k, text in self.syntax if k == kind), "")
+
+    @property
+    def supported(self) -> bool:
+        return bool(self.kinds)
+
+
+LOOKUP_PROBED_ON = "2026-11-05"
+
+
+def _lookup(*kinds: str, syntax: dict[str, str] | None = None, established: str = "",
+            why_not: str = "") -> PaperLookup:
+    return PaperLookup(kinds=tuple(kinds), syntax=tuple((syntax or {}).items()), established=established,
+                       why_not=why_not)
+
+
+_KEYED = "not established: {name} requires a key and this machine holds none, so resmon does not ask it for one paper."
+_KEYED_WHY = "resmon has not checked how {name} looks up one paper, because that needs an API key, so it is not asked."
+
+PAPER_LOOKUP: dict[str, PaperLookup] = {
+    "arxiv": _lookup("arxiv", "title", established=(
+        f"{LOOKUP_PROBED_ON}: `id_list=1706.03762` returned that paper and `id_list=2401.99999` none. "
+        "`ti:\"Attention Is All You Need\"` in relevance order returned it, exactly by title, among 5; "
+        "a title of no paper returned none. In the newest-first order `search()` asks for, later "
+        "papers echoing the title left it outside the first 5, so a title is asked in relevance order.")),
+    "biorxiv": _lookup("doi", established=(
+        f"{LOOKUP_PROBED_ON}: `/details/biorxiv/10.1101/2023.12.28.573564` returned that preprint, "
+        "and a 10.1101 DOI that does not exist returned none. Only DOIs beginning 10.1101/ are asked.")),
+    "core": _lookup(established=_KEYED.format(name="CORE"), why_not=_KEYED_WHY.format(name="CORE")),
+    "crossref": _lookup("doi", "title", established=(
+        f"{LOOKUP_PROBED_ON}: `/works/10.1371/journal.pone.0000308` returned that paper, and a DOI "
+        "Crossref does not hold answered 404, which resmon records as an answer. "
+        "`query.bibliographic` with its title ranked it first of 5, exactly by title; a title of no "
+        "paper returned 5 records, none of them the paper, so none was kept.")),
+    "datacite": _lookup("doi", "title", syntax={"title": 'titles.title:"{value}"'}, established=(
+        f"{LOOKUP_PROBED_ON}: `/dois/10.5281/zenodo.17397357` returned that record, and an "
+        "unregistered DOI answered 404. `titles.title:\"...\"` with its title returned it, exactly "
+        "by title, among 2; a title of no paper returned none.")),
+    "dblp": _lookup(established=(
+        f"not established: on {LOOKUP_PROBED_ON} DBLP answered resmon's title query with its "
+        "access-challenge page, so resmon does not ask it for one paper."),
+        why_not="DBLP answered resmon's check with an access-challenge page rather than records, so it is not asked."),
+    "doaj": _lookup("doi", "title", syntax={"doi": 'doi:"{value}"', "title": 'bibjson.title:"{value}"'},
+                    established=(
+        f"{LOOKUP_PROBED_ON}: `doi:\"10.1371/journal.pone.0000308\"`, percent-encoded into DOAJ's "
+        "one path segment, returned that article, and an unregistered DOI none; "
+        "`bibjson.title:\"...\"` with its title returned it, exactly by title, and a title of no "
+        "paper none. Sent unencoded, as `search()` once sent every query, a DOI's slash split the "
+        "segment in two.")),
+    "dryad": _lookup(established=(
+        "Dryad holds datasets, not papers, so resmon does not ask it for one paper."),
+        why_not='Dryad holds datasets, not papers.'),
+    "eric": _lookup("title", syntax={"title": 'title:"{value}"'}, established=(
+        f"{LOOKUP_PROBED_ON}: `title:\"The Science of Reading Comprehension Instruction\"` returned "
+        "that record, exactly by title; a title of no paper returned none. ERIC's records rarely "
+        "carry a DOI, and resmon asks it by title only.")),
+    "europepmc": _lookup("doi", "pmid", "title", syntax={
+        "doi": 'DOI:"{value}"', "pmid": "EXT_ID:{value} AND SRC:MED", "title": 'TITLE:"{value}"'},
+        established=(
+        f"{LOOKUP_PROBED_ON}: `DOI:\"10.1371/journal.pone.0000308\"` returned that paper, "
+        "`EXT_ID:17375194 AND SRC:MED` the same paper by its PMID, and `TITLE:\"...\"` the same "
+        "paper exactly by title; an unregistered DOI, the PMID 999999999 and a title of no paper "
+        "each returned none.")),
+    "govinfo": _lookup(established=(
+        "GovInfo holds U.S. government documents, not scholarly papers with DOIs or PMIDs, so resmon "
+        "does not ask it for one paper."),
+        why_not='GovInfo holds U.S. government documents, not scholarly papers with DOIs or PMIDs.'),
+    "hal": _lookup("doi", "title", syntax={"doi": 'doiId_s:"{value}"', "title": 'title_t:"{value}"'},
+                   established=(
+        f"{LOOKUP_PROBED_ON}: `doiId_s:\"10.48550/arXiv.2605.03663\"` returned that record, and "
+        "`title_t:\"...\"` with its title the same record exactly by title; an unregistered DOI "
+        "and a title of no paper each returned none.")),
+    "inspire_hep": _lookup("doi", "arxiv", "title", syntax={
+        "doi": "doi {value}", "arxiv": "arxiv {value}", "title": 't "{value}"'}, established=(
+        f"{LOOKUP_PROBED_ON}: `doi 10.1016/j.physletb.2012.08.020`, `arxiv 1207.7214` and "
+        "`t \"Observation of a new particle in the search for the Standard Model Higgs boson with "
+        "the ATLAS detector at the LHC\"` each returned that paper (by DOI, by arXiv id, and "
+        "exactly by title); an unregistered DOI, the id 2401.99999 and a title of no paper each "
+        "returned none.")),
+    "medrxiv": _lookup("doi", established=(
+        f"{LOOKUP_PROBED_ON}: `/details/medrxiv/10.1101/2024.01.02.24300691` returned that "
+        "preprint, and a 10.1101 DOI that does not exist returned none.")),
+    "nasa_ads": _lookup(established=_KEYED.format(name="NASA ADS"), why_not=_KEYED_WHY.format(name="NASA ADS")),
+    "ndl_search": _lookup(established=(
+        "NDL Search keeps only records under its open-data terms and matches a title through CQL "
+        "with no DOI field, which resmon has not checked for one paper; it is not asked."),
+        why_not=(
+            'resmon has not checked how NDL Search looks up one paper, and it has no DOI field, so it '
+            'is not asked.')),
+    "openaire": _lookup(established=(
+        "OpenAIRE has announced that this API is discontinued, so resmon does not add new uses of it."),
+        why_not='OpenAIRE has announced that this API is discontinued, so resmon adds no new uses of it.'),
+    "openalex": _lookup("doi", "pmid", "title", established=(
+        f"{LOOKUP_PROBED_ON}: `/works/doi:10.1371/journal.pone.0000308` returned that work and "
+        "`/works/pmid:17375194` the same work; an unregistered DOI and the PMID 999999999 answered "
+        "404, recorded as answers. `filter=title.search:` with its title returned it, exactly by "
+        "title, among 3; two later tries that day, and the control with a title of no paper, were "
+        "answered 429 (OpenAlex's rate limit, with no contact address set).")),
+    "openlibrary": _lookup(established=(
+        "Open Library holds books by ISBN, not papers, so resmon does not ask it for one paper."),
+        why_not='Open Library holds books, not papers.'),
+    "osti": _lookup(established=(
+        "not established: resmon asks OSTI through its `q` parameter, whose DOI and title fields "
+        "resmon has not checked, so it is not asked for one paper."),
+        why_not=(
+            'resmon has not checked how OSTI.GOV looks up one paper by DOI or title, so it is not '
+            'asked.')),
+    "plos": _lookup("doi", "title", syntax={"doi": 'id:"{value}"', "title": 'title:"{value}"'},
+                    established=(
+        f"{LOOKUP_PROBED_ON}: `id:\"10.1371/journal.pone.0000308\"` (PLOS's id is the DOI) "
+        "returned that article, and `title:\"...\"` with its title the same article exactly by "
+        "title; an unregistered DOI and a title of no paper each returned none.")),
+    "pubmed": _lookup(established=(
+        f"not established: on {LOOKUP_PROBED_ON} E-utilities' esearch answered HTTP 500 to every "
+        "request, resmon's and a plain one alike, so resmon does not ask PubMed for one paper yet. "
+        "Europe PMC answers by PMID."),
+        why_not=(
+            "PubMed's search answered with errors on every request when resmon checked it "
+            "on November 5, 2026, so it is not asked yet. Europe PMC is asked by PMID.")),
+    "semantic_scholar": _lookup("doi", "arxiv", "pmid", "title", established=(
+        f"{LOOKUP_PROBED_ON}: `/paper/DOI:10.1371/journal.pone.0000308`, `/paper/PMID:17375194` "
+        "and `/paper/ARXIV:1706.03762` each returned that paper, and `/paper/search/match` with a "
+        "title returned it exactly by title; an unregistered DOI, the PMID 999999999 and a title of "
+        "no paper returned none. Without a key Semantic Scholar answered many of these requests 429 "
+        "before answering, and the arXiv control was answered 429 on every try.")),
+    "springer": _lookup(established=_KEYED.format(name="Springer"), why_not=_KEYED_WHY.format(name="Springer")),
+    "zenodo": _lookup("doi", "title", syntax={"doi": 'doi:"{value}"', "title": 'title:"{value}"'},
+                      established=(
+        f"{LOOKUP_PROBED_ON}: `doi:\"10.5281/zenodo.17397357\"` returned that record and "
+        "`title:\"...\"` with its title the same record exactly by title; an unregistered DOI and "
+        "a title of no paper each returned none.")),
+}
+
+
 @dataclass(frozen=True)
 class RepoCatalogEntry:
     """Public, non-secret metadata for a single active repository."""
@@ -430,6 +601,10 @@ class RepoCatalogEntry:
     upstream_policy: str
     parallel_safe: str
     notes: str
+    #: A sentence about the service itself that a person should read before
+    #: asking it (one that has announced its own end, say), or empty. Shown
+    #: wherever the source is chosen, not only in its details.
+    service_notice: str
     keyword_combination: str
     keyword_combination_notes: str
     attribution: str
@@ -440,9 +615,16 @@ class RepoCatalogEntry:
     result_order_established: str
     entity_search: EntitySearch
     constraints: SourceConstraints
+    paper_lookup: PaperLookup
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        data = asdict(self)
+        # As the routes serve it: the syntax as a mapping from kind to syntax.
+        data["paper_lookup"]["syntax"] = dict(self.paper_lookup.syntax)
+        # Find a paper's own words for a source it does not ask; the catalog
+        # row states the check itself (``established``).
+        data["paper_lookup"].pop("why_not")
+        return data
 
 
 def _placeholder_for(requirement: ApiKeyRequirement) -> str:
@@ -472,6 +654,7 @@ def _entry(
     upstream_policy: str = "",
     parallel_safe: str = "",
     notes: str = "",
+    service_notice: str = "",
     keyword_combination: str = "",
     keyword_combination_notes: str = "",
     attribution: str = "",
@@ -500,6 +683,7 @@ def _entry(
         upstream_policy=upstream_policy,
         parallel_safe=parallel_safe,
         notes=notes,
+        service_notice=service_notice,
         keyword_combination=keyword_combination,
         keyword_combination_notes=keyword_combination_notes,
         attribution=attribution,
@@ -520,23 +704,27 @@ def _entry(
         # omitted default has an empty citation, so a source added without an
         # answer fails the guard instead of quietly claiming it constrains
         # nothing. "This source constrains nothing" is a real answer and 11 of
-        # the 26 rows below give it — but it is written down, not defaulted.
-        # Of the other 15, five say only that the window means a date other
+        # the 25 rows below give it — but it is written down, not defaulted.
+        # Of the other 14, five say only that the window means a date other
         # than the publication date, which is a sentence worth one line to
         # somebody filtering by date and worth none to anybody else.
         constraints=constraints or _constraints(),
+        # Read when the entry is built, from the table below the catalog,
+        # where each source's answer is cited. A source absent from it fails
+        # ``test_every_entry_states_its_paper_lookup``.
+        paper_lookup=PAPER_LOOKUP.get(slug) or _lookup(),
     )
 
 
 # ---------------------------------------------------------------------------
-# Catalog — 27 active repositories.
+# Catalog — 25 active repositories.
 # ---------------------------------------------------------------------------
 
 REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
     _entry(
         slug="arxiv",
         name="arXiv",
-        description="Open-access preprints across physics math CS quant-bio stats EE and economics",
+        description="Open-access preprints in physics, mathematics, computer science, quantitative biology, statistics, electrical engineering, and economics",
         subject_coverage="Physics / Math / CS / Quant-bio / Stats / EE / Econ",
         endpoint="https://export.arxiv.org/api/query",
         query_method="GET Atom XML: one all: term per word joined with AND, and a submittedDate filter",
@@ -552,8 +740,10 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
             "Conservative by design. Do not drop the delay. When arXiv answers "
             "429 or 503, resmon waits and asks again: 5 seconds, doubling, or "
             "longer when arXiv's Retry-After asks for longer, up to three minutes "
-            "of waiting in one search. A run that still gets 429 or 503 records "
-            "how many attempts it made and how long it waited."
+            "of waiting in one search. A watch's scheduled run, which nobody is "
+            "waiting on, waits up to fifteen minutes, no single wait longer than "
+            "five. A run that still gets 429 or 503 records how many attempts it "
+            "made and how long it waited."
         ),
         # arXiv's own default between bare words is OR, measured October 30,
         # 2026 (`_search_query` in api_arxiv.py has the figures). The AND is
@@ -750,23 +940,27 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
     ),
     _entry(
         slug="crossref",
-        name="CrossRef",
+        name="Crossref",
         description="DOI registration agency metadata across all scholarly works",
         subject_coverage="All disciplines (DOI-indexed)",
         endpoint="https://api.crossref.org/works",
         query_method="GET /works?query={q} with optional date filters",
-        rate_limit="10.0 req/s (polite pool recommended)",
+        rate_limit="1.0 req/s (the public pool's limit for searches)",
         client_module="api_crossref.py",
         requirement="none",
         credential_name=None,
         website="https://www.crossref.org",
         registration_url=None,
-        upstream_policy="Polite pool when User-Agent contains mailto:; shared pool otherwise (~50 req/s soft cap)",
+        upstream_policy=(
+            "Since July 21, 2026: searches and filters 1 request a second from the public pool, 3 from the polite "
+            "pool (a request that names a contact address); single records 5 and 10."),
         parallel_safe="Yes",
-        notes="Set a contact email in the UA for priority.",
+        notes=(
+            "resmon sends a contact address only if you set one in Settings › Sources, which puts its requests in "
+            "the polite pool; its pace stays within the public pool's either way."),
         keyword_combination="Relevance-ranked",
         keyword_combination_notes=(
-            "CrossRef ranks by relevance, not strict boolean; documents containing "
+            "Crossref ranks by relevance, not strict boolean; documents containing "
             "more of the words rank higher but single-term matches can still "
             "surface. Measured October 30, 2026: `climate model`, `climate AND model` and "
             "`climate OR model` each matched 3,793,797 works, more than `model` "
@@ -1388,7 +1582,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
     _entry(
         slug="nasa_ads",
         name="NASA ADS",
-        description="Digital library for astronomy astrophysics and planetary science",
+        description="Digital library for astronomy, astrophysics, and planetary science",
         subject_coverage="Astronomy / Astrophysics / Planetary science",
         endpoint="https://api.adsabs.harvard.edu/v1/search/query",
         query_method="GET with Authorization: Bearer {key} Solr-style q",
@@ -1521,89 +1715,6 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         ),
     ),
     _entry(
-        slug="nist_rmm",
-        name="NIST Resource Metadata Management",
-        description="NIST papers and technical-report metadata",
-        subject_coverage="Engineering / Government technical publications",
-        endpoint="https://data.nist.gov/rmm/papers",
-        query_method="GET with searchphrase, lower-bound-only from_date, skip, and limit; date_to is filtered locally",
-        rate_limit="0.5 req/s (conservative; no published API limit)",
-        client_module="api_nist_rmm.py",
-        requirement="none",
-        credential_name=None,
-        website="https://data.nist.gov/rmm/",
-        registration_url=None,
-        upstream_policy="No authentication or numeric rate limit is documented in the RMM OpenAPI; resmon uses a conservative shared ceiling",
-        parallel_safe="Yes",
-        notes=(
-            "The documented RMM papers API has no upstream upper date bound; "
-            "resmon sends from_date only and applies date_to locally. "
-            "The mapping from a record to a title, identifier and date is provisional: "
-            "NIST's OpenAPI documents the response envelope but not the fields inside a "
-            "record, and the endpoint has been returning HTTP 500 since this source was "
-            "added, so the mapping has never been checked against a live response. A "
-            "record resmon cannot map is skipped and logged rather than stored, so the "
-            "failure you would see is no results rather than wrong ones. "
-            "Permission to use this data is contingent upon your acceptance of the terms "
-            "of this agreement and upon your providing appropriate acknowledgments of "
-            "NIST’s creation of the data/work. "
-            "https://www.nist.gov/open/copyright-fair-use-and-licensing-statements-srd-data-software-and-technical-series-publications"
-        ),
-        keyword_combination="Undocumented",
-        keyword_combination_notes="The RMM OpenAPI documents searchphrase but does not document how space-separated terms are combined.",
-        result_order="unstated",
-        result_order_established=(
-            "`api_nist_rmm.py`: `search()` sends no sort, and nothing "
-            "establishes NIST RMM's default order."
-        ),
-        attribution='Data created by NIST (National Institute of Standards and Technology).',
-        attribution_requirement="required",
-        attribution_source='https://www.nist.gov/open/copyright-fair-use-and-licensing-statements-srd-data-software-and-technical-series-publications',
-        constraints=_constraints(
-            established=(
-                "`api_nist_rmm.py`: `_request_date` validates day-granular "
-                "bounds, and `search()` sends `from_date` only."),
-            notices=(
-                _notice(
-                    "date_window",
-                    "The NIST RMM API documents a start date and no end date, "
-                    "so resmon applies your end date to the records after "
-                    "they arrive rather than asking for it. A run can come "
-                    "back with fewer in-window records than the cap you set, "
-                    "and with no start date either, nothing bounds the "
-                    "request upstream at all.",
-                    # with_end_date, not with_both_dates: `search()` sets
-                    # from_date only `if lower_bound`, while `_inside_window`
-                    # applies the upper bound whenever it is set. So the
-                    # end-date half is what makes this true, and an end date
-                    # on its own is the strongest case rather than an
-                    # excluded one.
-                    "`api_nist_rmm.py`: `search()` sets `from_date` only when "
-                    "there is a lower bound, and `_inside_window` applies the "
-                    "upper bound to each record after it arrives.",
-                    applies_when="with_end_date",
-                ),
-                _notice(
-                    "date_window",
-                    "NIST RMM accepts only whole-day dates written YYYY-MM-DD. "
-                    "A year or a year and month is refused rather than "
-                    "expanded.",
-                    "`api_nist_rmm.py`: `_REQUEST_DATE` and `_request_date` "
-                    "accept a whole day and nothing coarser.",
-                    applies_when="with_date_window",
-                ),
-            ),
-        ),
-        entity_search=_entity(
-            "unknown",
-            established=(
-                f"{ENTITY_PROBED_ON}: not established, and not for want of asking — the endpoint answered "
-                "`{{\"message\":\"Certificate file not found\",\"httpStatus\":\"500\"}}`, "
-                "which is the same outage its catalog note has recorded since the source "
-                "was added."),
-        ),
-    ),
-    _entry(
         slug="openaire",
         name="OpenAIRE",
         description="Open scholarly graph aggregating research outputs and relationships",
@@ -1619,6 +1730,9 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="Unauthenticated limit: 60 requests/hour in a one-hour sliding window",
         parallel_safe="Yes",
         notes="OpenAIRE announced this legacy Search API discontinued on May 31, 2026. It still responded on August 30, 2026, but continued availability is not guaranteed.",
+        service_notice=(
+            "OpenAIRE has announced the end of the API resmon asks it through, and it still answered on November 4, "
+            "2026. resmon asks it while it answers; a run records it as not answering once it stops."),
         keyword_combination="Combination semantics undocumented",
         keyword_combination_notes=(
             "OpenAIRE documents keywords only as a whitespace-separated list and "
@@ -1767,13 +1881,13 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
             "param", author_syntax="author={name}",
             established=(
                 f"{ENTITY_PROBED_ON}: `author=Ursula K. Le Guin` returned 5 and the nonsense author 0. A "
-                "book catalogue: no ORCID, no affiliation."),
+                "book catalog: no ORCID, no affiliation."),
         ),
     ),
     _entry(
         slug="osti",
         name="OSTI.GOV",
-        description="U.S. Department of Energy research records including technical reports, datasets, and other grey literature",
+        description="U.S. Department of Energy research records including technical reports, datasets, and other gray literature",
         subject_coverage="Energy / Physical sciences / DOE-funded research / Technical reports",
         endpoint="https://www.osti.gov/api/v1/records",
         query_method="GET JSON with q, publication date filters, and page/rows pagination",
@@ -1822,15 +1936,15 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         subject_coverage="Biology / Medicine / Natural sciences (PLOS journals only)",
         endpoint="https://api.plos.org/search",
         query_method="GET Solr with q wt=json start rows",
-        rate_limit="5.0 req/s",
+        rate_limit="0.083 req/s (1 per 12 s)",
         client_module="api_plos.py",
         requirement="none",
         credential_name=None,
         website="https://plos.org",
         registration_url=None,
-        upstream_policy="10 req/min soft guidance (resmon is faster)",
+        upstream_policy="10 requests a minute, 300 an hour, and 7,200 a day; an address that asks for more is locked out",
         parallel_safe="Yes",
-        notes="If you see 429s lower the limiter to 0.2 req/s.",
+        notes="One request every 12 seconds keeps within all three of PLOS's limits.",
         keyword_combination="Implicit AND",
         keyword_combination_notes=(
             "PLOS requires every word, which its documentation does not state, so "
@@ -1968,7 +2082,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
     _entry(
         slug="springer",
         name="Springer Nature",
-        description="Springer Nature Meta API across Springer Nature BMC Palgrave imprints",
+        description="Springer Nature's Meta API, across the Springer, Nature, BMC, and Palgrave imprints",
         subject_coverage="STM / Humanities / Social sciences",
         endpoint="https://api.springernature.com/meta/v2/json",
         query_method="GET with q={q} and api_key={key}",
@@ -2092,3 +2206,8 @@ def constraints_for(slug: str) -> SourceConstraints | None:
         if e.slug == slug:
             return e.constraints
     return None
+
+
+def catalog_names() -> dict[str, str]:
+    """Each source's display name, by slug."""
+    return {entry.slug: entry.name for entry in REPOSITORY_CATALOG}

@@ -2,6 +2,9 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
+import { tipWords, useChartTip, type MarkTip, type TipContent } from '../../charts/ChartTip';
+import { exactCount } from '../../charts/exact';
+import { joined, useGridRoving } from '../../charts/roving';
 import { Icon } from '../../shell/Icon';
 import { number } from '../today/format';
 import { HealthTabs } from './HealthTabs';
@@ -23,6 +26,31 @@ function selectionWords(inSelection: boolean | null): string {
   if (inSelection === true) return 'Yes';
   if (inSelection === false) return 'No';
   return 'Not known: the run’s saved selection cannot be read';
+}
+
+/** Whether a cell's count is a count of papers: an answer, never a failure's recorded zero or a part read with none. */
+function counts(cell: WallCell): boolean {
+  return COUNTED.has(cell.state) && cell.result_count !== null && !(cell.state === 'answered_in_part' && cell.result_count === 0);
+}
+
+/** A cell's tip: the source, the run and its time, the engine's label and sentence, and the papers it answered with. */
+export function cellTip(source: WallSource, cell: WallCell, run: WallRun | undefined): TipContent {
+  const n = cell.result_count ?? 0;
+  return {
+    name: `${source.name} · ${run ? `${run.label}, ${runWhen(run)}` : 'a run'}`,
+    value: cell.label,
+    lines: counts(cell) ? [{
+      value: exactCount(n),
+      label: `${n === 1 ? 'paper' : 'papers'}${cell.state === 'answered_in_part' ? ', from the part of the window read' : ''}`,
+    }] : undefined,
+    notes: cell.note ? [cell.note] : undefined,
+    opens: 'Opens its reading below the wall',
+  };
+}
+
+/** A run's head: its name, its time, and the way to its page. */
+export function runTip(run: WallRun): TipContent {
+  return { name: run.label, value: `Run ${run.execution_id}`, notes: [runWhen(run)], opens: `Opens run ${run.execution_id}` };
 }
 
 /**
@@ -104,6 +132,11 @@ function Grid({ wall, picked, onPick }: {
 }) {
   const days = useMemo(() => runDays(wall.runs), [wall.runs]);
   const largest = useMemo(() => largestCount(wall), [wall]);
+  const tip = useChartTip();
+  // One stop for the keyboard: Tab reaches the chosen cell, or the first source's newest run, and the arrow keys move on.
+  const pickedRow = picked ? wall.sources.findIndex((s) => s.slug === picked.slug) : -1;
+  const roving = useGridRoving(wall.sources.length, wall.runs.length,
+    pickedRow >= 0 && picked ? { row: pickedRow, column: picked.column } : { row: 0, column: wall.runs.length - 1 });
   // The newest runs are on the right: where the window is too narrow for every run, the wall opens
   // scrolled to them, beside When last asked, and older runs are a scroll to the left.
   const scroller = useRef<HTMLDivElement>(null);
@@ -122,31 +155,38 @@ function Grid({ wall, picked, onPick }: {
             <th className="wall-last" rowSpan={2} scope="col">When last asked</th>
           </tr>
           <tr>
-            {wall.runs.map((run, i) => (
-              <th key={run.execution_id} className="wall-run" scope="col" data-run={run.execution_id}
-                data-selected={picked?.column === i ? 'true' : undefined}>
-                <Link to={`/runs/${run.execution_id}`} title={`${run.label}, ${runWhen(run)}: open run ${run.execution_id}`}>
-                  {runTime(run)}
-                </Link>
-              </th>
-            ))}
+            {wall.runs.map((run, i) => {
+              const content = runTip(run);
+              return (
+                <th key={run.execution_id} className="wall-run" scope="col" data-run={run.execution_id}
+                  data-selected={picked?.column === i ? 'true' : undefined}>
+                  <Link to={`/runs/${run.execution_id}`} aria-label={tipWords(content)} {...tip.mark(content)}>
+                    {runTime(run)}
+                  </Link>
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>
-          {wall.sources.map((source) => (
+          {wall.sources.map((source, row) => (
             <Row key={source.slug} source={source} runs={wall.runs} largest={largest}
               picked={picked?.slug === source.slug ? picked.column : null}
               column={picked?.column ?? null}
+              tip={tip}
+              cell={(column) => roving.cell(row, column)}
               onPick={(column) => onPick({ slug: source.slug, column })} />
           ))}
         </tbody>
       </table>
+      {tip.layer}
     </div>
   );
 }
 
-function Row({ source, runs, largest, picked, column, onPick }: {
+function Row({ source, runs, largest, picked, column, tip, cell: cellProps, onPick }: {
   source: WallSource; runs: readonly WallRun[]; largest: number; picked: number | null; column: number | null;
+  tip: MarkTip; cell: (column: number) => ReturnType<ReturnType<typeof useGridRoving>['cell']>;
   onPick: (column: number) => void;
 }) {
   const last = lastAsked(source, runs);
@@ -154,20 +194,16 @@ function Row({ source, runs, largest, picked, column, onPick }: {
     <tr data-source={source.slug} data-selected={picked !== null ? 'true' : undefined}>
       <th scope="row" className="wall-source">{source.name}</th>
       {source.cells.map((cell, i) => {
-        const run = runs[i];
+        const content = cellTip(source, cell, runs[i]);
         return (
           <td key={cell.execution_id} className="wall-cell" data-state={cell.state} data-track={TRACK[cell.state]}
             data-column={column === i ? 'true' : undefined}>
             <button type="button" data-health="cell" data-state={cell.state} aria-pressed={picked === i}
-              aria-label={`${source.name}, ${run?.label ?? 'a run'} ${run ? runWhen(run) : ''}: ${cell.label}`}
-              title={`${cell.label}. ${cell.note}`}
+              aria-label={tipWords(content)} {...joined(cellProps(i), tip.mark(content))}
               onClick={() => onPick(i)}>
               <WallMark state={cell.state} count={cell.result_count} largest={largest} />
               {/* An answer in part with nothing is not drawn as a count of none: the window was not all read. */}
-              {COUNTED.has(cell.state) && cell.result_count !== null
-                && !(cell.state === 'answered_in_part' && cell.result_count === 0) && (
-                <span className="wall-count num">{number(cell.result_count)}</span>
-              )}
+              {counts(cell) && <span className="wall-count num">{number(cell.result_count ?? 0)}</span>}
             </button>
           </td>
         );

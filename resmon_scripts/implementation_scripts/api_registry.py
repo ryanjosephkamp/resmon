@@ -1,6 +1,8 @@
 # resmon_scripts/implementation_scripts/api_registry.py
 """Client registry mapping repository name strings to API client classes."""
 
+import threading
+
 _REGISTRY: dict[str, type] = {}
 
 # Sources that were once available and are deliberately no longer loaded.
@@ -20,6 +22,12 @@ RETIRED_REPOSITORIES: dict[str, str] = {
         "corpus indefinitely, so it cannot be used against IEEE Xplore "
         "without putting the account holder in breach of the terms they "
         "accepted at registration."
+    ),
+    "nist_rmm": (
+        "NIST RMM was withdrawn in November 2026. Its papers API has answered "
+        "HTTP 500 to every search since the source was added in August 2026, "
+        "last checked November 4, 2026. The source can return if NIST's API "
+        "answers again."
     ),
     "oapen": (
         "OAPEN Library was withdrawn in October 2026. Its search API answers "
@@ -43,6 +51,7 @@ RETIRED_REPOSITORIES: dict[str, str] = {
 #: that names the source by "ieee" reads as a key rather than as IEEE Xplore.
 RETIRED_NAMES: dict[str, str] = {
     "ieee": "IEEE Xplore",
+    "nist_rmm": "NIST Resource Metadata Management",
     "oapen": "OAPEN Library",
     "repec": "RePEc/IDEAS",
     "ssrn": "SSRN",
@@ -92,13 +101,35 @@ def list_repositories() -> list[str]:
 # register_client() at import time.
 # ---------------------------------------------------------------------------
 _loaded = False
+# Held while the client modules are imported. ``_loaded`` was once set before
+# they were, with no lock: two watches fired at the same second as the
+# engine's first users of the registry (November 4, 2026, at midnight), and the
+# second thread saw ``_loaded`` true and asked for "crossref" before
+# ``api_crossref`` had registered, so its run failed after 0 seconds with
+# "Unknown repository: crossref". An import that raised partway also left the
+# list half loaded for good.
+_load_lock = threading.Lock()
 
 
 def _ensure_loaded():
+    """Import every client module once, so each has registered, before any lookup.
+
+    ``_loaded`` turns true only after every import has succeeded, under the
+    lock, and a second caller waits for the first rather than reading a list
+    still being filled. An import that raises leaves ``_loaded`` false, so the
+    next caller tries again.
+    """
     global _loaded
     if _loaded:
         return
-    _loaded = True
+    with _load_lock:
+        if _loaded:
+            return
+        _import_clients()
+        _loaded = True
+
+
+def _import_clients():
     from importlib import import_module
     _CLIENT_MODULES = [
         "api_arxiv",
@@ -116,7 +147,6 @@ def _ensure_loaded():
         "api_inspire_hep",
         "api_nasa_ads",
         "api_ndl_search",
-        "api_nist_rmm",
         "api_openaire",
         "api_openalex",
         "api_openlibrary",
@@ -126,8 +156,9 @@ def _ensure_loaded():
         "api_semantic_scholar",
         "api_springer",
         "api_zenodo",
-        # NOTE: api_ieee, api_oapen, api_repec and api_ssrn are intentionally
-        # excluded from the active registry, for three different reasons.
+        # NOTE: api_ieee, api_nist_rmm, api_oapen, api_repec and api_ssrn are
+        # intentionally excluded from the active registry, for four different
+        # reasons.
         #
         # RePEc and SSRN block programmatic access (SSRN via Cloudflare
         # bot-challenge 403s; RePEc/IDEAS htsearch CGI is no longer publicly
@@ -145,7 +176,13 @@ def _ensure_loaded():
         # Unlike RePEc and SSRN it did work, and unlike IEEE Xplore its terms
         # are not the problem. The client itself is unchanged.
         #
-        # All four client modules are retained on disk for reference but are
+        # NIST RMM never answered: its papers API has returned HTTP 500 to
+        # every search since the source was added in August 2026. It was
+        # withdrawn in November 2026, after the same 500 on November 4. Its
+        # record mapping was written from the OpenAPI envelope and has never
+        # been checked against a live response.
+        #
+        # All five client modules are retained on disk for reference but are
         # not loaded. See docs/source-landscape.md for the full rationale.
     ]
     for mod_name in _CLIENT_MODULES:

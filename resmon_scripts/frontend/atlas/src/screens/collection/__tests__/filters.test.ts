@@ -100,23 +100,30 @@ describe('what a count means, said where it is shown', () => {
   });
 
   test('the count sentence keeps its words, and a capped count its plus', () => {
-    expect(countSentence({ total: 3, total_is_capped: false }, false, '')).toBe('3 papers in your collection');
-    expect(countSentence({ total: 1, total_is_capped: false }, false, 'crystals')).toBe('1 paper match');
-    expect(countSentence({ total: 2, total_is_capped: false }, true, '')).toBe('2 papers matching your filters');
-    expect(countSentence({ total: 10000, total_is_capped: true }, true, 'perovskite'))
-      .toBe('10,000+ papers matching your filters and these words');
+    expect(countSentence({ total: 3, total_is_exact: true }, false, '')).toBe('3 papers in your collection');
+    expect(countSentence({ total: 1, total_is_exact: true }, false, 'crystals')).toBe('1 paper match');
+    expect(countSentence({ total: 2, total_is_exact: true }, true, '')).toBe('2 papers matching your filters');
+    // Past ten thousand, the number itself: the count stopped at 10,000 and said "10,000+".
+    expect(countSentence({ total: 16_774, total_is_exact: true }, false, '')).toBe('16,774 papers in your collection');
+    expect(countSentence({ total: 100_000, total_is_exact: true }, true, 'perovskite'))
+      .toBe('100,000 papers matching your filters and these words');
+  });
+
+  test('a count that ran out of time is the number it reached, said as at least', () => {
+    expect(countSentence({ total: 41_200, total_is_exact: false }, false, 'perovskite')).toBe('At least 41,200 papers match');
+    expect(countSentence({ total: 41_200, total_is_exact: false }, true, '')).toBe('At least 41,200 papers matching your filters');
   });
 });
 
 describe('each filter named, and how it comes off', () => {
-  const names = (slug: string) => ({ arxiv: 'arXiv', crossref: 'CrossRef' }[slug] ?? slug);
+  const names = (slug: string) => ({ arxiv: 'arXiv', crossref: 'Crossref' }[slug] ?? slug);
 
   test('one value in a group widens to the whole group; one of several drops only itself', () => {
     expect(chips(read('source=crossref'), names)).toEqual([
-      { key: 'source', value: 'crossref', text: 'From CrossRef', remove: 'Show papers from every source, not only CrossRef' },
+      { key: 'source', value: 'crossref', text: 'From Crossref', remove: 'Show papers from every source, not only Crossref' },
     ]);
     expect(chips(read('source=arxiv&source=crossref'), names).map((c) => c.remove))
-      .toEqual(['Stop showing papers from arXiv', 'Stop showing papers from CrossRef']);
+      .toEqual(['Stop showing papers from arXiv', 'Stop showing papers from Crossref']);
   });
 
   test('dates are said as US dates, whatever the time zone', () => {
@@ -133,22 +140,25 @@ describe('each filter named, and how it comes off', () => {
 
 describe('what an export will hold, said before it is saved', () => {
   test('every paper the count counts, by number', () => {
-    expect(exportWords({ total: 3, total_is_capped: false, count_cap: 10000 }, 'newest'))
+    expect(exportWords({ total: 3, total_is_exact: true }, 'newest'))
       .toEqual({ lead: 'Export these 3 papers as', note: null });
-    expect(exportWords({ total: 1, total_is_capped: false, count_cap: 10000 }, 'newest')?.lead).toBe('Export this paper as');
-    expect(exportWords({ total: 0, total_is_capped: false, count_cap: 10000 }, 'newest')).toBeNull();
+    expect(exportWords({ total: 1, total_is_exact: true }, 'newest')?.lead).toBe('Export this paper as');
+    expect(exportWords({ total: 0, total_is_exact: true }, 'newest')).toBeNull();
   });
 
-  test('past the engine’s cap, the file’s size and what it leaves out are said first', () => {
-    expect(exportWords({ total: 10000, total_is_capped: true, count_cap: 10000 }, 'newest')).toEqual({
-      lead: 'Export the newest 10,000 as',
-      note: 'An export holds at most 10,000 papers, so this file will hold the newest 10,000 of the 10,000+ that match; '
-        + 'narrow the filters to reach the rest.',
-    });
+  test('past ten thousand, every match, with nothing left out to warn about', () => {
+    // It said "Export the newest 10,000 as" and that the rest were left out.
+    expect(exportWords({ total: 100_000, total_is_exact: true }, 'newest'))
+      .toEqual({ lead: 'Export these 100,000 papers as', note: null });
+  });
+
+  test('a count that ran out of time offers every match, not the number it reached', () => {
+    expect(exportWords({ total: 41_200, total_is_exact: false }, 'newest')).toEqual({ lead: 'Export every match as', note: null });
+    expect(exportWords({ total: 0, total_is_exact: false }, 'newest')?.lead).toBe('Export every match as');
   });
 
   test('ranked by meaning, the file keeps the papers and not the order', () => {
-    expect(exportWords({ total: 4, total_is_capped: false, count_cap: 10000 }, 'similarity')?.note)
+    expect(exportWords({ total: 4, total_is_exact: true }, 'similarity')?.note)
       .toBe('The file lists them newest first, not in order of meaning.');
   });
 

@@ -46,13 +46,19 @@ const run = spawnSync(
   // exit. A review run is the one CONTRIBUTING sends people to before asking
   // anyone to look at an interface change, so it is the last run that should
   // be able to exit 0 over an absence.
-  ['playwright', 'test', '--config', 'e2e/playwright.config.ts'],
+  //
+  // Its failure context goes into the review's own folder too. Playwright
+  // empties its output folder as a run starts, and the config's is the
+  // repository's `e2e/test-results`: a review run started from inside the
+  // suite (`interpreter-choice.spec.ts`) emptied it there, so every failure
+  // before that case lost its context, and CI's upload of it found nothing.
+  ['playwright', 'test', '--config', 'e2e/playwright.config.ts', '--output', path.join(outDir, 'test-results')],
   {
     cwd: FRONTEND,
     env: {
       ...process.env,
       RESMON_E2E_SCREENSHOT_DIR: shotDir,
-      // Playwright colours its list reporter; the log is meant to be read as
+      // Playwright colors its list reporter; the log is meant to be read as
       // text, on a phone, by someone who did not run it.
       FORCE_COLOR: '0',
     },

@@ -6,10 +6,10 @@ must never find written down anywhere.
 **The key does not reach a log handler.** ``run_turn``'s catch-all must not call
 ``logger.exception`` before building its sanitized sentence. ``logger.exception``
 writes the raw traceback, an ``httpx.HTTPStatusError``'s message carries the
-request URL, and the backend installs no root handler at all — so the record
-would fall through to ``logging.lastResort`` and onto stderr, which Electron
-pipes into the main process' console. The user-facing sentence is clean either
-way; the log is where a leak would show.
+request URL, and the backend's root handler (``logger.install_engine_log``)
+writes every error to stderr, which Electron pipes into the main process'
+console. The user-facing sentence is clean either way; the log is where a leak
+would show.
 
 **The key does not ride in a URL.** Google's v1beta endpoint accepts
 ``?key=<secret>``, which would put the key in the URL. A query string is the one
@@ -84,8 +84,9 @@ class _Capture(logging.Handler):
 def captured_logs():
     """Attach to the runtime's own logger, not to root.
 
-    The backend installs no root handler — that absence is half of the defect —
-    so a fixture that only watched root would be watching the same nothing.
+    Every record the runtime writes reaches this handler, whatever the root
+    logger has attached, so the check does not depend on how the engine
+    configures its output.
     """
     handler = _Capture()
     logger = logging.getLogger(ak.__name__)

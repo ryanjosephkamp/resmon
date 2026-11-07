@@ -4,7 +4,7 @@
 ``compose_notification`` read ``execution_data.get("new_count", 0)``, so a
 caller that supplied neither key got the line ``New results: 0`` -- a number
 resmon had no basis for. That is the one thing this codebase says it will not
-do: a field it cannot know is labelled, not guessed.
+do: a field it cannot know is labeled, not guessed.
 
 It was not hypothetical. ``email_sender`` read ``new_count`` from a row of the
 ``executions`` table, whose column is ``new_result_count``, so the key was
@@ -126,3 +126,11 @@ def test_supplied_counts_are_unchanged():
 
     assert "Total results: 42" in body
     assert "New results: 10" in body
+
+
+def test_notification_displays_canceled_without_changing_the_status() -> None:
+    data = {"routine_name": "Stopped watch", "status": "cancelled"}
+    message = compose_notification(data, ai_summary=None)
+    assert message["Subject"] == "[resmon] Stopped watch - canceled"
+    assert "Status: canceled" in _body(message)
+    assert data["status"] == "cancelled"

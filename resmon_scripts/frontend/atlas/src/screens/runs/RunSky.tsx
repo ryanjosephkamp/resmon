@@ -1,7 +1,9 @@
 import { forwardRef } from 'react';
 import { Icon } from '../../shell/Icon';
 import { count } from '../today/format';
-import { PaperSky, type PaperSkyHandle, type SkyChoice } from '../sky/PaperSky';
+import { PaperSky, type PaperSkyHandle, type SkyChoice, type SkyFacts } from '../sky/PaperSky';
+import { useCollectionWords } from '../../collections/current';
+import { YOUR_COLLECTION, type CollectionWords } from '../../collections/words';
 
 /**
  * Where a run's papers sit in the whole collection. The caption says how many
@@ -13,11 +15,14 @@ export const RunSky = forwardRef<PaperSkyHandle, {
   onOpenMap?: () => void;
   /** When the run ended: a map read before it lacks the run's papers. */
   endedAt?: string | null;
+  /** The run is still going, so having no papers yet says nothing about its result. */
+  running?: boolean;
   /** The paper open beside the map, and how one is opened there. */
   chosen?: number | null;
   onChoose?: (choice: SkyChoice | null) => void;
   sourceName?: (slug: string) => string;
-}>(function RunSky({ paperIds, onOpenMap, endedAt = null, chosen = null, onChoose, sourceName }, ref) {
+}>(function RunSky({ paperIds, onOpenMap, endedAt = null, running = false, chosen = null, onChoose, sourceName }, ref) {
+  const shown = useCollectionWords();
   return (
     <div className="run-sky">
       <PaperSky
@@ -28,17 +33,7 @@ export const RunSky = forwardRef<PaperSkyHandle, {
         marked={paperIds}
         readAfter={endedAt}
         label="Where this run's papers sit in the collection"
-        caption={({ placed, total, ready, basis }) => {
-          if (total === 0) return 'This run stored no papers.';
-          if (placed === null || !ready) {
-            return `The collection map is not ready yet; this run's ${count(total, 'paper')} ${total === 1 ? 'is' : 'are'} drawn once it is.`;
-          }
-          if (placed === total) return `All ${count(total, 'paper')} from this run, marked where they sit in the collection.`;
-          return `${placed.toLocaleString('en-US')} of ${count(total, 'paper')} from this run are on the map. The rest are not: `
-            + (basis === 'embeddings'
-              ? 'your embedding model has not read them yet, or they have too little text to place.'
-              : 'they have too little text in their titles and abstracts to place by wording.');
-        }}
+        caption={(facts) => runSkyCaption(facts, running, shown)}
       />
       {onOpenMap && (
         <button type="button" className="btn sm run-sky-open" onClick={onOpenMap}>
@@ -48,3 +43,27 @@ export const RunSky = forwardRef<PaperSkyHandle, {
     </div>
   );
 });
+
+/**
+ * The sentence under a run's map. A run that is still going has stored nothing
+ * yet, so its empty map says when papers arrive rather than that there are none.
+ * The map is the shown collection's, and its papers are the run's papers in
+ * it; where the collection is named, the sentence says so.
+ */
+export function runSkyCaption({ placed, total, ready, basis }: SkyFacts, running: boolean,
+  shown: CollectionWords = YOUR_COLLECTION): string {
+  const there = shown.named ? ` in ${shown.name}` : '';
+  if (total === 0) {
+    if (running) return 'Papers appear here once the run has stored them.';
+    return shown.named ? `None of the papers this run stored is in ${shown.name}.` : 'This run stored no papers.';
+  }
+  if (placed === null || !ready) {
+    return `The ${shown.named ? `map of ${shown.name}` : 'collection map'} is not ready yet; this run's ${count(total, 'paper')}${there} `
+      + `${total === 1 ? 'is' : 'are'} drawn once it is.`;
+  }
+  if (placed === total) return `All ${count(total, 'paper')} from this run${there}, marked where they sit in ${shown.named ? 'it' : 'the collection'}.`;
+  return `${placed.toLocaleString('en-US')} of ${count(total, 'paper')} from this run${there} are on the map. The rest are not: `
+    + (basis === 'embeddings'
+      ? 'your embedding model has not read them yet, or they have too little text to place.'
+      : 'they have too little text in their titles and abstracts to place by wording.');
+}

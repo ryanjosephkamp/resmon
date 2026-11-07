@@ -69,6 +69,7 @@ test('Q5: every IPC channel is stubbed, and nothing reaches the OS', async ({
         relaunch(): Promise<boolean>;
         swipeNavigation(): Promise<boolean>;
         swipeHistory(direction: 'back' | 'forward'): Promise<boolean>;
+        trashPath(p: string): Promise<string>;
       };
     }).resmonAPI;
     return {
@@ -81,6 +82,7 @@ test('Q5: every IPC channel is stubbed, and nothing reaches the OS', async ({
       relaunched: await api.relaunch(),
       swipes: await api.swipeNavigation(),
       swiped: await api.swipeHistory('back'),
+      trashed: await api.trashPath('/tmp/resmon-library-00000000-0000-4000-8000-000000000000/removed/00000000-0000-4000-8000-000000000001/e2e.pdf'),
     };
   });
 
@@ -94,6 +96,7 @@ test('Q5: every IPC channel is stubbed, and nothing reaches the OS', async ({
   expect(results.relaunched).toBe(false);
   expect(results.swipes).toBe(false);
   expect(results.swiped).toBe(false);
+  expect(results.trashed).toBe('Stubbed in this run: nothing was moved to the Trash.');
 
   const guards = await readGuards(app);
   console.log('Q5 GUARD COUNTS', JSON.stringify(guards));
@@ -102,7 +105,7 @@ test('Q5: every IPC channel is stubbed, and nothing reaches the OS', async ({
   expect(Object.fromEntries(Object.entries(guards.stubbed).map(([key, value]) =>
     [key, value - before.stubbed[key as keyof typeof before.stubbed]]))).toEqual({
     chooseDirectory: 1, chooseFile: 1, openPath: 1, revealPath: 1, getDownloads: 1, revealDownload: 1, relaunch: 1,
-    swipeNavigation: 1, swipeHistory: 1,
+    swipeNavigation: 1, swipeHistory: 1, trashPath: 1,
   });
   // … and nothing underneath them was.
   expect(guards.escaped).toEqual(NOTHING_ESCAPED);
@@ -120,7 +123,7 @@ test('P4: a full pass over every screen opens no dialog and makes no shell call'
   console.log('P4 GUARD COUNTS AFTER FULL PASS', JSON.stringify(guards));
   expect(guards.stubbed).toEqual({
     chooseDirectory: 0, chooseFile: 0, openPath: 0, revealPath: 0, getDownloads: 0, revealDownload: 0, relaunch: 0,
-    swipeNavigation: 0, swipeHistory: 0,
+    swipeNavigation: 0, swipeHistory: 0, trashPath: 0,
   });
   expect(guards.escaped).toEqual(NOTHING_ESCAPED);
 });

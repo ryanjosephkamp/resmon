@@ -16,7 +16,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { expect, type Locator, type TestInfo } from '@playwright/test';
 import type {
-  AnalyticsView, AssistantPanelFacts, BackupResult, FirstRunCard, KeyField, ObservedRequest, RestoreCard, AssistantTurn, BackendFacts, ComposerChoice, LibraryItem, SavedTranscript, TurnChoiceFacts, VaultOnDisk, ConfigurationExport, CoverageAudit, DaemonPanel, DeliveryRecord,
+  AnalyticsView, AssistantPanelFacts, BackupResult, FirstRunCard, FindReading, KeyField, ObservedRequest, RestoreCard, AssistantTurn, BackendFacts, ComposerChoice, LibraryItem, SavedTranscript, TurnChoiceFacts, VaultOnDisk, ConfigurationExport, CoverageAudit, DaemonPanel, DeliveryRecord,
   DrawnAppearance, EmailSettings, EvidenceBundle, EvidencePageView, ReopenedPassage, SavedEvidenceNote,
   OpenedCitation, SelectedAnswerPreview, SelectedAnswerView,
   ExplorerList, ExportedFile, ImportOutcome, InterruptedRow, JourneyDriver, NotificationPreferences, Place,
@@ -36,6 +36,8 @@ import type { Session } from './session';
 const ATLAS_PLACES: Partial<Record<Place, string>> = {
   Today: '/today',
   'Appearance settings': '/settings',
+  'Find a paper': '/search/find',
+  'Collections settings': '/settings/collections',
   // Routines and the calendar are both Watches in Atlas: each watch on its
   // Searches tab, and the month ahead's fires on its Calendar tab.
   Routines: '/watches',
@@ -61,9 +63,9 @@ const ATLAS_PLACES: Partial<Record<Place, string>> = {
   Chats: '/ask',
   'AI settings': '/settings/ai',
   // The explorer is Search › Your collection, and a run's results are opened
-  // from the run log beside Ask the sources.
+  // from the Runs tab's history.
   Explorer: '/search',
-  Results: '/search/ask',
+  Results: '/runs',
   'Storage settings': '/settings/storage',
   Tutorials: '/settings/tutorials',
 };
@@ -118,6 +120,9 @@ export type AtlasDriver = Pick<JourneyDriver,
   | 'readTabsHere' | 'framesHere' | 'readExternalLinks' | 'readTheRecordingsHere' | 'chooseGoogleDrivesFolderForBackups'
   | 'backUpNow'
   | 'readRestoreCard'
+  | 'readHowFindReads' | 'findPaper' | 'readTheFind' | 'getTheFoundPdf' | 'readEarlierFinds'
+  | 'makeCollection' | 'readCollections' | 'switchCollection' | 'readShownCollection' | 'readPapersInThisCollection'
+  | 'copyPaperToCollection' | 'renameCollection' | 'askToDeleteCollection' | 'confirmDeleteCollection'
   // The setup a person does on a screen, taken through Atlas's own.
   | 'createRoutine' | 'fireRoutineNow' | 'addDeliveryTarget' | 'restoreIntoFreshState'
   | 'useAnAuthoredAgentCommand' | 'useAnAuthoredAgentCommandThatRecordsItsArguments' | 'useAnAuthoredProviderOnAKey'
@@ -139,7 +144,7 @@ const PANEL_WORDS: Record<string, string> = {
   not_queried: 'not queried',
   not_recorded: 'reason not recorded',
   error: 'error',
-  cancelled: 'cancelled',
+  'cancelled': 'cancelled',
   not_reached: 'not asked',
 };
 
@@ -233,6 +238,12 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     } else if (hash === '/watches/people') {
       await expect(win().getByRole('heading', { name: 'People', level: 1 })).toBeVisible({ timeout: 30_000 });
       await expect(win().locator('.page.people')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+    } else if (hash === '/settings/collections') {
+      await expect(win().getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible({ timeout: 30_000 });
+      await expect(win().locator('[data-settings="collections"] .collection-row').first()).toBeVisible({ timeout: 30_000 });
+    } else if (hash === '/search/find') {
+      await expect(win().getByRole('heading', { name: 'Find a paper', level: 1 })).toBeVisible({ timeout: 30_000 });
+      await expect(win().getByRole('search', { name: 'Find a paper' })).toBeVisible();
     } else if (hash?.startsWith('/settings/')) {
       await expect(win().getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible({ timeout: 30_000 });
       await expect(win().locator('.settings-body > section.settings-group'))
@@ -252,6 +263,9 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     } else if (hash === '/search/ask') {
       await expect(win().getByRole('heading', { name: 'Ask the sources', level: 1 })).toBeVisible({ timeout: 30_000 });
       await expect(win().locator('.source').first()).toBeVisible({ timeout: 30_000 });
+    } else if (hash === '/runs') {
+      await expect(win().getByRole('heading', { name: 'Runs', level: 1 })).toBeVisible({ timeout: 30_000 });
+      await expect(win().locator('[data-runs="history"]')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
     } else {
       await expect(win().getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible({ timeout: 30_000 });
     }
@@ -283,7 +297,14 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     await win().evaluate(() => { window.location.hash = '#/search/ask'; });
     await expect(win().getByRole('heading', { name: 'Ask the sources', level: 1 })).toBeVisible({ timeout: 30_000 });
     await expect(win().locator('.source').first()).toBeVisible({ timeout: 30_000 });
-    await expect(win().locator('section.runlog')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+    await expect(win().locator('section.latest-runs')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+  };
+
+  /** The Runs tab, its history read: where every run is listed, ticked, and restarted. */
+  const openRuns = async (): Promise<void> => {
+    await win().evaluate(() => { window.location.hash = '#/runs'; });
+    await expect(win().getByRole('heading', { name: 'Runs', level: 1 })).toBeVisible({ timeout: 30_000 });
+    await expect(win().locator('[data-runs="history"]')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
   };
 
   const openRun = async (run: RunHandle): Promise<void> => {
@@ -411,11 +432,66 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     };
   };
 
-  /** Library › Your files, opened and read once. */
+  /** Library, its Your files shelf, opened and read once. */
   const openFiles = async (): Promise<void> => {
-    await win().evaluate(() => { window.location.hash = '#/library/files'; });
-    await expect(win().getByRole('heading', { name: 'Your files', level: 1 })).toBeVisible({ timeout: 30_000 });
-    await expect(win().locator('.files-page')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+    await win().evaluate(() => { window.location.hash = '#/library?show=files'; });
+    await expect(win().getByRole('heading', { name: 'Library', level: 1 })).toBeVisible({ timeout: 30_000 });
+    await expect(win().locator('.lib-page')).toHaveAttribute('data-show', 'files', { timeout: 30_000 });
+    await expect(win().locator('.lib-reading')).toHaveCount(0, { timeout: 30_000 });
+  };
+  /**
+   * A kept file's card on the Your files shelf, by the name it was imported
+   * under, found as a person finds one among many: with the shelf's find
+   * field. The gallery draws only the rows near the view, so a card is not
+   * in the page until it is.
+   */
+  const fileCard = async (name: string): Promise<Locator> => {
+    await win().locator('.lib-find input').fill(name);
+    const card = win().locator('article.card.file').filter({ has: win().getByRole('heading', { name, exact: true }) });
+    await expect(card).toBeVisible({ timeout: 30_000 });
+    return card;
+  };
+
+  /**
+   * Every card on the shelf open now, in its order, read by scrolling the page
+   * from top to bottom: the gallery draws only the rows near the view, and
+   * reads the next page as the view nears the end. Held to the size the list
+   * states, so a shelf read short fails rather than passing as a smaller one.
+   */
+  const everyCard = async (): Promise<{ document: string | null; file: string | null; title: string; status: string | null }[]> => {
+    await expect(win().locator('.gal [role="listitem"], .lib-empty, .lib-empty-queue').first()).toBeVisible({ timeout: 30_000 });
+    const seen = await win().evaluate(async () => {
+      const stage = document.querySelector('main.stage') as HTMLElement;
+      const drawn = () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+      const cards = new Map<number, { document: string | null; file: string | null; title: string; status: string | null }>();
+      let size = 0;
+      stage.scrollTop = 0;
+      await drawn();
+      for (let step = 0, waited = 0; step < 4000; step += 1) {
+        for (const cell of Array.from(document.querySelectorAll('.gal [role="listitem"]'))) {
+          size = Number(cell.getAttribute('aria-setsize'));
+          const card = cell.querySelector('article.card') as HTMLElement | null;
+          const at = Number(cell.getAttribute('aria-posinset'));
+          if (card && !cards.has(at)) {
+            cards.set(at, { document: card.dataset.document ?? null, file: card.dataset.file ?? null,
+              title: card.querySelector('.card-title')?.textContent?.trim() ?? '', status: card.dataset.status ?? null });
+          }
+        }
+        if (stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 2) {
+          // At the end of what is drawn: done, unless the next page is still being read.
+          if (cards.size >= size || waited > 100) break;
+          waited += 1;
+          await new Promise((done) => setTimeout(done, 100));
+        } else {
+          stage.scrollTop += Math.round(stage.clientHeight * 0.6);
+        }
+        await drawn();
+      }
+      stage.scrollTop = 0;
+      return { size, cards: [...cards.entries()].sort((a, b) => a[0] - b[0]).map(([, card]) => card) };
+    });
+    expect(seen.cards.length, 'the shelf was read short of the size its list states').toBe(seen.size);
+    return seen.cards;
   };
 
   /** The vault the engine made inside the chosen folder: the one `resmon-library-*` there. */
@@ -426,17 +502,27 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     return path.join(libraryParent, made[0]!);
   };
 
-  /** One file's record as the detail draws it, once the detail is that file's. */
+  /**
+   * One file's record as its own page draws it: the record opened, and each
+   * linked paper as the page names it, with the number its link leads to.
+   */
   const readLibraryDetail = async (fileId: string): Promise<LibraryItem> => {
-    const detail = win().getByRole('region', { name: 'Selected Library item' });
-    await expect(detail).toHaveAttribute('data-file', fileId, { timeout: 30_000 });
+    await win().evaluate((id) => { window.location.hash = `#/library/files/${id}`; }, fileId);
+    const page = win().locator(`.lib-file-page[data-file="${fileId}"]`);
+    await expect(page.locator('.lib-file-name')).toBeVisible({ timeout: 30_000 });
+    const record = page.locator('details.lib-record');
+    if (await record.getAttribute('open') === null) await record.locator('summary').click();
+    const links = await page.locator('[data-library="links"] li a').evaluateAll((anchors) => anchors.map((a) => {
+      const id = /#\/papers\/(\d+)/.exec((a as HTMLAnchorElement).getAttribute('href') ?? '')?.[1] ?? '?';
+      return `Paper ${id}: ${(a.textContent ?? '').trim()}`;
+    }));
     return {
-      name: (await detail.locator('.lib-detail-name').innerText()).trim(),
-      mediaType: (await detail.locator('[data-library="media"]').innerText()).trim(),
-      sha256: (await detail.locator('[data-library="sha256"]').innerText()).trim(),
-      fileId: (await detail.locator('[data-library="file-id"]').innerText()).trim(),
-      versionId: (await detail.locator('[data-library="version-id"]').innerText()).trim(),
-      associations: (await detail.locator('[data-library="links"] li').allInnerTexts()).map((t) => t.trim()),
+      name: (await page.locator('.lib-file-name').innerText()).trim(),
+      mediaType: (await record.locator('[data-library="media"]').innerText()).trim(),
+      sha256: (await record.locator('[data-library="sha256"]').innerText()).trim(),
+      fileId: (await record.locator('[data-library="file-id"]').innerText()).trim(),
+      versionId: (await record.locator('[data-library="version-id"]').innerText()).trim(),
+      associations: links,
     };
   };
 
@@ -764,21 +850,59 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     };
   };
 
-  const openQueue = async (filter: 'to read' | 'read' | 'all'): Promise<void> => {
-    await win().evaluate(() => { window.location.hash = '#/library'; });
-    await expect(win().getByRole('heading', { name: 'Reading queue', level: 1 })).toBeVisible({ timeout: 30_000 });
-    const button = win().getByRole('group', { name: 'Show' }).getByRole('button', { name: new RegExp(`^${QUEUE_FILTER[filter]}`) });
-    await button.click();
+  /** One of the Library's two reading shelves, To read or Read, read in full. */
+  const openShelf = async (shelf: 'to read' | 'read'): Promise<void> => {
+    await win().evaluate((show) => { window.location.hash = `#/library?show=${show}`; }, shelf === 'read' ? 'read' : 'to_read');
+    await expect(win().getByRole('heading', { name: 'Library', level: 1 })).toBeVisible({ timeout: 30_000 });
+    const button = win().getByRole('group', { name: 'Show' }).getByRole('button', { name: new RegExp(`^${QUEUE_FILTER[shelf]}`) });
     await expect(button).toHaveAttribute('aria-pressed', 'true');
-    await expect(win().locator('section.queue')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
-    await expect(win().locator('.queue-row, .queue-empty').first()).toBeVisible({ timeout: 30_000 });
+    await expect(win().locator('.lib-reading')).toHaveCount(0, { timeout: 30_000 });
+    await expect(win().locator('article.card, .lib-empty, .lib-empty-queue').first()).toBeVisible({ timeout: 30_000 });
   };
+  const readShelf = async (): Promise<QueuedPaper[]> => (await everyCard()).filter((card) => card.document !== null).map((card) => ({
+    id: Number(card.document),
+    title: card.title,
+    state: card.status === 'read' ? 'Read' as const : 'To read' as const,
+  }));
+  /** The queue as a filter once named it: a shelf, or both shelves for All. */
+  const readQueueFor = async (filter: 'to read' | 'read' | 'all'): Promise<QueuedPaper[]> => {
+    const out: QueuedPaper[] = [];
+    for (const shelf of filter === 'all' ? ['to read', 'read'] as const : [filter]) {
+      await openShelf(shelf);
+      out.push(...await readShelf());
+    }
+    return out;
+  };
+  /** The shelf a saved paper is on now, opened, and its card. */
+  /** Scroll the shelf open now from the top until the gallery draws this card; false when the shelf ends without it. */
+  const scrolledTo = async (selector: string): Promise<boolean> => win().evaluate(async (wanted) => {
+    const stage = document.querySelector('main.stage') as HTMLElement;
+    const drawn = () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+    stage.scrollTop = 0;
+    await drawn();
+    for (let step = 0; step < 4000; step += 1) {
+      const card = document.querySelector(wanted);
+      if (card) {
+        card.scrollIntoView({ block: 'center' });
+        await drawn();
+        return true;
+      }
+      if (stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 2) return false;
+      stage.scrollTop += Math.round(stage.clientHeight * 0.6);
+      await drawn();
+    }
+    return false;
+  }, selector);
 
-  const readQueue = async (): Promise<QueuedPaper[]> => win().locator('.queue-row').evaluateAll((rows) => rows.map((row) => ({
-    id: Number((row as HTMLElement).dataset.document),
-    title: row.querySelector('.queue-title')?.textContent?.trim() ?? '',
-    state: row.querySelector('.queue-state')?.textContent?.trim() ?? '',
-  })));
+  const queuedCard = async (paper: QueuedPaper): Promise<Locator> => {
+    for (const shelf of ['to read', 'read'] as const) {
+      await openShelf(shelf);
+      // Scrolled to, as a person scrolls to a card the window does not show yet.
+      const selector = `article.card[data-document="${paper.id}"]`;
+      if (await scrolledTo(selector)) return win().locator(selector);
+    }
+    throw new Error(`paper ${paper.id} is on neither reading shelf`);
+  };
 
   // — watches ---------------------------------------------------------------
 
@@ -839,8 +963,203 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     return recorded;
   };
 
+  /** A typed find, once its own plan has arrived rather than the previous query's. */
+  const openFindQuery = async (query: string): Promise<{ kind: string; words: string }> => {
+    await goto('Find a paper');
+    const plan = await session.api<{ kind: string; value: string }>('GET', `/api/find/plan?q=${encodeURIComponent(query)}`);
+    await win().getByRole('search', { name: 'Find a paper' }).getByRole('textbox').fill(query);
+    const reads = win().locator('[data-find="reads"]');
+    await expect(reads).toHaveAttribute('data-kind', plan.kind, { timeout: 30_000 });
+    await expect(reads).toContainText(plan.kind === 'title' ? 'Reads as a title.' : plan.value);
+    return { kind: String(await reads.getAttribute('data-kind')), words: (await reads.innerText()).trim() };
+  };
+
+  const openFindResult = async (run: RunHandle): Promise<Locator> => {
+    await win().evaluate((id) => { window.location.hash = `#/search/find?run=${id}`; }, run.id);
+    const result = win().locator('[data-find="result"]');
+    await stored(`find ${run.id} finished`, () => backend.execution(run), (record) => record.status !== 'running', 120_000);
+    await expect(result).toHaveAttribute('data-status', String((await backend.execution(run)).status), { timeout: 30_000 });
+    return result;
+  };
+
+  const openCollectionRow = async (name: string): Promise<Locator> => {
+    await goto('Collections settings');
+    const collection = (await backend.collections()).collections.find((c) => c.name === name);
+    expect(collection, `the engine holds no collection named ${name}`).toBeTruthy();
+    const row = win().locator(`[data-collection-row="${collection!.id}"]`);
+    await expect(row.locator('.collection-head > .name')).toHaveText(name, { timeout: 30_000 });
+    return row;
+  };
+
   return {
     open: (place) => goto(place),
+
+    // — one paper and its PDF -------------------------------------------------
+
+    readHowFindReads: (query) => openFindQuery(query),
+
+    findPaper: async (query, sources): Promise<RunHandle> => {
+      await openFindQuery(query);
+      const picks = win().getByRole('group', { name: 'The sources to ask' }).getByRole('button');
+      await expect(picks.first()).toBeVisible();
+      for (const pick of await picks.all()) {
+        const wanted = sources.includes(String(await pick.getAttribute('data-source')));
+        if ((await pick.getAttribute('aria-pressed') === 'true') !== wanted) await pick.click();
+        await expect(pick).toHaveAttribute('aria-pressed', String(wanted));
+      }
+      for (const source of sources) await expect(win().locator(`.find-pick[data-source="${source}"]`)).toHaveAttribute('aria-pressed', 'true');
+      const started = win().waitForResponse((r) => r.url().endsWith('/api/find') && r.request().method() === 'POST');
+      await win().getByRole('button', { name: 'Find', exact: true }).click();
+      const response = await started;
+      expect(response.ok(), `Find was refused: HTTP ${response.status()}`).toBe(true);
+      const run = { id: Number((await response.json()).execution_id) };
+      await openFindResult(run);
+      return run;
+    },
+
+    readTheFind: async (run): Promise<FindReading> => {
+      const result = await openFindResult(run);
+      const paper = result.locator('[data-find="paper"]');
+      await expect(paper.locator('.fulltext')).toBeVisible({ timeout: 30_000 });
+      return {
+        title: (await paper.locator('.find-paper-title').innerText()).trim(),
+        details: (await paper.locator('.meta').innerText()).trim(),
+        sources: await result.locator('.find-source').evaluateAll((rows) => rows.map((row) => ({
+          source: row.getAttribute('data-source') ?? '', outcome: row.getAttribute('data-outcome') ?? '',
+          label: row.querySelector('.find-outcome')?.textContent?.trim() ?? '',
+          mark: row.querySelector('svg.wall-mark')?.getAttribute('data-mark') ?? '',
+        }))),
+        pdf: {
+          canGet: await paper.getByRole('button', { name: 'Get the PDF', exact: true }).count() > 0,
+          canRead: await paper.getByRole('link', { name: 'Read the PDF', exact: true }).count() > 0,
+          words: (await paper.locator('.fulltext-line').innerText()).trim(),
+        },
+      };
+    },
+
+    getTheFoundPdf: async (run) => {
+      const result = await openFindResult(run);
+      const record = await backend.find(run);
+      expect(record.reference_document_id).not.toBeNull();
+      await result.getByRole('button', { name: 'Get the PDF', exact: true }).click();
+      await stored('the found PDF retained in the Library', () => backend.fullTextForPaper(record.reference_document_id!),
+        (status) => status.download?.state === 'stored' && status.in_library !== null, 120_000);
+      await expect(result.getByRole('link', { name: 'Read the PDF', exact: true })).toBeVisible({ timeout: 30_000 });
+    },
+
+    readEarlierFinds: async () => {
+      await goto('Find a paper');
+      const finds = (await backend.executions()).filter((run) => run.execution_type === 'find_paper');
+      const links = win().locator('.find-earlier li a');
+      await expect(links).toHaveCount(finds.length, { timeout: 30_000 });
+      return links.evaluateAll((items) => items.map((link) => ({
+        id: Number(new URLSearchParams(link.getAttribute('href')?.split('?')[1]).get('run')),
+        query: link.textContent?.trim() ?? '',
+      })));
+    },
+
+    // — collections beside one another ---------------------------------------
+
+    makeCollection: async (name) => {
+      await goto('Collections settings');
+      await win().getByRole('form', { name: 'Make a collection' }).getByRole('textbox').fill(name);
+      await win().getByRole('button', { name: 'Make collection', exact: true }).click();
+      await stored(`the collection ${name}`, () => backend.collections(), (list) => list.collections.some((c) => c.name === name));
+      const row = await openCollectionRow(name);
+      return Number(await row.getAttribute('data-collection-row'));
+    },
+
+    readCollections: async () => {
+      await goto('Collections settings');
+      const list = await backend.collections();
+      const rows = win().locator('[data-settings="collections"] .collection-row');
+      await expect(rows).toHaveCount(list.collections.length, { timeout: 30_000 });
+      return rows.evaluateAll((items) => items.map((row) => ({
+        id: Number(row.getAttribute('data-collection-row')),
+        name: row.querySelector('.collection-head > .name')?.textContent?.trim() ?? '',
+        facts: row.querySelector('.collection-facts')?.textContent?.trim() ?? '',
+      })));
+    },
+
+    switchCollection: async (name) => {
+      const scope = win().getByRole('button', { name: /^Collection: / });
+      await expect(scope).toBeVisible();
+      const collection = (await backend.collections()).collections.find((c) => c.name === name);
+      expect(collection).toBeTruthy();
+      await scope.click();
+      await win().getByRole('menu', { name: 'Collections', exact: true })
+        .locator(`[data-collection="${collection!.id}"]`).click();
+      await stored(`the remembered collection ${name}`, () => backend.collections(), (list) => list.current_id === collection!.id);
+      await expect(scope).toHaveAccessibleName(`Collection: ${name}. Choose another collection`);
+    },
+
+    readShownCollection: async () => {
+      const scope = win().getByRole('button', { name: /^Collection: / });
+      await expect(scope).toBeVisible();
+      return (await scope.locator('.scope-name').innerText()).trim();
+    },
+
+    readPapersInThisCollection: async () => {
+      const scope = win().getByRole('button', { name: /^Collection: / });
+      await expect(scope).toBeVisible();
+      const name = (await scope.locator('.scope-name').innerText()).trim();
+      const id = Number(await scope.getAttribute('data-collection-switch'));
+      await win().evaluate(() => { window.location.hash = '#/search'; });
+      await expect(win().getByRole('heading', { name, exact: true, level: 1 })).toBeVisible({ timeout: 30_000 });
+      await expect(win().locator('section.results')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+      const papers = await backend.papersInCollection(id);
+      const rows = win().locator('.result-list .result');
+      await expect(rows).toHaveCount(papers.length, { timeout: 30_000 });
+      return rows.evaluateAll((items) => items.map((row) => ({
+        id: Number(row.getAttribute('data-document')), title: row.querySelector('.result-title')?.textContent?.trim() ?? '',
+      })).sort((a, b) => a.id - b.id));
+    },
+
+    copyPaperToCollection: async (paper, name) => {
+      await win().evaluate((id) => { window.location.hash = `#/papers/${id}`; }, paper);
+      const where = win().locator('[data-paper="collections"]');
+      await expect(where).toBeVisible({ timeout: 30_000 });
+      const target = (await backend.collections()).collections.find((c) => c.name === name);
+      expect(target).toBeTruthy();
+      await where.getByRole('button', { name: 'Copy to', exact: true }).click();
+      await win().getByRole('menu', { name: 'Copy to', exact: true })
+        .locator(`[data-collection-target="${target!.id}"]`).click();
+      await stored(`paper ${paper} copied to ${name}`, () => backend.paper(paper),
+        (record) => record.collections.some((c) => c.id === target!.id));
+      await expect(where.locator(`li[data-collection="${target!.id}"]`)).toBeVisible({ timeout: 30_000 });
+    },
+
+    renameCollection: async (name, renamed) => {
+      const row = await openCollectionRow(name);
+      const id = Number(await row.getAttribute('data-collection-row'));
+      const scope = win().getByRole('button', { name: /^Collection: / });
+      const shown = Number(await scope.getAttribute('data-collection-switch')) === id;
+      await row.getByRole('button', { name: 'Rename', exact: true }).click();
+      const form = row.getByRole('form', { name: `Rename ${name}` });
+      await form.getByRole('textbox').fill(renamed);
+      await form.getByRole('button', { name: 'Save', exact: true }).click();
+      await stored(`collection ${id} renamed`, () => backend.collections(), (list) => list.collections.some((c) => c.id === id && c.name === renamed));
+      await expect(row.locator('.collection-head > .name')).toHaveText(renamed, { timeout: 30_000 });
+      if (shown) await expect(scope).toHaveAccessibleName(`Collection: ${renamed}. Choose another collection`);
+    },
+
+    askToDeleteCollection: async (name) => {
+      const row = await openCollectionRow(name);
+      await row.getByRole('button', { name: `Delete ${name}`, exact: true }).click();
+      const question = row.getByRole('group', { name: `Delete ${name}?`, exact: true });
+      await expect(question.getByRole('button', { name: `Delete ${name}`, exact: true })).toBeEnabled({ timeout: 30_000 });
+      return (await question.innerText()).trim();
+    },
+
+    confirmDeleteCollection: async (name) => {
+      const question = win().getByRole('group', { name: `Delete ${name}?`, exact: true });
+      await expect(question).toBeVisible();
+      await question.getByRole('button', { name: `Delete ${name}`, exact: true }).click();
+      await stored(`collection ${name} deleted`, () => backend.collections(), (list) => !list.collections.some((c) => c.name === name));
+      const notice = win().locator('[data-settings="collections"] [role="status"]');
+      await expect(notice).toContainText(`Deleted ${name}.`, { timeout: 30_000 });
+      return (await notice.innerText()).trim();
+    },
 
     // — health: the Source wall, the watchdog, this engine --------------------
 
@@ -881,12 +1200,17 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
         const drawn: SourceWallCellView[] = [];
         for (let j = 0; j < await cells.count(); j += 1) {
           const cell = cells.nth(j);
-          // `<source>, <run> <when>: <label>`: the label follows the last colon.
-          const announced = String(await cell.getAttribute('aria-label'));
+          // The accessible name includes the run, count, and note, whose own
+          // colons are not label boundaries. Read the short label in the cell's
+          // opened reading, once its note identifies the selected cell.
+          await cell.click();
+          const reading = win().locator('[data-health="reading"]');
+          await expect(reading.locator('.wall-reading-note'))
+            .toHaveText(served.sources[i]!.cells[j]!.note, { timeout: 30_000 });
           drawn.push({
             state: String(await cell.getAttribute('data-state')),
             glyph: String(await cell.locator('svg.wall-mark').getAttribute('data-mark')),
-            label: announced.slice(announced.lastIndexOf(': ') + 2),
+            label: (await reading.locator('.wall-reading-label').innerText()).trim(),
           });
         }
         out.rows.push({ source: (await row.locator('th[scope="row"]').innerText()).trim(), cells: drawn });
@@ -1036,7 +1360,7 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
       await openFiles();
       await win().getByRole('button', { name: 'Create the library here', exact: true }).click();
       // The control that exists only once there is somewhere to import into.
-      await expect(win().getByLabel('Import PDF, TXT, or MD')).toBeEnabled({ timeout: 60_000 });
+      await expect(win().getByLabel('Import PDF, TXT, MD, or TeX')).toBeEnabled({ timeout: 60_000 });
       return vaultDirectory();
     },
 
@@ -1049,7 +1373,7 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
         fs.writeFileSync(target, file.content);
         return target;
       });
-      const control = win().getByLabel('Import PDF, TXT, or MD');
+      const control = win().getByLabel('Import PDF, TXT, MD, or TeX');
       await expect(control).toBeEnabled({ timeout: 60_000 });
       await control.setInputFiles(paths);
       // The page's own account of what it did, written once every file was answered.
@@ -1060,28 +1384,30 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
 
     readTheLibraryItems: async (): Promise<LibraryItem[]> => {
       await openFiles();
-      const rows = win().getByRole('region', { name: 'Library files' }).locator('button.library-file');
-      await expect(rows.first()).toBeVisible({ timeout: 60_000 });
+      await expect(win().locator('article.card.file').first()).toBeVisible({ timeout: 60_000 });
+      const ids = (await everyCard()).map((card) => String(card.file));
       const out: LibraryItem[] = [];
-      for (let i = 0; i < await rows.count(); i += 1) {
-        const row = rows.nth(i);
-        await row.click();
-        out.push(await readLibraryDetail(String(await row.getAttribute('data-file'))));
-      }
+      for (const id of ids) out.push(await readLibraryDetail(id));
       return out;
     },
 
     associateTheLibraryItemWithPaper: async (name, paperId): Promise<string> => {
+      // A paper is chosen by searching for it, as a person does: by its stored title.
+      const paper = await win().evaluate(async (id) => {
+        const port = (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort();
+        return (await (await e2eFetch(`http://127.0.0.1:${port}/api/documents/${id}`)).json()) as { title: string };
+      }, paperId);
       await openFiles();
-      const row = win().locator('button.library-file').filter({ has: win().locator('.lib-name', { hasText: name }) });
-      await row.click();
-      const detail = win().getByRole('region', { name: 'Selected Library item' });
-      await expect(detail).toHaveAttribute('data-file', String(await row.getAttribute('data-file')), { timeout: 30_000 });
-      await detail.locator('#lib-paper').fill(String(paperId));
-      await detail.getByRole('button', { name: 'Link', exact: true }).click();
-      const notice = detail.locator('[data-library="linked"]');
-      await expect(notice).toContainText(`Linked paper ${paperId}`, { timeout: 60_000 });
-      return (await notice.innerText()).trim();
+      await (await fileCard(name)).getByRole('button', { name: 'Read', exact: true }).click();
+      const page = win().locator('.lib-file');
+      await expect(page.locator('.lib-file-name')).toHaveText(name, { timeout: 30_000 });
+      await page.locator('.lib-file-head').getByRole('button', { name: 'Link to a paper' }).click();
+      const picker = win().getByRole('dialog', { name: `Link ${name} to a paper` });
+      await picker.getByLabel('Find a paper by title, author, or words in it').fill(paper.title.slice(0, 60));
+      await picker.locator(`button[data-document="${paperId}"]`).click();
+      await expect(picker).toHaveCount(0, { timeout: 30_000 });
+      await expect(page.locator(`[data-library="links"] a[href="#/papers/${paperId}"]`)).toBeVisible({ timeout: 60_000 });
+      return (await page.locator('#lib-file-links .form-hint').innerText()).trim();
     },
 
     readTheVaultOnDisk: async (): Promise<VaultOnDisk> => {
@@ -1115,10 +1441,9 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
 
     startAnEvidenceProjectFrom: async (item, project): Promise<EvidencePageView> => {
       await openFiles();
-      const row = named(win().getByRole('region', { name: 'Library files' }).locator('button.library-file'), '.lib-name', item);
-      await row.click();
-      const detail = win().getByRole('region', { name: 'Selected Library item' });
-      await expect(detail).toHaveAttribute('data-file', String(await row.getAttribute('data-file')), { timeout: 30_000 });
+      await (await fileCard(item)).getByRole('button', { name: 'Read', exact: true }).click();
+      const detail = win().locator('.lib-file-head');
+      await expect(detail.locator('.lib-file-name')).toHaveText(item, { timeout: 30_000 });
       await detail.getByRole('link', { name: 'Open in Evidence', exact: true }).click();
       const handoff = win().getByRole('region', { name: 'Brought from Your files' });
       await expect(handoff, 'Open in Evidence did not carry the Library item across').toContainText(item, { timeout: 30_000 });
@@ -1432,7 +1757,7 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       );
       await win().locator('.email-form .form-actions').getByRole('button', { name: 'Save', exact: true }).click();
       expect((await saved).ok(), 'Settings › Email refused the save').toBe(true);
-      // Saved means nothing is left unsaved: the button greys out again.
+      // Saved means nothing is left unsaved: the button grays out again.
       await expect(win().locator('.email-form .form-actions').getByRole('button', { name: 'Save', exact: true }))
         .toBeDisabled({ timeout: 15_000 });
     },
@@ -2105,28 +2430,36 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       return saved;
     },
 
-    readReadingQueue: async (filter) => {
-      await openQueue(filter);
-      return readQueue();
-    },
+    readReadingQueue: (filter) => readQueueFor(filter),
 
     markPaperRead: async (paper) => {
-      await openQueue('all');
-      const row = win().locator(`.queue-row[data-document="${paper.id}"]`);
-      await row.getByRole('button', { name: 'Mark read' }).click();
-      await expect(row.locator('.queue-state')).toHaveText('Read', { timeout: 30_000 });
+      const card = await queuedCard(paper);
+      await card.getByRole('button', { name: 'Mark read' }).click();
+      await expect(win().locator(`article.card[data-document="${paper.id}"]`)).toHaveCount(0, { timeout: 30_000 });
+      await expect(await queuedCard(paper)).toHaveAttribute('data-status', 'read', { timeout: 30_000 });
     },
 
     removeFromReadingQueue: async (paper) => {
-      await openQueue('all');
-      await win().locator(`.queue-row[data-document="${paper.id}"]`).getByRole('button', { name: 'Remove' }).click();
-      await expect(win().locator(`.queue-row[data-document="${paper.id}"]`)).toHaveCount(0, { timeout: 30_000 });
+      const card = await queuedCard(paper);
+      await card.hover();
+      await card.getByRole('button', { name: /^Remove from (To read|Read)$/ }).click();
+      await expect(win().locator(`article.card[data-document="${paper.id}"]`)).toHaveCount(0, { timeout: 30_000 });
     },
 
     exportReadingQueue: async (papers, format): Promise<ExportedFile> => {
-      await openQueue('all');
+      // Picked on the shelf they are on; a selection is one shelf's.
+      const shelves = new Set<string>();
       for (const paper of papers) {
-        await win().locator(`.queue-row[data-document="${paper.id}"]`).getByRole('checkbox').check();
+        const card = await queuedCard(paper);
+        await expect(card).toBeVisible();
+        shelves.add(String(await card.getAttribute('data-status')));
+      }
+      expect(shelves.size, 'the papers to export are on both shelves; a selection is one shelf\'s').toBe(1);
+      await win().getByRole('button', { name: 'Select', exact: true }).click();
+      for (const paper of papers) {
+        const selector = `article.card[data-document="${paper.id}"]`;
+        expect(await scrolledTo(selector), `paper ${paper.id} left its shelf`).toBe(true);
+        await win().locator(`${selector} .thumb`).click();
       }
       const label = { bibtex: 'BibTeX', ris: 'RIS', csv: 'CSV' }[format];
       const extension = { bibtex: 'bib', ris: 'ris', csv: 'csv' }[format];
@@ -2136,7 +2469,7 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
           item.setSavePath(target as string);
         });
       }, destination);
-      await win().locator('.queue-export').getByRole('button', { name: label, exact: true }).click();
+      await win().getByRole('group', { name: 'Export the picked papers' }).getByRole('button', { name: label, exact: true }).click();
       await expect.poll(() => fs.existsSync(destination), { timeout: 30_000 }).toBe(true);
       await expect.poll(() => fs.statSync(destination).size, { timeout: 30_000 }).toBeGreaterThan(0);
       return { path: destination, text: fs.readFileSync(destination, 'utf8') };
@@ -2202,9 +2535,9 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     },
 
     exportReferences: async (runs, format): Promise<ExportedFile> => {
-      await openSearch();
+      await openRuns();
       for (const run of runs) {
-        const row = win().locator(`.run-row[data-run="${run.id}"]`);
+        const row = win().locator(`[data-runs="history"] .run-row[data-run="${run.id}"]`);
         await expect(row).toBeVisible({ timeout: 30_000 });
         await row.getByRole('checkbox').check();
       }
@@ -2224,8 +2557,8 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     },
 
     readInterruptedRow: async (run): Promise<InterruptedRow> => {
-      await openSearch();
-      const row = win().locator(`.run-row[data-run="${run.id}"]`);
+      await openRuns();
+      const row = win().locator(`[data-runs="history"] .run-row[data-run="${run.id}"]`);
       await expect(row).toBeVisible({ timeout: 30_000 });
       await expect(row.locator('.run-status')).toHaveAttribute('data-status', 'interrupted', { timeout: 30_000 });
       return {
@@ -2235,8 +2568,8 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     },
 
     restartRun: async (run) => {
-      await openSearch();
-      const row = win().locator(`.run-row[data-run="${run.id}"]`);
+      await openRuns();
+      const row = win().locator(`[data-runs="history"] .run-row[data-run="${run.id}"]`);
       // Restart says what it will do before anything starts: the AI choice and
       // where the run is sent are read, then the restart is confirmed.
       await row.getByRole('button', { name: 'Restart…', exact: true }).click();

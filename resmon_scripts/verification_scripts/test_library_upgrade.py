@@ -25,7 +25,7 @@ def old_database(path):
 
 
 def contents(c, widths=None):
-    tables = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'library_%' AND name NOT IN ('evidence_projects','evidence_project_files','evidence_notes','evidence_answers','routine_missed_fires','routine_delivery_targets','deliveries','assistant_turn_failures','execution_ai_models')")]
+    tables = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'library_%' AND name NOT IN ('evidence_projects','evidence_project_files','evidence_notes','evidence_answers','routine_missed_fires','routine_delivery_targets','deliveries','assistant_turn_failures','execution_ai_models','collections','collection_documents','document_open_access','document_identifiers','execution_find_results','full_text_downloads')")]
     out = {}
     for t in tables:
         columns = [r[1] for r in c.execute(f'PRAGMA table_info("{t}")')]
@@ -33,6 +33,9 @@ def contents(c, widths=None):
             columns = [col for col in columns if col in widths[t]]
         order = ', '.join(f'"{col}"' for col in columns)
         out[t] = sorted([tuple(r) for r in c.execute(f'SELECT {order} FROM "{t}"')], key=repr)
+    # Schema 26's default collection is a later schema's row, as its tables are.
+    if 'sqlite_sequence' in out:
+        out['sqlite_sequence'] = [r for r in out['sqlite_sequence'] if r[0] != 'collections']
     return out
 
 
@@ -51,6 +54,7 @@ def objects(c):
 # by name wherever a snapshot is compared across an init_db.
 from verification_scripts.test_cumulative_upgrade import (  # noqa: E402
     _MARKERS_A_LAUNCH_MAY_ADD as BACKFILL_MARKERS,
+    _as_recounted,
 )
 
 
@@ -61,10 +65,13 @@ def minus_markers(rows):
 
 
 def test_populated_15_upgrade_restart_preserves_old_rows_and_creates_no_vault(tmp_path):
-    path = tmp_path / 'old.db'; c = old_database(path); before = contents(c)
+    path = tmp_path / 'old.db'; c = old_database(path)
+    # Any launch also recounts the runs' new papers once; the rows are compared
+    # with the database as that recount leaves it.
+    recounted = _as_recounted(c); before = contents(recounted); recounted.close()
     widths = column_names(c)
     db.init_db(conn=c)
-    assert db.get_schema_version(c) == 24
+    assert db.get_schema_version(c) == 27
     after = contents(c, widths)
     assert ({k for k, _ in after['app_settings']}
             - {k for k, _ in before['app_settings']}) == BACKFILL_MARKERS
@@ -72,15 +79,16 @@ def test_populated_15_upgrade_restart_preserves_old_rows_and_creates_no_vault(tm
                              for k, v in after['app_settings'] if k not in BACKFILL_MARKERS]
     assert after == before
     ddl = objects(c)
-    assert len(ddl) == 4
-    assert [x[0] for x in ddl.values()].count('table') == 3
+    # Schema 16's three tables and index, and schema 25's removed-file record.
+    assert len(ddl) == 5
+    assert [x[0] for x in ddl.values()].count('table') == 4
     assert [x[0] for x in ddl.values()].count('index') == 1
-    for table in ('library_vault', 'library_files', 'library_file_documents'):
+    for table in ('library_vault', 'library_files', 'library_file_documents', 'library_removed'):
         assert c.execute(f'SELECT count(*) FROM {table}').fetchone()[0] == 0
     c.close(); db.init_db(path); db.init_db(path)
     with db.get_connection(path) as reopened:
         assert objects(reopened) == ddl
-        assert db.get_schema_version(reopened) == 24
+        assert db.get_schema_version(reopened) == 27
     assert not list(tmp_path.glob('resmon-library-*'))
     fresh = db.get_connection(tmp_path / 'fresh.db'); db.init_db(conn=fresh)
     assert objects(fresh) == ddl

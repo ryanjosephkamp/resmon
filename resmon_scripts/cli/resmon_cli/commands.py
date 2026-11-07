@@ -22,7 +22,7 @@ from resmon_cli.engine import NOT_RUNNING, CliError, Engine, display_path, find
 from resmon_cli.text import (NOT_RECORDED, Out, authors, count, duration, join, link,
                              plural, publication_date, when)
 
-EXECUTION_KINDS = {"dive": "deep_dive", "sweep": "deep_sweep", "watch": "automated_sweep"}
+EXECUTION_KINDS = {"dive": "deep_dive", "sweep": "deep_sweep", "watch": "automated_sweep", "find": "find_paper"}
 
 # The app's own phrasing for why a run was interrupted (``ResultsList.tsx``).
 INTERRUPTED_REASON_TEXT = {
@@ -52,6 +52,7 @@ def _optional(engine: Engine, path: str, params: Optional[Mapping[str, Any]] = N
 # own copy because it ships without the engine's modules.
 RETIRED_NAMES = {
     "ieee": "IEEE Xplore",
+    "nist_rmm": "NIST Resource Metadata Management",
     "oapen": "OAPEN Library",
     "repec": "RePEc/IDEAS",
     "ssrn": "SSRN",
@@ -95,6 +96,33 @@ def resolve_sources(engine: Engine, given: list[str]) -> list[str]:
         raise CliError("invalid", f"No source called {join(repr(u) for u in unknown)}. "
                        f"Sources: {', '.join(sorted(names))}.", exit_status=2)
     return list(dict.fromkeys(slugs))
+
+
+def collection_named(engine: Engine, given: Optional[str]) -> tuple[Optional[str], Optional[str], bool]:
+    """The collection a command reads: ``(what to send, its name, whether there are several)``.
+
+    What is sent is the collection's id, or nothing for the default one, which
+    is what an absent collection means to the engine. The name is printed only
+    where there are several collections to tell apart. A name or number that
+    names no collection is refused here, before anything is read."""
+    listed = _optional(engine, "/api/collections")
+    if listed is None:
+        if given:
+            raise CliError("invalid", f"This resmon ({engine.version}) has no collections, so it has "
+                           f"none called {given!r}.", exit_status=2)
+        return None, None, False
+    rows = [c for c in listed.get("collections") or [] if isinstance(c, dict)]
+    several = len(rows) > 1
+    if not given:
+        default = next((c for c in rows if c.get("id") == listed.get("default_id")), None)
+        return None, (str(default["name"]) if default else None), several
+    word = given.strip()
+    found = next((c for c in rows if str(c.get("id")) == word), None) or next(
+        (c for c in rows if str(c.get("name", "")).lower() == word.lower()), None)
+    if found is None:
+        raise CliError("invalid", f"No collection called {word!r}. Collections: "
+                       f"{join(repr(str(c.get('name'))) for c in rows)}.", exit_status=2)
+    return str(found["id"]), str(found["name"]), several
 
 
 def _routine_names(engine: Engine) -> dict[int, str]:
@@ -212,7 +240,7 @@ def run_title(row: Mapping[str, Any], routines: Mapping[int, str], names: Mappin
         if rid is None:
             return "Watch (no longer saved)"
         return f'Watch "{routines[int(rid)]}"' if int(rid) in routines else f"Watch #{rid}"
-    label = {"deep_dive": "Deep Dive", "deep_sweep": "Deep Sweep"}.get(str(kind), str(kind))
+    label = {"deep_dive": "Deep Dive", "deep_sweep": "Deep Sweep", "find_paper": "Find a paper"}.get(str(kind), str(kind))
     title = f"{label} {asked}" if asked else label
     if kind == "deep_dive" and row.get("repositories"):
         title += f" on {names.get(row['repositories'][0], row['repositories'][0])}"
@@ -224,16 +252,19 @@ def run_title(row: Mapping[str, Any], routines: Mapping[int, str], names: Mappin
 # ---------------------------------------------------------------------------
 
 def today(engine: Engine, args: argparse.Namespace, out: Out) -> int:
+    chosen, collection, several = collection_named(engine, args.collection)
+    params = {"collection": chosen}
     if args.action == "mark-read":
-        body = engine.post("/api/today/looked")
+        body = engine.request("POST", "/api/today/looked", params=params, body={}).json()
         if args.json:
             out.json(body)
             return 0
-        out.line(f"Marked all read at {when(body.get('looked_at'), long=True)}.")
+        out.line(f"Marked all read at {when(body.get('looked_at'), long=True)}"
+                 + (f" in {collection}." if several and collection else "."))
         out.line("The next Today starts there.")
         return 0
 
-    data = engine.get("/api/today")
+    data = engine.get("/api/today", params)
     if args.json:
         out.json(data)
         return 0
@@ -244,13 +275,14 @@ def today(engine: Engine, args: argparse.Namespace, out: Out) -> int:
     papers = data.get("papers") or []
     since = when(data.get("since"), long=True)
     found = f"{count(total)} {plural(total, 'paper')}"
+    head = f"Today in {collection}" if several and collection else "Today"
     if data.get("window") == "since_last_look":
-        out.para(f"Today: {found} first collected since you last marked all read, {since}.")
+        out.para(f"{head}: {found} arrived since you last marked all read, {since}.")
     else:
-        out.para(f"Today: nothing has been marked read yet, so Today starts at {since}. "
-                 f"{found} first collected since then.")
-    out.para("First collected means this resmon found the paper in that time; it may have been "
-             "published long before.")
+        out.para(f"{head}: nothing has been marked read yet, so Today starts at {since}. "
+                 f"{found} arrived since then.")
+    out.para("Arrived means a run put the paper in this collection in that time; it may have been "
+             "published, or collected for another collection, long before.")
 
     watches = data.get("watches") or []
     watch_names = {int(w["id"]): str(w["name"]) for w in watches}
@@ -290,7 +322,7 @@ def today(engine: Engine, args: argparse.Namespace, out: Out) -> int:
     shown = papers if args.all else papers[: args.limit]
     if shown:
         out.line()
-        out.line("Papers, most recently collected first")
+        out.line("Papers, most recently arrived first")
     for i, paper in enumerate(shown, 1):
         out.line()
         out.para(f"{i}. {paper.get('title') or 'title ' + NOT_RECORDED}", indent=2, hang=5)
@@ -299,7 +331,7 @@ def today(engine: Engine, args: argparse.Namespace, out: Out) -> int:
             names.get(paper.get("source"), str(paper.get("source"))),
             f"published {publication_date(paper.get('publication_date'))}",
         ]), indent=5)
-        detail = [f"first collected {when(paper.get('first_seen_at'))}"]
+        detail = [f"arrived {when(paper.get('arrived_at') or paper.get('first_seen_at'))}"]
         if paper.get("watches"):
             detail.append("watch: " + ", ".join(watch_names.get(int(w), f"#{w}") for w in paper["watches"]))
         if paper.get("queue_status"):
@@ -319,10 +351,11 @@ def today(engine: Engine, args: argparse.Namespace, out: Out) -> int:
         out.line(f"Showing {len(shown)} of the {count(len(papers))} listed. "
                  "resmon today --all shows every one.")
     if total > len(papers):
-        out.line(f"Today lists the {count(len(papers))} most recently collected of {count(total)}; "
+        out.line(f"Today lists the {count(len(papers))} most recently arrived of {count(total)}; "
                  "the rest are counted, not listed.")
     if total:
-        out.line("resmon today mark-read marks them all read.")
+        out.line("resmon today mark-read marks them all read"
+                 + (f" (with --collection '{collection}')." if several and chosen else "."))
     return 0
 
 
@@ -336,7 +369,8 @@ def _query(words: Any) -> Optional[str]:
 
 
 def _filters(engine: Engine, args: argparse.Namespace) -> dict:
-    return {
+    chosen, _, _ = collection_named(engine, getattr(args, "collection", None))
+    filters = {
         "query": _query(args.query),
         "sources": resolve_sources(engine, args.source or []),
         "authors": args.author or [],
@@ -344,6 +378,9 @@ def _filters(engine: Engine, args: argparse.Namespace) -> dict:
         "date_from": args.date_from,
         "date_to": args.date_to,
     }
+    if chosen is not None:
+        filters["collection"] = int(chosen)
+    return filters
 
 
 def search(engine: Engine, args: argparse.Namespace, out: Out) -> int:
@@ -357,12 +394,17 @@ def search(engine: Engine, args: argparse.Namespace, out: Out) -> int:
     results = data.get("results") or []
     total = int(data.get("total") or 0)
     if total == 0:
-        out.line("No paper in this resmon's collection matches.")
+        _, collection, several = collection_named(engine, getattr(args, "collection", None))
+        out.line(f"No paper in {collection} matches." if several and collection
+                 else "No paper in this resmon's collection matches.")
     else:
-        capped = bool(data.get("total_is_capped"))
-        text = f"{count(total)}{'+' if capped else ''} {plural(total, 'paper')} {'matches' if total == 1 and not capped else 'match'}"
-        if capped:
-            text += f" (resmon stops counting at {count(data.get('count_cap'))})"
+        if data.get("total_is_exact") is False:
+            # Counting ran out of time: the number is a floor, and said as one.
+            seconds = int(data.get("count_budget_ms") or 0) / 1000
+            text = (f"At least {count(total)} {plural(total, 'paper')} match "
+                    f"(resmon stopped counting after {seconds:g} seconds)")
+        else:
+            text = f"{count(total)} {plural(total, 'paper')} {'matches' if total == 1 else 'match'}"
         out.line(text + ".")
     if data.get("similarity_unavailable"):
         out.para(str(data["similarity_unavailable"]))
@@ -596,12 +638,14 @@ def export(engine: Engine, args: argparse.Namespace, out: Out, err: Out) -> int:
                        exit_status=2)
     if args.new_only and args.run is None:
         raise CliError("invalid", "--new-only goes with --run.", exit_status=2)
+    if args.collection and not (args.today or args.query is not None):
+        raise CliError("invalid", "--collection goes with --today or --search.", exit_status=2)
     note = None
     if args.run is not None:
         reply = engine.request("GET", f"/api/executions/{args.run}/references",
                                params={"format": args.format, "only_new": "true" if args.new_only else None})
     elif args.today:
-        data = engine.get("/api/today")
+        data = engine.get("/api/today", {"collection": collection_named(engine, args.collection)[0]})
         ids = [int(p["id"]) for p in data.get("papers") or []]
         total = int(data.get("total") or 0)
         if not ids:
@@ -612,7 +656,7 @@ def export(engine: Engine, args: argparse.Namespace, out: Out, err: Out) -> int:
                 err.line("Nothing is on Today, so nothing was exported.")
             return 0
         if total > len(ids):
-            note = (f"Today lists the {count(len(ids))} most recently collected of {count(total)}; "
+            note = (f"Today lists the {count(len(ids))} most recently arrived of {count(total)}; "
                     f"those {count(len(ids))} were exported.")
         reply = engine.request("POST", "/api/export/references",
                                body={"document_ids": ids, "format": args.format})
@@ -746,6 +790,8 @@ def watch_list(engine: Engine, args: argparse.Namespace, out: Out) -> int:
     names = source_names(engine)
     status = _optional(engine, "/api/scheduler/status")
     firing = {int(r["id"]): r for r in (status or {}).get("routines") or []}
+    listed = _optional(engine, "/api/collections") or {}
+    homes = {int(c["id"]): str(c["name"]) for c in listed.get("collections") or []}
     for routine in routines:
         rid = int(routine["id"])
         active = bool(routine.get("is_active"))
@@ -754,6 +800,9 @@ def watch_list(engine: Engine, args: argparse.Namespace, out: Out) -> int:
             head += f" · {firing_note(firing.get(rid))}"
         out.para(head, hang=4)
         out.para(_watch_line(routine, names), indent=4, hang=6)
+        if len(homes) > 1:
+            home = homes.get(int(routine.get("collection_id") or listed.get("default_id") or 0))
+            out.para(f"its papers land in {home or 'collection ' + NOT_RECORDED}", indent=4)
         last, last_status = routine.get("last_execution"), routine.get("last_status")
         if last or last_status:
             out.para(f"last run {when(last)}, {last_status or 'status ' + NOT_RECORDED}", indent=4)
@@ -825,6 +874,9 @@ def watch_add(engine: Engine, args: argparse.Namespace, out: Out) -> int:
     }
     if args.intent and args.intent.strip():
         body["intent"] = args.intent.strip()
+    chosen, collection, several = collection_named(engine, args.collection)
+    if chosen is not None:
+        body["collection"] = int(chosen)
     created = engine.post("/api/routines", body) or {}
     rid = created.get("id")
     # ``POST /api/routines`` answers with ``{id, name}``. Reading the record back
@@ -840,6 +892,8 @@ def watch_add(engine: Engine, args: argparse.Namespace, out: Out) -> int:
     active = bool(routine.get("is_active"))
     out.para(f'Added watch #{rid} "{routine.get("name")}", {"active" if active else "inactive"}.')
     out.para(_watch_line(routine, names), indent=2, hang=4)
+    if several and collection:
+        out.para(f"Its papers land in {collection}.", indent=2, hang=2)
     out.para("How the keywords combine is up to each source; Settings › Sources says how each "
              "one does.", indent=2, hang=2)
     if created.get("entity_warning"):
@@ -857,3 +911,31 @@ def watch_add(engine: Engine, args: argparse.Namespace, out: Out) -> int:
         out.para(scheduler_notice({**status, "routines": [firing]}) or "", indent=2, hang=2)
     return 0
 
+
+
+# ---------------------------------------------------------------------------
+# resmon collections
+# ---------------------------------------------------------------------------
+
+def collections(engine: Engine, args: argparse.Namespace, out: Out) -> int:
+    listed = _optional(engine, "/api/collections")
+    if listed is None:
+        raise CliError("missing_route", f"This resmon ({engine.version}) has no collections.")
+    if args.json:
+        out.json(listed)
+        return 0
+    rows = listed.get("collections") or []
+    for row in rows:
+        papers, watches = int(row.get("papers") or 0), int(row.get("watches") or 0)
+        parts = [f"#{row.get('id')} {row.get('name')}", f"{count(papers)} {plural(papers, 'paper')}",
+                 f"{count(watches)} {plural(watches, 'watch', 'watches')}"]
+        if row.get("id") == listed.get("current_id"):
+            parts.append("the one the app shows")
+        if row.get("is_default"):
+            parts.append("the default: a command with no --collection reads it")
+        out.para(" · ".join(parts), hang=4)
+    out.line()
+    out.para("A paper can be in more than one collection, so the counts can add up to more than the "
+             "papers stored. --collection on today, search, export, and watch add names one, by its "
+             "name or number.")
+    return 0

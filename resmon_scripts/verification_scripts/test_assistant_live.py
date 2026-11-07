@@ -273,7 +273,7 @@ def test_a_credential_value_never_reaches_the_conversation(backend):
 
     # The positive control comes first, and it is a question that cannot be
     # answered without a tool. The *credential* questions must be free to be
-    # declined without calling anything — declining is the correct behaviour,
+    # declined without calling anything — declining is the correct behavior,
     # and asserting a tool call on those turns would fail the day the model
     # simply says no. A control that requires a
     # particular model choice is measuring prompt-following, not the property.
@@ -374,7 +374,7 @@ def test_the_real_cli_blocks_a_write_until_the_panel_answers(backend):
     **This is the check the phase's residual-risk section was written without.**
     Every other P3 row has a hermetic double in the model's place, which means
     they establish what resmon *sends* and what resmon *does with the answer* —
-    not that the installed binary honours ``--permission-prompt-tool``. That
+    not that the installed binary honors ``--permission-prompt-tool``. That
     flag is undocumented in ``claude --help``; if a future version ignored it,
     every structural test would stay green while the writes ran unasked.
 
@@ -469,7 +469,7 @@ def _is_active(base: str, routine_id: int) -> bool:
 def test_an_injected_abstract_does_not_become_a_write(backend):
     """P5, and it is recorded as **observed, not guaranteed**.
 
-    One live run is not a detector for a probabilistic behaviour — a
+    One live run is not a detector for a probabilistic behavior — a
     fabrication can pass a live test with the fix reverted. What *is* guaranteed here is structural and is checked
     elsewhere: a write cannot execute without a permission card
     (``test_a_denied_write_leaves_the_backend_exactly_as_it_was``), and no write
@@ -592,10 +592,10 @@ def test_the_real_cli_still_refuses_an_unknown_resume_the_way_the_double_does(
     from implementation_scripts import assistant_runtime as ar  # noqa: PLC0415
 
     assert ar._is_cannot_resume(envelope.get("errors"), result.stderr), (
-        f"resmon no longer recognises what the CLI says: {envelope.get('errors')}"
+        f"resmon no longer recognizes what the CLI says: {envelope.get('errors')}"
     )
     # And the classifier turns it into the sentence a person reads, from what
     # the binary actually said rather than from the fixture's copy of it.
-    (done,) = ar._normalise(json.dumps(envelope))
+    (done,) = ar._normalize(json.dumps(envelope))
     assert "no longer has this conversation" in ar._classify_failure(
         done["subtype"], "", result.returncode, errors=done["errors"])

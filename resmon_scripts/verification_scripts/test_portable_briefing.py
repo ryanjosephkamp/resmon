@@ -95,7 +95,7 @@ def test_saved_schema18_html_one_snapshot_no_reads_or_writes(workspace,available
     for module, name in [(library,'retained'),(evidence_reader,'read_text')]:
         monkeypatch.setattr(module,name,lambda *a,**k:pytest.fail('Export read a current original'))
     text=exported(w,a)
-    assert calls==[a['answer_id']] and db.get_schema_version(w.conn)==db.SCHEMA_VERSION==24
+    assert calls==[a['answer_id']] and db.get_schema_version(w.conn)==db.SCHEMA_VERSION==27
     assert sql_snapshot(w.conn)==before and files_snapshot(w)==files
     # Retain the complete synthetic comparison, not just a passing boolean.
     for label,rows,inventory in [('before',before,files),('after',sql_snapshot(w.conn),files_snapshot(w))]:
@@ -213,6 +213,16 @@ def test_hostile_strings_are_text_and_only_authored_fragments_exist(workspace,av
     assert style==document.CSS and len(style.encode())<=65536
     assert "style-src 'sha256-"+document.CSS_HASH+"'" in html.unescape(text)
     assert "script-src 'none'" in document.CSP
+
+
+def test_html_prints_ids_and_quotes_without_ligatures():
+    # A ligature turns "ff" in a hash or an id into U+FB00 in the printout's
+    # text, so a copied id no longer matches. The rule sits on the root, so
+    # every value and quote inherits it; e2e/atlas-answers.spec.ts reads the
+    # printed PDF.
+    root=re.search(r'(?:^|})html\{([^}]*)\}',document.CSS)
+    assert root and 'font-variant-ligatures:none' in root.group(1).split(';')
+    assert 'font-variant-ligatures' not in document.CSS.replace(root.group(0),'')
 
 
 def test_html_uses_only_saved_data_after_sqlite_reopen_and_missing_originals(workspace,available,monkeypatch):

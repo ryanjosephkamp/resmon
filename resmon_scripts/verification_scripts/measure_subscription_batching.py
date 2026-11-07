@@ -75,7 +75,7 @@ _CANARY_TOKENS = [
 ]
 
 _CANARY_TEMPLATES = [
-    "Title: Thermal drift in {t} lattice sensors\n\nAbstract: We characterise "
+    "Title: Thermal drift in {t} lattice sensors\n\nAbstract: We characterize "
     "the thermal drift of {t}, a layered sensing lattice, across 240 hours of "
     "continuous operation. Drift was 0.4 mK per hour under nominal load and "
     "rose to 1.9 mK per hour above 340 K. We attribute the change to grain "
@@ -98,7 +98,7 @@ _CANARY_TEMPLATES = [
     "than the standard one. On a suite of nineteen numerical kernels it reduces "
     "memory traffic by 22 % with no change in emitted arithmetic.",
 
-    "Title: Crystallisation kinetics of the {t} polymorph\n\nAbstract: The {t} "
+    "Title: Crystallization kinetics of the {t} polymorph\n\nAbstract: The {t} "
     "polymorph nucleates below 12 °C and converts irreversibly above 40 °C. We "
     "measure conversion rates by powder diffraction and fit an Avrami exponent "
     "of 2.1, consistent with two-dimensional growth from pre-existing nuclei.",
@@ -337,7 +337,7 @@ def score(result: dict, tokens: list[str] | None, bounds) -> dict:
 #
 # Cost leads because the document cap and the not-default-for-bulk guard exist
 # to protect the **plan's usage window**, which is spent in tokens. Batching
-# amortises a ~5.6k-token fixed cost per call -- the constitution and the
+# amortizes a ~5.6k-token fixed cost per call -- the constitution and the
 # prompt scaffold -- so it moves tokens far more than it moves seconds, and a
 # seconds threshold alone would answer a question nobody is asking.
 #
@@ -423,7 +423,7 @@ def _print_cost_model(provider: str, corpus: str, base: float, group: list[dict]
     Two batched points determine both, because batch-N per-paper is
     ``F / N + G``. This is the number that says whether a failing speed gate
     means "batch harder" or "this threshold cannot be met at any batch size" —
-    batching amortises ``F`` and cannot touch ``G``. Reported because a ratio
+    batching amortizes ``F`` and cannot touch ``G``. Reported because a ratio
     on its own does not distinguish those two, and they call for opposite
     decisions.
     """

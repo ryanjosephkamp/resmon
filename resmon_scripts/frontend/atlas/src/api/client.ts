@@ -16,7 +16,7 @@ export type Engine = ReturnType<typeof createClient<paths>>;
 export class EngineError extends Error {
   /**
    * The engine's own sentence, where it refused with one (FastAPI's string
-   * `detail`): "This watch is already running as execution 12…". A screen
+   * `detail`): "This watch is already running as run 12…". A screen
    * shows this rather than the route and status, which say only that it failed.
    */
   readonly detail: string | null;
@@ -40,12 +40,80 @@ const withToken: Middleware = {
   },
 };
 
+/**
+ * The routes that start a run, by their address in the contract: a Deep Dive,
+ * a Deep Sweep, Find a paper, a watch's Run now, and Restart and Run again (`again`). A run
+ * started here is this window's: the main process shows the run's
+ * notification in this window (`electron/windows.ts`). One that waits at the
+ * run limit (202) has no id yet; it is told by its `ticket`, or by its watch
+ * for a Run now, and is this window's once it starts.
+ */
+export const STARTS_A_RUN: ReadonlySet<string> = new Set([
+  '/api/search/dive', '/api/search/sweep', '/api/find', '/api/routines/{routine_id}/run',
+  '/api/executions/{exec_id}/restart',
+]);
+
+export const claimRuns: Middleware = {
+  async onResponse({ request, response, schemaPath }) {
+    const claim = bridge()?.runStarted;
+    if (!claim || request.method !== 'POST' || !response.ok || !STARTS_A_RUN.has(schemaPath)) return undefined;
+    try {
+      const said = await response.clone().json() as { execution_id?: unknown; queued?: unknown; ticket?: unknown; routine_id?: unknown } | null;
+      if (typeof said?.execution_id === 'number') claim(said.execution_id);
+      else if (said?.queued === true) {
+        bridge()?.runQueued?.({
+          ...(typeof said.ticket === 'string' ? { ticket: said.ticket } : {}),
+          ...(typeof said.routine_id === 'number' ? { routineId: said.routine_id } : {}),
+        });
+      }
+    } catch {
+      // An answer that is not the run's is the screen's to report, not this.
+    }
+    return undefined;
+  },
+};
+
+/**
+ * The calls that change the runs going now, by method and contract address:
+ * every route that starts a run, Stop, Don't run (a run taken out of the
+ * queue), and the run monitor's "seen", which clears its red mark. Each window
+ * reads the runs going now on its own poll, 15 s apart while nothing runs, so
+ * after one of these the main process tells the other windows to read them at
+ * once (`electron/windows.ts`, `relayToOtherWindows`).
+ */
+export const CHANGES_THE_RUNS: ReadonlySet<string> = new Set([
+  ...[...STARTS_A_RUN].map((path) => `POST ${path}`),
+  'POST /api/executions/{exec_id}/cancel',
+  'DELETE /api/executions/waiting/{ticket}',
+  'POST /api/executions/seen',
+]);
+
+/**
+ * The calls that change how the app looks: the theme, the accent, and the run
+ * monitor's switch, and the top bar's arrangement. Each window reads them once
+ * and again when it comes to the front, so after one of these the other
+ * windows are told to read them at once.
+ */
+export const CHANGES_THE_LOOK: ReadonlySet<string> = new Set(['PUT /api/appearance', 'PUT /api/top-bar']);
+
+export const tellOtherWindows: Middleware = {
+  onResponse({ request, response, schemaPath }) {
+    if (!response.ok) return undefined;
+    const call = `${request.method} ${schemaPath}`;
+    if (CHANGES_THE_RUNS.has(call)) bridge()?.runsChanged?.();
+    else if (CHANGES_THE_LOOK.has(call)) bridge()?.appearanceChanged?.();
+    return undefined;
+  },
+};
+
 export function engine(): Engine {
   const port = bridge()?.getBackendPort() ?? '';
   if (!port) throw new EngineError(0, 'This window has no backend connection yet.');
   if (!cached || cached.port !== port) {
     const client = createClient<paths>({ baseUrl: `http://127.0.0.1:${port}` });
     client.use(withToken);
+    client.use(claimRuns);
+    client.use(tellOtherWindows);
     cached = { port, client };
   }
   return cached.client;
@@ -67,6 +135,16 @@ export function engineReason(error: unknown): string | null {
   const said = (error as { detail?: unknown } | undefined)?.detail;
   const reason = said && typeof said === 'object' ? (said as { reason?: unknown }).reason : undefined;
   return typeof reason === 'string' ? reason : null;
+}
+
+/**
+ * The engine's sentence when it refused a Stop because the run was already
+ * finishing (or had ended): HTTP 409 with a string `detail`. That is not a
+ * failure of the Stop control, so a screen says the sentence plainly and
+ * leaves the run to be read again, rather than showing an error.
+ */
+export function stopRefusal(error: unknown): string | null {
+  return error instanceof EngineError && error.status === 409 ? error.detail : null;
 }
 
 /**

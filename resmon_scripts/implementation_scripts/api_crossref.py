@@ -1,32 +1,77 @@
 # resmon_scripts/implementation_scripts/api_crossref.py
-"""CrossRef API client — JSON response, polite pool with mailto."""
+"""Crossref API client — JSON response, polite pool with a contact address."""
 
 import logging
+from urllib.parse import quote
 
-from .api_base import (Author, BaseAPIClient, NormalizedResult, RateLimiter,
-                       bare_orcid, read_json_body, safe_request, sent_params)
+from .api_base import (Author, BaseAPIClient, LookupUnsupported, NormalizedResult, RateLimiter,
+                       bare_orcid, either, note_not_found, path_after, read_json_body,
+                       safe_request, sent_params)
 
 logger = logging.getLogger(__name__)
 
 _CROSSREF_API_URL = "https://api.crossref.org/works"
 
-# Polite pool: 10 req/s with mailto header
-_RATE_LIMITER = RateLimiter(requests_per_second=10.0)
-
-# mailto address for polite pool access
-_MAILTO = "resmon@example.com"
+# Since July 21, 2026, Crossref answers requests for lists of records (a query
+# or a filter, which is every request resmon makes, the lifecycle check's DOI
+# batches included) at 1 a second from its public pool and 3 a second from its
+# polite pool, the one a contact address reaches; single records stay at 5 and
+# 10 (https://community.crossref.org/t/16137). 1 a second keeps within the
+# public pool whether or not an address is set.
+_RATE_LIMITER = RateLimiter(requests_per_second=1.0)
 
 
 class CrossrefClient(BaseAPIClient):
-    """CrossRef repository API client."""
+    """Crossref repository API client."""
 
-    describe_request = staticmethod(sent_params("query", "query.author", "filter"))
+    describe_request = staticmethod(either(
+        sent_params("query", "query.author", "query.bibliographic", "filter"),
+        path_after(_CROSSREF_API_URL)))
 
     def __init__(self, mailto: str | None = None):
-        self._mailto = mailto or _MAILTO
+        # The address set in Settings › Sources, or None, when nothing is sent (``source_contact``).
+        self._mailto = mailto
 
     def get_name(self) -> str:
-        return "CrossRef"
+        return "Crossref"
+
+    def lookup(self, kind: str, value: str, max_results: int = 5) -> list[NormalizedResult]:
+        """A DOI at ``/works/{doi}``, one record; a title through ``query.bibliographic``.
+
+        ``/works/{doi}`` answers 404 for a DOI Crossref does not hold, which is
+        its answer, not a failure. ``query.bibliographic`` is Crossref's
+        relevance-ranked match against a citation's words; the records it
+        ranks first are candidates, matched locally.
+        """
+        contact = {"mailto": self._mailto} if self._mailto else {}
+        if kind == "doi":
+            try:
+                response = safe_request("GET", f"{_CROSSREF_API_URL}/{quote(value.strip(), safe='/')}",
+                                        params=contact or None, rate_limiter=_RATE_LIMITER)
+            except Exception:
+                logger.exception("Crossref lookup failed")
+                return []
+            if response.status_code == 404:
+                note_not_found()
+                return []
+            if response.status_code != 200:
+                return []
+            data = read_json_body(response, "Crossref")
+            item = (data or {}).get("message")
+            return [self._parse_item(item)] if isinstance(item, dict) else []
+        if kind == "title":
+            params = {"query.bibliographic": value, "rows": max_results, **contact}
+            try:
+                response = safe_request("GET", _CROSSREF_API_URL, params=params, rate_limiter=_RATE_LIMITER)
+            except Exception:
+                logger.exception("Crossref lookup failed")
+                return []
+            if response.status_code != 200:
+                return []
+            data = read_json_body(response, "Crossref")
+            items = ((data or {}).get("message") or {}).get("items") or []
+            return [self._parse_item(item) for item in items if isinstance(item, dict)][:max_results]
+        raise LookupUnsupported(f"Crossref cannot be asked for a paper by {kind}.")
 
     def search_entity(
         self,
@@ -68,7 +113,7 @@ class CrossrefClient(BaseAPIClient):
                 "query": query,
                 "offset": offset,
                 "rows": min(page_size, max_results - len(results)),
-                "mailto": self._mailto,
+                **({"mailto": self._mailto} if self._mailto else {}),
             }
 
             # 2.1 — an author query goes in `query.author`, not `query`.
@@ -95,13 +140,13 @@ class CrossrefClient(BaseAPIClient):
                     rate_limiter=_RATE_LIMITER,
                 )
                 if response.status_code != 200:
-                    logger.error("CrossRef API returned %d", response.status_code)
+                    logger.error("Crossref API returned %d", response.status_code)
                     break
             except Exception:
-                logger.exception("CrossRef API request failed")
+                logger.exception("Crossref API request failed")
                 break
 
-            data = read_json_body(response, "CrossRef")
+            data = read_json_body(response, "Crossref")
             if data is None:
                 break
 
@@ -124,7 +169,7 @@ class CrossrefClient(BaseAPIClient):
 
     @staticmethod
     def _parse_item(item: dict) -> NormalizedResult:
-        """Map a CrossRef work item to NormalizedResult."""
+        """Map a Crossref work item to NormalizedResult."""
         # Title
         title_list = item.get("title", [])
         title = title_list[0] if title_list else "Untitled"
@@ -161,7 +206,7 @@ class CrossrefClient(BaseAPIClient):
         # Abstract
         abstract = item.get("abstract")
         if abstract:
-            # CrossRef abstracts sometimes contain JATS XML tags
+            # Crossref abstracts sometimes contain JATS XML tags
             import re
             abstract = re.sub(r"<[^>]+>", "", abstract).strip()
 

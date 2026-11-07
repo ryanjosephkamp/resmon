@@ -138,7 +138,7 @@ def test_two_actual_processes_http_stdio_and_same_state_restart(tmp_path):
         with ThreadPoolExecutor(max_workers=8) as pool:
             identities = list(pool.map(lambda _: _API.get(a + "/api/health").json()["identity"], range(16)))
         assert all(identity == ha["identity"] for identity in identities)
-        assert ha["identity"]["schema_version"] == 24
+        assert ha["identity"]["schema_version"] == 27
         assert ha["identity"]["corpus_id"] is None and ha["identity"]["build_id"] is None
         for route in ("/api/health", f"/api/executions/{eid}"):
             matched = _API.get(a + route, params={"expected_runtime_id": aid})
@@ -157,7 +157,7 @@ def test_two_actual_processes_http_stdio_and_same_state_restart(tmp_path):
             tool("health", expected_runtime_id="bad"),
             tool("get_execution", exec_id=999999, expected_runtime_id=aid)])
         tools = replies[1]["result"]["tools"]
-        assert len(tools) == 25
+        assert len(tools) == 26
         assert {t["name"] for t in tools if "expected_runtime_id" in t["inputSchema"]["properties"]} == {"health", "get_execution"}
         assert payload(replies[3])["identity"]["runtime_id"] == aid
         assert payload(replies[4])["id"] == eid

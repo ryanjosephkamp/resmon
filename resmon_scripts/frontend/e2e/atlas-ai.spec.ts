@@ -24,6 +24,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
 import { FRONTEND_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 const MODEL = 'e2e-embed';
 const DIMS = 8;
@@ -313,6 +314,6 @@ test('Settings → AI: a fallback chain kept, Ask in checked words, and embeddin
   } finally {
     await app.close().catch(() => {});
     await embedder.close();
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });

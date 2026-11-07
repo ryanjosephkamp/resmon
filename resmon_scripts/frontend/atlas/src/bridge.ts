@@ -1,8 +1,8 @@
 /**
  * What the preload script hands the renderer: the backend's port, this
  * window's API token, the platform, the desktop's file choosers and opener,
- * a relaunch, the app menu's commands, and the trackpad's swipe between
- * pages (`electron/preload.ts`). Read through
+ * a relaunch, the app menu's commands, the trackpad's swipe between pages,
+ * and the windows (`electron/preload.ts`). Read through
  * one typed accessor so nothing in the Atlas renderer reaches for `window`
  * directly.
  */
@@ -15,6 +15,8 @@ export interface ResmonBridge {
   chooseFile?: (defaultPath?: string) => Promise<string | null>;
   openPath?: (targetPath: string) => Promise<string>;
   revealPath?: (targetPath: string) => Promise<boolean>;
+  /** Send a file the Library holds as removed to the system's Trash; '' when it went, else why not. */
+  trashPath?: (targetPath: string) => Promise<string>;
   /** Quit and open the app again; false where the main process refuses. Absent outside the app. */
   relaunch?: () => Promise<boolean>;
   /** The app menu's commands (New Deep Dive and the rest, `shell/shortcuts.ts`); returns the way to stop listening. */
@@ -23,6 +25,35 @@ export interface ResmonBridge {
   swipeNavigation?: () => Promise<boolean>;
   /** Go back or forward for a two-finger swipe; false where there is no page that way. */
   swipeHistory?: (direction: 'back' | 'forward') => Promise<boolean>;
+  /** This window: the collection it shows (null until it has one) and the room to leave for macOS's tab bar. */
+  windowState?: () => WindowState;
+  onWindowState?: (callback: (state: WindowState) => void) => () => void;
+  /** Show another collection in this window, by id; no other window changes. */
+  setWindowCollection?: (collection: string | null) => void;
+  /** Another window at a page of the app (null: the start page), or on macOS a tab of this one. */
+  openWindow?: (route: string | null, tab?: boolean) => void;
+  /** A run this window started, so the run's notification shows it here. */
+  runStarted?: (executionId: number) => void;
+  /** A run this window asked for that waits in the queue: by its ticket, or by its watch for a watch's Run now. */
+  runQueued?: (what: { ticket?: string; routineId?: number }) => void;
+  /** This window changed the runs going now: it saw the failed ones, or stopped, started, or dequeued one. */
+  runsChanged?: () => void;
+  /** Another window changed the runs going now; returns the way to stop listening. */
+  onRunsChanged?: (callback: () => void) => () => void;
+  /** This window changed how the app looks: the theme, the accent, the run monitor's switch, or the top bar. */
+  appearanceChanged?: () => void;
+  /** Another window changed how the app looks; returns the way to stop listening. */
+  onAppearanceChanged?: (callback: () => void) => () => void;
+  /** The theme the app shows, which the system's own parts of a window (its tab bar, its dialogs) then follow. */
+  setThemeSource?: (theme: 'system' | 'light' | 'dark') => void;
+}
+
+/** What the main process says about this window (`electron/preload.ts`). */
+export interface WindowState {
+  /** The collection this window shows, by id; null until it has one, and then it shows the one the engine remembers. */
+  collection: string | null;
+  /** Pixels to leave above the top bar for macOS's tab bar; 0 when the windows are not in tabs. */
+  tabStrip: number;
 }
 
 export function bridge(): ResmonBridge | null {

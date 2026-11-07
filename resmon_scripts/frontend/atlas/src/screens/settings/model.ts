@@ -15,12 +15,15 @@ export type BackupLast = components['schemas']['BackupLast'];
 /** Settings' groups, in the order of the rail. The first is `/settings` itself. */
 export const GROUPS = [
   { slug: '', label: 'Appearance' },
+  { slug: 'top-bar', label: 'Top bar' },
   { slug: 'background', label: 'In the background' },
   { slug: 'email', label: 'Email' },
   { slug: 'notifications', label: 'Notifications' },
   { slug: 'ai', label: 'AI' },
   { slug: 'sources', label: 'Sources' },
+  { slug: 'collections', label: 'Collections' },
   { slug: 'storage', label: 'Backup' },
+  { slug: 'library', label: 'Library' },
   { slug: 'tutorials', label: 'Tutorials' },
   { slug: 'about', label: 'About resmon' },
   { slug: 'danger', label: 'Danger zone' },
@@ -94,7 +97,7 @@ export function daemonSentence(daemon: DaemonStatus, state: DaemonState, since: 
  */
 export const RUN_LIMITS = {
   runs: { min: 1, max: 8, words: 'Runs at once' },
-  queue: { min: 1, max: 64, words: 'Watch runs that can wait' },
+  queue: { min: 1, max: 64, words: 'Runs that can wait' },
 } as const;
 
 /** Why a typed limit cannot be saved, or null when it can. */

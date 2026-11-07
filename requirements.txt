@@ -19,7 +19,6 @@ fastapi==0.135.3
 httpx==0.28.1
 keyring==25.7.0
 lxml==6.0.4
-nltk==3.9.4
 # The collection map (implementation_scripts/collection_map.py): latent semantic
 # analysis, k-means and t-SNE over up to 100,000 papers, which pure Python
 # cannot do in tolerable time. 2.2.x is the last line supporting Python 3.10,
@@ -34,7 +33,7 @@ python-multipart==0.0.26
 # wheel is ~165 KB of native binary that resmon dlopens through
 # implementation_scripts/vector_index.py. Optional at runtime by construction --
 # every feature that needs it is absent, with a reason, when it will not load.
-# MIT / Apache-2.0; the wheel ships no licence file, so the texts are reproduced
+# MIT / Apache-2.0; the wheel ships no license file, so the texts are reproduced
 # in docs/third-party-notices.md.
 sqlite-vec==0.1.9
 SQLAlchemy==2.0.49

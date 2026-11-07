@@ -8,6 +8,7 @@ presents a median of three numbers as a finding.
 
 from __future__ import annotations
 
+import calendar
 import sqlite3
 import sys
 from pathlib import Path
@@ -17,7 +18,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
 
-from implementation_scripts import analytics, reference_export  # noqa: E402
+from implementation_scripts import analytics, explorer, reference_export  # noqa: E402
 from implementation_scripts.database import (  # noqa: E402
     get_documents_by_ids,
     get_execution_documents,
@@ -80,7 +81,7 @@ def test_empty_corpus_exports_are_valid_and_empty(conn):
 
 
 # ---------------------------------------------------------------------------
-# Thin corpus — enough to count, not enough to generalise
+# Thin corpus — enough to count, not enough to generalize
 # ---------------------------------------------------------------------------
 
 def test_discovery_lag_withholds_a_median_below_the_threshold(conn):
@@ -110,6 +111,52 @@ def test_discovery_lag_reports_once_there_is_enough_data(conn):
     assert arxiv["sufficient"] is True
     assert arxiv["median_days"] == pytest.approx(2.0, abs=0.1)
     assert result["sufficient"] is True
+
+
+def test_a_date_that_is_not_a_whole_day_is_left_out_of_the_lag_and_counted(conn):
+    """A year alone read as a Julian day number made a lag of millions of days; a month alone, nothing."""
+    for i in range(analytics.MIN_SAMPLE_FOR_LAG):
+        _doc(conn, source="arxiv", ext=f"d{i}", title=f"Dated {i}", pub="2026-01-01", seen="2026-01-03 00:00:00")
+    _doc(conn, source="arxiv", ext="year", title="Year alone", pub="2023", seen="2026-01-03 00:00:00")
+    _doc(conn, source="arxiv", ext="month", title="Month alone", pub="2025-01", seen="2026-01-03 00:00:00")
+    _doc(conn, source="arxiv", ext="time", title="With a time", pub="2026-01-01T12:00:00Z", seen="2026-01-03 12:00:00")
+    # A source whose every date is coarse still has its row, saying so.
+    _doc(conn, source="dblp", ext="y", title="DBLP year", pub="2024", seen="2026-01-03 00:00:00")
+
+    result = analytics.discovery_lag(conn)
+    arxiv = next(s for s in result["sources"] if s["source"] == "arxiv")
+    dblp = next(s for s in result["sources"] if s["source"] == "dblp")
+
+    assert arxiv["sample_size"] == analytics.MIN_SAMPLE_FOR_LAG + 1
+    assert arxiv["not_a_day"] == 2
+    assert arxiv["slowest_days"] == pytest.approx(2.0, abs=0.1), "no lag of millions of days"
+    assert arxiv["fastest_days"] == pytest.approx(2.0, abs=0.1)
+    assert dblp == {"source": "dblp", "sample_size": 0, "sufficient": False, "median_days": None,
+                    "fastest_days": None, "slowest_days": None, "not_a_day": 1}
+    assert result["sample_size"] == analytics.MIN_SAMPLE_FOR_LAG + 1
+    assert result["not_a_day"] == 3
+
+
+def test_a_months_column_counts_exactly_the_papers_its_click_finds(conn):
+    """A column opens the collection narrowed to its month's first and last day; it counts no other paper."""
+    for ext, pub in (("a", "2025-01-01"), ("b", "2025-01-15"), ("c", "2025-01-31"), ("d", "2025-01"),
+                     ("e", "2025-01-31T09:00:00Z"), ("f", "2025"), ("g", "2025-02-29"), ("h", "2025-02-28"),
+                     ("i", "2024-02-29"), ("j", "Spring 2024")):
+        _doc(conn, source="arxiv" if ext < "f" else "crossref", ext=ext, title=f"Paper {ext}", pub=pub)
+
+    volume = analytics.publication_volume(conn, months=0)
+    months = {b["month"]: b["total"] for b in volume["series"]}
+    assert months == {"2024-02": 1, "2025-01": 3, "2025-02": 1}
+    for month, total in months.items():
+        year, mm = (int(part) for part in month.split("-"))
+        last = f"{month}-{calendar.monthrange(year, mm)[1]:02d}"
+        assert explorer.count_matching(conn, date_from=f"{month}-01", date_to=last) == total, month
+    # Five papers are in no month's range: a month alone, a year alone, a time on a month's
+    # last day, a day that does not exist, and a season.
+    assert volume["not_a_day"] == 5
+    assert volume["sample_size"] == 5
+    by_category = analytics.publication_volume(conn, group_by="category", months=0)
+    assert by_category["not_a_day"] == 5
 
 
 def test_source_contribution_needs_two_sources_to_mean_anything(conn):
@@ -161,6 +208,7 @@ def test_routine_health_flags_a_routine_that_has_gone_quiet(conn):
     routine_id = conn.execute("SELECT id FROM routines").fetchone()["id"]
 
     # One productive run, then four that found nothing.
+    run_ids = []
     for i, new_count in enumerate([7, 0, 0, 0, 0]):
         exec_id = insert_execution(conn, {
             "execution_type": "automated_sweep", "routine_id": routine_id,
@@ -168,14 +216,64 @@ def test_routine_health_flags_a_routine_that_has_gone_quiet(conn):
         })
         update_execution_status(conn, exec_id, "completed",
                                 result_count=10, new_result_count=new_count)
+        run_ids.append(exec_id)
 
     routine = analytics.routine_health(conn)["routines"][0]
 
+    # Each run in the series names its run, oldest first, so a chart's tick can open it.
+    assert [run["execution_id"] for run in routine["series"]] == run_ids
+    assert routine["series"][0] == {
+        "execution_id": run_ids[0], "start_time": "2026-02-01T08:00:00", "new_results": 7, "total_results": 10,
+    }
     assert routine["runs"] == 5
     assert routine["runs_since_new"] == 4
     assert routine["status"] == "stale"
     assert routine["total_new"] == 7
     assert routine["last_new_result_at"] == "2026-02-01T08:00:00"
+
+
+def _health_runs(conn, name, counts):
+    """A routine with completed runs, oldest first; a count of None is stored as not recorded (NULL)."""
+    conn.execute(
+        "INSERT INTO routines (name, schedule_cron, parameters, is_active) VALUES (?, '0 8 * * *', '{}', 1)",
+        (name,),
+    )
+    routine_id = conn.execute("SELECT id FROM routines WHERE name = ?", (name,)).fetchone()["id"]
+    ids = []
+    for i, new_count in enumerate(counts):
+        exec_id = insert_execution(conn, {
+            "execution_type": "automated_sweep", "routine_id": routine_id,
+            "parameters": "{}", "start_time": f"2026-03-0{i + 1}T08:00:00",
+        })
+        update_execution_status(conn, exec_id, "completed", result_count=10, new_result_count=new_count)
+        if new_count is None:
+            conn.execute("UPDATE executions SET new_result_count = NULL, result_count = NULL WHERE id = ?", (exec_id,))
+        ids.append(exec_id)
+    conn.commit()
+    return next(r for r in analytics.routine_health(conn)["routines"] if r["routine_id"] == routine_id)
+
+
+def test_a_run_that_did_not_record_its_counts_is_carried_as_not_recorded_never_as_zero(conn):
+    routine = _health_runs(conn, "Unrecorded middle", [7, None, 0, 0])
+    assert [run["new_results"] for run in routine["series"]] == [7, None, 0, 0]
+    assert routine["series"][1]["total_results"] is None
+    assert routine["unrecorded_runs"] == 1
+    # The total is over the runs that recorded a count, and says how many did not.
+    assert routine["total_new"] == 7
+    # Two recorded zeros at the end, then a run that recorded nothing: the streak stops there.
+    assert routine["runs_since_new"] == 2
+    # None of the last three recorded a new paper, and one recorded nothing: neither healthy nor stale.
+    assert routine["status"] == "not_recorded"
+
+
+def test_runs_that_did_not_record_their_counts_never_make_a_watch_stale(conn):
+    # Read as zeros, these three runs called the watch stale: "nothing new in its last 3 runs".
+    routine = _health_runs(conn, "Unrecorded end", [5, 0, 0, None])
+    assert routine["runs_since_new"] == 0
+    assert routine["status"] == "not_recorded"
+    assert routine["last_new_result_at"] == "2026-03-01T08:00:00"
+    # A new paper recorded among the latest runs is enough to call it healthy, unrecorded runs or not.
+    assert _health_runs(conn, "Recorded new", [0, None, 2])["status"] == "healthy"
 
 
 def test_routine_health_will_not_judge_a_routine_with_too_few_runs(conn):

@@ -31,11 +31,15 @@ test('days in words, including a source that dates a paper after resmon saw it',
 });
 
 test('a watch\'s status says the count it rests on', () => {
-  expect(watchStatusWords({ status: 'healthy', runs_since_new: 0, runs: 9 }, 3, 3)).toBe('New papers within its last 3 runs');
-  expect(watchStatusWords({ status: 'stale', runs_since_new: 4, runs: 9 }, 3, 3)).toBe('Nothing new in its last 4 runs');
-  expect(watchStatusWords({ status: 'insufficient_data', runs_since_new: 0, runs: 1 }, 3, 3))
+  expect(watchStatusWords({ status: 'healthy', runs_since_new: 0, runs: 9, series: [] }, 3, 3)).toBe('New papers within its last 3 runs');
+  expect(watchStatusWords({ status: 'stale', runs_since_new: 4, runs: 9, series: [] }, 3, 3)).toBe('Nothing new in its last 4 runs');
+  expect(watchStatusWords({ status: 'insufficient_data', runs_since_new: 0, runs: 1, series: [] }, 3, 3))
     .toBe('1 of the 3 completed runs needed to judge');
-  expect(watchStatusWords({ status: 'something_new', runs_since_new: 0, runs: 1 }, 3, 3)).toBe('something_new');
+  expect(watchStatusWords({ status: 'something_new', runs_since_new: 0, runs: 1, series: [] }, 3, 3)).toBe('something_new');
+  // Neither healthy nor stale: some of the latest runs did not record how many papers were new.
+  const run = (id: number, n: number | null) => ({ execution_id: id, start_time: null, new_results: n, total_results: n });
+  expect(watchStatusWords({ status: 'not_recorded', runs_since_new: 0, runs: 4, series: [run(1, 5), run(2, null), run(3, 0), run(4, null)] }, 3, 3))
+    .toBe('Not judged: 2 of its last 3 runs did not record how many papers were new');
 });
 
 test('a chart\'s row opens the collection narrowed to it', () => {

@@ -2,12 +2,12 @@
 
 resmon itself is MIT-licensed (see [`LICENSE`](../LICENSE)). This file carries the
 notices for third-party components that resmon **redistributes inside its
-installers** — where a copy of the licence has to travel with the binary, and the
+installers** — where a copy of the license has to travel with the binary, and the
 upstream package does not put one there itself.
 
 It is not an inventory of everything resmon depends on. `requirements.txt` and
 `package.json` are that, and the great majority of those packages ship their own
-licence file inside their own distribution, which the installer copies along with
+license file inside their own distribution, which the installer copies along with
 the package. This file exists for the ones that do not.
 
 ---
@@ -15,24 +15,24 @@ the package. This file exists for the ones that do not.
 ## sqlite-vec 0.1.9
 
 **What it is.** A loadable SQLite extension providing vector storage and
-nearest-neighbour search. resmon ships the native binary inside the bundled
+nearest-neighbor search. resmon ships the native binary inside the bundled
 Python runtime and loads it through
-`resmon_scripts/implementation_scripts/vector_index.py`. It backs the Explorer's
-similarity sort, the similar-papers panel, and the near-duplicate links.
+`resmon_scripts/implementation_scripts/vector_index.py`. It backs semantic
+search, the similar-papers list, and the near-duplicate links.
 
 **Upstream.** <https://github.com/asg017/sqlite-vec> · Copyright (c) 2024 Alex Garcia.
 
-**Licence.** Dual-licensed: **MIT** *or* **Apache License 2.0**, at the
+**License.** Dual-licensed: **MIT** *or* **Apache License 2.0**, at the
 recipient's option. Both texts are reproduced below.
 
 **Why they are reproduced here rather than linked.** The published wheel
 (`sqlite_vec-0.1.9-py3-none-*.whl`) contains the native library, an `__init__.py`
-and a `dist-info` directory whose `METADATA` names the two licences — and **no
-licence file of either kind**. Checked against the installed wheel on
-2026-09-05: `sqlite_vec-0.1.9.dist-info/` holds `INSTALLER`, `METADATA`,
+and a `dist-info` directory whose `METADATA` names the two licenses — and **no
+license file of either kind**. Checked against the installed wheel on
+September 5, 2026: `sqlite_vec-0.1.9.dist-info/` holds `INSTALLER`, `METADATA`,
 `RECORD`, `REQUESTED`, `WHEEL` and `top_level.txt`, and nothing else. So an
 installer that copied the wheel and stopped there would distribute the binary
-without the notice both licences require. These texts are taken verbatim from
+without the notice both licenses require. These texts are taken verbatim from
 the upstream repository at tag `v0.1.9`.
 
 ---
@@ -282,12 +282,12 @@ published `pdfjs-dist` archive SHA256
 resmon redistributes exactly 188 unchanged browser module, CMap, standard-font
 and notice files (3,700,085 bytes), without installing the npm runtime package
 or running its package scripts. The display and worker source modules retain
-publisher bytes; the build aliases their `.mjs` names to `.js` for the existing
+publisher bytes; the build aliases their `.mjs` names to `.js` for the
 local HTTP server's JavaScript MIME handling.
 
 The exact upstream notices travel with the selected assets under
 `resmon_scripts/frontend/vendor/pdfjs/6.3.289/` and with the desktop renderer at
-`dist/renderer/pdfjs/6.3.289/`:
+`dist/atlas/pdfjs/6.3.289/`:
 
 - [PDF.js Apache License 2.0](../resmon_scripts/frontend/vendor/pdfjs/6.3.289/LICENSE)
 - [Adobe CMap notice](../resmon_scripts/frontend/vendor/pdfjs/6.3.289/cmaps/LICENSE)

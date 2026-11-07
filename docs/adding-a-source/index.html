@@ -1,17 +1,34 @@
-<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Adding a source to resmon · resmon</title><meta name="description" content="resmon queries scholarly sources and keeps what it finds. Adding another one is the most common contribution, and the most templated: the files it touches are listed below, and a…"><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/adding-a-source/"><link rel="icon" href="/resmon/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/resmon/apple-touch-icon.png"><link rel="preload" href="/resmon/static/atkinson-hyperlegible-next-latin-400-normal.FfmJh7DR.woff2" as="font" type="font/woff2" crossorigin><link rel="preload" href="/resmon/static/atkinson-hyperlegible-next-latin-800-normal.D32lleIF.woff2" as="font" type="font/woff2" crossorigin><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="Adding a source to resmon · resmon"><meta property="og:description" content="resmon queries scholarly sources and keeps what it finds. Adding another one is the most common contribution, and the most templated: the files it touches are listed below, and a…"><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/adding-a-source/"><meta property="og:image" content="https://ryanjosephkamp.github.io/resmon/media/resmon-og.png"><meta name="twitter:card" content="summary_large_image"><link rel="alternate" type="application/atom+xml" title="resmon updates" href="/resmon/feed.xml"><link rel="stylesheet" href="/resmon/static/_permalink_.DTn7Cn_l.css">
-<style>.doc-head[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-6);padding-bottom:var(--space-4);border-bottom:var(--border-width-heavy) solid var(--color-rule-heavy)}.doc-head[data-astro-cid-c2uqhu5p] h1[data-astro-cid-c2uqhu5p]{margin:0;font-size:var(--text-3xl)}.meta[data-astro-cid-c2uqhu5p]{display:flex;flex-wrap:wrap;gap:var(--space-1) var(--space-3);margin:var(--space-3) 0 0;color:var(--color-text-muted);font-size:var(--text-sm)}.section[data-astro-cid-c2uqhu5p]{font-family:var(--font-mono);font-weight:var(--weight-semibold);color:var(--color-text)}.section[data-astro-cid-c2uqhu5p]:after{content:"·";margin-inline-start:var(--space-3);color:var(--color-text-faint)}.contents[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-6);padding-block:var(--space-3);border-block:var(--border-width) solid var(--color-border)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-sm);font-weight:var(--weight-bold);color:var(--color-text)}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm);columns:2 16rem;column-gap:var(--space-6)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}
-</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="wordmark" href="/resmon/" data-astro-cid-5hce7sga> <svg class="mark" viewBox="0 0 100 100" aria-hidden="true" focusable="false" data-astro-cid-iifiznic> <rect class="mark-ground" width="100" height="100" rx="24" data-astro-cid-iifiznic></rect> <circle class="mark-dot" cx="28" cy="27" r="4.7" data-astro-cid-iifiznic></circle><circle class="mark-dot" cx="51" cy="27" r="4.7" data-astro-cid-iifiznic></circle><circle class="mark-dot" cx="62.5" cy="27" r="4.7" data-astro-cid-iifiznic></circle><circle class="mark-dot" cx="28" cy="38.5" r="4.7" data-astro-cid-iifiznic></circle><circle class="mark-dot" cx="39.5" cy="38.5" r="4.7" data-astro-cid-iifiznic></circle><circle class="mark-open" cx="74" cy="38.5" r="3.5" data-astro-cid-iifiznic></circle><circle class="mark-dot" cx="28" cy="50" r="4.7" data-astro-cid-iifiznic></circle><circle class="mark-dot" cx="28" cy="61.5" r="4.7" data-astro-cid-iifiznic></circle><circle class="mark-dot" cx="28" cy="73" r="4.7" data-astro-cid-iifiznic></circle> </svg>  <span data-astro-cid-5hce7sga>resmon</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/#sources" data-astro-cid-5hce7sga> Sources </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/#tour" data-astro-cid-5hce7sga> Tour </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" data-astro-cid-5hce7sga> Guide </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/updates/" data-astro-cid-5hce7sga> Updates </a> </li><li class="nav-wide" data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li> <li class="nav-wide" data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>Source code</a> </li> </ul> </nav> </div> </header> <main id="main" class="shell main main-wide" data-astro-cid-5hce7sga>  <article data-astro-cid-c2uqhu5p> <header class="doc-head" data-astro-cid-c2uqhu5p> <h1 data-astro-cid-c2uqhu5p>Adding a source to resmon</h1> <p class="meta" data-astro-cid-c2uqhu5p> <span class="section" data-astro-cid-c2uqhu5p>Reference</span> <span data-astro-cid-c2uqhu5p>docs/adding-a-source.md</span> </p> </header> <nav class="contents" aria-labelledby="contents-heading" data-astro-cid-c2uqhu5p> <h2 id="contents-heading" class="contents-heading" data-astro-cid-c2uqhu5p>
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Adding a source to resmon · resmon</title><meta name="description" content="resmon queries scholarly sources and keeps what it finds. Adding another one is the most common contribution, and the most templated: the files it touches are listed below, and a…"><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/adding-a-source/"><link rel="icon" href="/resmon/favicon.png" type="image/png" sizes="64x64"><link rel="apple-touch-icon" href="/resmon/apple-touch-icon.png"><link rel="preload" href="/resmon/static/geist-latin-wght-normal.BgDaEnEv.woff2" as="font" type="font/woff2" crossorigin><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="Adding a source to resmon · resmon"><meta property="og:description" content="resmon queries scholarly sources and keeps what it finds. Adding another one is the most common contribution, and the most templated: the files it touches are listed below, and a…"><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/adding-a-source/"><meta property="og:image" content="https://ryanjosephkamp.github.io/resmon/media/resmon-og.png"><meta name="twitter:card" content="summary_large_image"><script>
+      // A theme and color chosen on an earlier visit, set before the page paints. The top bar's
+      // appearance control (src/scripts/appearance.ts) keeps them; only its own names and colors are read.
+      // `scripted` lets a page hold room for what its scripts will draw.
+      document.documentElement.classList.add('scripted');
+      try {
+        const kept = JSON.parse(localStorage.getItem('resmon:appearance') || 'null');
+        if (kept) {
+          const root = document.documentElement;
+          if (kept.theme === 'light' || kept.theme === 'dark') root.dataset.theme = kept.theme;
+          for (const [name, value] of Object.entries(kept.tones || {})) {
+            if (/^--dial-(light|dark)-[a-z]+$/.test(name) && /^#[0-9a-f]{6}$/i.test(value)) root.style.setProperty(name, value);
+          }
+        }
+      } catch {}
+    </script><link rel="stylesheet" href="/resmon/static/_doc_.CrUxPVYO.css">
+<style>.cartouche[data-astro-cid-vyumnbmr]{margin-bottom:var(--space-6);padding:var(--space-5) var(--space-5) var(--space-4);background:var(--color-canvas);border:var(--border-width) solid var(--color-border-strong);box-shadow:inset 0 0 0 var(--space-1) var(--color-canvas),inset 0 0 0 calc(var(--space-1) + var(--border-width)) var(--color-border)}h1[data-astro-cid-vyumnbmr]{margin:0;font-size:var(--text-3xl);line-height:var(--leading-display)}.meta[data-astro-cid-vyumnbmr]{display:flex;flex-direction:column;gap:var(--space-1) var(--space-3);margin:var(--space-3) 0 0;max-width:var(--measure);color:var(--color-text-muted);font-size:var(--text-sm)}.section[data-astro-cid-vyumnbmr]{font-weight:var(--weight-semibold);color:var(--color-text)}@media(min-width:40rem){.meta[data-astro-cid-vyumnbmr]{flex-direction:row;flex-wrap:wrap}.section[data-astro-cid-vyumnbmr]:after{content:"·";margin-inline-start:var(--space-3);color:var(--color-text-faint)}}
+.doc[data-astro-cid-c2uqhu5p]{display:grid;gap:var(--space-6);padding-block:var(--space-6) var(--space-8)}.doc-body[data-astro-cid-c2uqhu5p]{min-width:0;max-width:var(--measure-wide)}.rail[data-astro-cid-c2uqhu5p]{order:2;font-size:var(--text-sm);border-top:var(--border-width) solid var(--color-border);padding-top:var(--space-4)}.rail-head[data-astro-cid-c2uqhu5p]{display:block;margin-bottom:var(--space-2);font-weight:var(--weight-semibold);color:var(--color-text);text-decoration:none}.rail[data-astro-cid-c2uqhu5p] ol[data-astro-cid-c2uqhu5p]{margin:0;padding:0;list-style:none;columns:2 11rem;column-gap:var(--space-5)}.rail[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:0}.rail[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p]{display:flex;align-items:center;gap:var(--space-2);padding-block:var(--space-1);color:var(--color-text-muted);text-decoration:none;break-inside:avoid;transition:color var(--duration-fast) var(--ease)}.rail[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p]:before{content:"";flex-shrink:0;width:var(--space-1);height:var(--space-1);border-radius:50%;background:var(--color-border-strong)}.rail[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p]:hover{color:var(--color-text)}.rail[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p][aria-current=page]{color:var(--color-text);font-weight:var(--weight-semibold)}.rail[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p][aria-current=page]:before{background:var(--color-accent-mark);outline:var(--border-width) solid var(--color-accent-mark);outline-offset:var(--border-width-heavy)}.contents[data-astro-cid-c2uqhu5p]{max-width:var(--measure);margin-bottom:var(--space-6);padding-block:var(--space-3);border-block:var(--border-width) solid var(--color-border)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-sm);font-weight:var(--weight-semibold);color:var(--color-text);border:0;padding:0}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm);columns:2 14rem;column-gap:var(--space-6)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}.contents[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p]{color:var(--color-text-muted)}.contents[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p]:hover{color:var(--color-text)}@media(min-width:64rem){.doc[data-astro-cid-c2uqhu5p].has-rail{grid-template-columns:var(--rail) minmax(0,1fr);gap:var(--space-7)}.rail[data-astro-cid-c2uqhu5p]{order:0;position:sticky;top:var(--space-5);align-self:start;border-top:0;padding-top:0}.rail[data-astro-cid-c2uqhu5p] ol[data-astro-cid-c2uqhu5p]{columns:auto}}@media(min-width:84rem){.doc[data-astro-cid-c2uqhu5p].has-rail.has-contents .doc-body[data-astro-cid-c2uqhu5p]{display:grid;grid-template-columns:minmax(0,var(--measure)) var(--rail);column-gap:var(--space-7);max-width:none;align-items:start}.doc[data-astro-cid-c2uqhu5p].has-rail.has-contents .doc-body[data-astro-cid-c2uqhu5p]>.cartouche{grid-column:1 / -1}.doc[data-astro-cid-c2uqhu5p].has-rail.has-contents .contents[data-astro-cid-c2uqhu5p]{grid-column:2;grid-row:2 / span 2;position:sticky;top:var(--space-5);border-block:0;border-inline-start:var(--border-width) solid var(--color-border);padding:0 0 0 var(--space-4)}.doc[data-astro-cid-c2uqhu5p].has-rail.has-contents .contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{columns:auto;padding-inline-start:0;list-style:none}.doc[data-astro-cid-c2uqhu5p].has-rail.has-contents .prose[data-astro-cid-c2uqhu5p],.doc[data-astro-cid-c2uqhu5p].has-rail.has-contents .doc-body[data-astro-cid-c2uqhu5p]>:not(.cartouche):not(.contents){grid-column:1}}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="lockup" href="/resmon/" aria-label="resmon, research monitor: home" data-astro-cid-5hce7sga> <img class="mark" src="/resmon/mark.webp" width="96" height="96" alt="" decoding="async" data-astro-cid-iifiznic>  <span class="lockup-words" aria-hidden="true" data-astro-cid-5hce7sga><b data-astro-cid-5hce7sga>res</b>earch <b data-astro-cid-5hce7sga>mon</b>itor</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/#sources" data-astro-cid-5hce7sga> Sources </a> </li><li class="nav-wide" data-astro-cid-5hce7sga> <a href="/resmon/#tour" data-astro-cid-5hce7sga> Tour </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" data-astro-cid-5hce7sga> Guide </a> </li><li class="nav-wide" data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li> <li class="nav-wide" data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>Source code</a> </li> </ul> </nav> <div class="mast-end" data-astro-cid-5hce7sga> <div class="appearance" data-appearance hidden data-astro-cid-5hce7sga> <button type="button" class="appearance-button" aria-expanded="false" aria-controls="appearance-panel" data-astro-cid-5hce7sga> <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" data-astro-cid-5hce7sga> <path d="M8 1.75s-4.25 4.6-4.25 7.6a4.25 4.25 0 0 0 8.5 0c0-3-4.25-7.6-4.25-7.6Z" data-astro-cid-5hce7sga></path> </svg> <span class="visually-hidden" data-astro-cid-5hce7sga>Theme and color</span> </button> <div class="appearance-panel" id="appearance-panel" hidden data-astro-cid-5hce7sga> <fieldset class="themes" data-astro-cid-5hce7sga> <legend data-astro-cid-5hce7sga>Theme</legend> <div class="seg" data-astro-cid-5hce7sga> <label data-astro-cid-5hce7sga> <input class="visually-hidden" type="radio" name="theme" value="system" data-astro-cid-5hce7sga> <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" data-astro-cid-5hce7sga><rect x="1.75" y="2.75" width="12.5" height="8.5" rx="1.5" /><path d="M5.5 14h5M8 11.25V14" /></svg> <span data-astro-cid-5hce7sga>Follow the system</span> </label><label data-astro-cid-5hce7sga> <input class="visually-hidden" type="radio" name="theme" value="light" data-astro-cid-5hce7sga> <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" data-astro-cid-5hce7sga><circle cx="8" cy="8" r="3" /><path d="M8 1.5v1.5M8 13v1.5M14.5 8H13M3 8H1.5M12.6 3.4l-1.06 1.06M4.46 11.54 3.4 12.6M12.6 12.6l-1.06-1.06M4.46 4.46 3.4 3.4" /></svg> <span data-astro-cid-5hce7sga>Light</span> </label><label data-astro-cid-5hce7sga> <input class="visually-hidden" type="radio" name="theme" value="dark" data-astro-cid-5hce7sga> <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" data-astro-cid-5hce7sga><path d="M13.5 9.6A5.75 5.75 0 0 1 6.4 2.5a5.75 5.75 0 1 0 7.1 7.1Z" /></svg> <span data-astro-cid-5hce7sga>Dark</span> </label> </div> </fieldset> <div class="dial" data-astro-cid-5hce7sga> <label for="hue" data-astro-cid-5hce7sga><i data-astro-cid-5hce7sga>Its color:</i> <span class="hue-name" data-astro-cid-5hce7sga>amber</span></label> <div class="dial-row" data-astro-cid-5hce7sga> <input id="hue" type="range" min="0" max="359" step="1" value="51" data-astro-cid-5hce7sga> <button type="button" class="hue-reset" data-astro-cid-5hce7sga>Use the default</button> </div> <p class="dial-note" data-astro-cid-5hce7sga>
+Only the hue turns. As in the app, each tone is then drawn light or deep enough to read on this
+                  page, in either theme.
+</p> </div> </div> </div> <a class="mast-action" href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Download</a> </div> </div> </header> <main id="main" class="shell main main-full" data-astro-cid-5hce7sga>  <div class="doc has-rail has-contents" data-astro-cid-c2uqhu5p> <nav class="rail" aria-label="Reference" data-astro-cid-c2uqhu5p> <a class="rail-head" href="/resmon/reference/" data-astro-cid-c2uqhu5p> Reference </a> <ol data-astro-cid-c2uqhu5p> <li data-astro-cid-c2uqhu5p> <a href="/resmon/adding-a-source/" aria-current="page" data-astro-cid-c2uqhu5p> Adding a source to resmon </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/dblp-reliability/" data-astro-cid-c2uqhu5p> DBLP reliability contract </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/hal-reliability/" data-astro-cid-c2uqhu5p> HAL request reliability </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/local-api-security/" data-astro-cid-c2uqhu5p> Local API security model </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/portable-briefing/" data-astro-cid-c2uqhu5p> Read a saved answer offline </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/source-landscape/" data-astro-cid-c2uqhu5p> Scholarly source landscape </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/source-response-reliability/" data-astro-cid-c2uqhu5p> Source response reliability </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/backup/" data-astro-cid-c2uqhu5p> The backup bundle format </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/watchdog-field-test/" data-astro-cid-c2uqhu5p> The watchdog&#39;s zero rules, run against a real corpus </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/delivery/" data-astro-cid-c2uqhu5p> The webhook receiver contract </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/third-party-notices/" data-astro-cid-c2uqhu5p> Third-party notices </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/zenodo-reliability/" data-astro-cid-c2uqhu5p> Zenodo search timing and outcomes </a> </li> </ol> </nav> <article class="doc-body" data-astro-cid-c2uqhu5p> <header class="cartouche" data-astro-cid-vyumnbmr> <h1 data-astro-cid-vyumnbmr>Adding a source to resmon</h1> <p class="meta" data-astro-cid-vyumnbmr> <span class="section" data-astro-cid-vyumnbmr>Reference</span> <span data-astro-cid-vyumnbmr>docs/adding-a-source.md</span> </p>  </header>  <nav class="contents" aria-labelledby="contents-heading" data-astro-cid-c2uqhu5p> <h2 id="contents-heading" class="contents-heading" data-astro-cid-c2uqhu5p>
 On this page
 </h2> <ul data-astro-cid-c2uqhu5p> <li data-astro-cid-c2uqhu5p> <a href="#before-you-write-any-code-does-its-license-let-us" data-astro-cid-c2uqhu5p>Before you write any code: does its license let us?</a> </li><li data-astro-cid-c2uqhu5p> <a href="#store-only-the-fields-the-terms-permit" data-astro-cid-c2uqhu5p>Store only the fields the terms permit</a> </li><li data-astro-cid-c2uqhu5p> <a href="#recording-an-attribution-obligation" data-astro-cid-c2uqhu5p>Recording an attribution obligation</a> </li><li data-astro-cid-c2uqhu5p> <a href="#the-client-contract" data-astro-cid-c2uqhu5p>The client contract</a> </li><li data-astro-cid-c2uqhu5p> <a href="#the-files-a-new-source-touches" data-astro-cid-c2uqhu5p>The files a new source touches</a> </li><li data-astro-cid-c2uqhu5p> <a href="#retiring-a-source" data-astro-cid-c2uqhu5p>Retiring a source</a> </li><li data-astro-cid-c2uqhu5p> <a href="#verifying" data-astro-cid-c2uqhu5p>Verifying</a> </li><li data-astro-cid-c2uqhu5p> <a href="#opening-the-pull-request" data-astro-cid-c2uqhu5p>Opening the pull request</a> </li> </ul> </nav> <div class="prose" data-astro-cid-c2uqhu5p><p>resmon queries scholarly sources and keeps what it finds. Adding another one is the most
 common contribution, and the most templated: <a href="#the-files-a-new-source-touches">the files it touches</a>
-are listed below, and a suite of tests pins every part of the contract. This document is the long form — what the template
-does not say on its own, and what four delegated source batches taught by getting it wrong.</p>
-<p>It is written to be usable by a person <strong>or by an agent</strong>. If you point your own harness at
-this repository and ask it to add a source, this is the document it should read.</p>
+are listed below, and a suite of tests pins every part of the contract. This document is the long form: what the
+template does not say on its own. It is written to be read start to finish by someone adding a source.</p>
 <hr>
 <h2 id="before-you-write-any-code-does-its-license-let-us">Before you write any code: does its license let us?</h2>
-<p><strong>This is the first question, not the last one.</strong> It was the last one twice, and both times
-that cost real work.</p>
+<p><strong>This is the first question, not the last one.</strong> A client can work perfectly and still be one
+the provider’s terms do not allow.</p>
 <p>resmon is not a search box that forgets. It <strong>stores</strong> what it retrieves, indefinitely, in a
 local database the user can back up to their own cloud storage. That is a materially
 different act from displaying a result, and a source’s terms may permit one and not the
@@ -23,7 +40,7 @@ other. Four questions decide it:</p>
 <li>May the first-retrieved record be <strong>kept without re-fetching</strong> it?</li>
 </ol>
 <p>Answer all four against the provider’s own words, and cite the clause. <code>docs/source-landscape.md</code>
-has 22 shipped sources and 27 candidates already assessed this way; check there first.</p>
+records assessments made this way; check there first.</p>
 <p>Three outcomes matter:</p>
 <ul>
 <li><strong>Compatible.</strong> Proceed.</li>
@@ -37,7 +54,7 @@ storage has not forbidden it. Grading every silence as a refusal eventually reje
 everything, including public-domain government data. Say what the terms do and do not
 establish, and let a maintainer decide.</p>
 </blockquote>
-<h3 id="what-has-actually-happened-here">What has actually happened here</h3>
+<h3 id="cases">Cases</h3>
 
 
 
@@ -59,18 +76,18 @@ establish, and let a maintainer decide.</p>
 
 
 
-<table><thead><tr><th>Source</th><th>What happened</th></tr></thead><tbody><tr><td><strong>J-STAGE</strong></td><td>Refused during implementation. Its terms forbid machine-readable retention beyond 24 hours on a server or cloud — irreconcilable with an app that persists a corpus.</td></tr><tr><td><strong>IEEE Xplore</strong></td><td>Shipped, then <strong>withdrawn</strong> in v1.8.1. §4(c) forbids using a retrieval application against the content at all, so no gate fixes it. Because each user brings their own key, the integration put <em>the account holder</em> in breach.</td></tr><tr><td><strong>INSPIRE-HEP</strong></td><td>Fixed rather than withdrawn — see the next section.</td></tr></tbody></table>
-<p>The IEEE case is the one to internalise: the client worked perfectly. Nothing was broken.
-It still had to go.</p>
+<table><thead><tr><th>Source</th><th>Outcome</th></tr></thead><tbody><tr><td><strong>J-STAGE</strong></td><td>Not included. Its terms forbid machine-readable retention beyond 24 hours on a server or cloud — irreconcilable with an app that persists a corpus.</td></tr><tr><td><strong>IEEE Xplore</strong></td><td>Retired. §4(c) forbids using a retrieval application against the content at all, so no gate fixes it. Because each user brings their own key, the integration would put <em>the account holder</em> in breach.</td></tr><tr><td><strong>INSPIRE-HEP</strong></td><td>Included, with a field gate — see the next section.</td></tr></tbody></table>
+<p>The IEEE case is the one to learn from: the client works perfectly and nothing is broken.
+It is still retired.</p>
 <hr>
 <h2 id="store-only-the-fields-the-terms-permit">Store only the fields the terms permit</h2>
-<p>The rule that came out of INSPIRE-HEP, and it now applies to every client:</p>
+<p>The rule INSPIRE-HEP shows, which applies to every client:</p>
 <blockquote>
 <p><strong>Where a source’s terms condition a field on provenance, license, or an access flag, the
-client reads that field and honours it.</strong></p>
+client reads that field and honors it.</strong></p>
 </blockquote>
 <p>INSPIRE’s Terms §5(ii) permit reuse of an abstract only where that abstract’s own <code>source</code>
-is <code>arXiv</code> or <code>CERN</code>. The client took <code>abstracts[0]</code> and stored whichever came first. The
+is <code>arXiv</code> or <code>CERN</code>. A client that took <code>abstracts[0]</code> would store whichever came first. The
 reference implementation is <code>_licensed_abstract</code> in <code>implementation_scripts/api_inspire_hep.py</code>;
 read it before writing a client for any source whose terms distinguish fields.</p>
 <p>Two consequences worth stating plainly:</p>
@@ -79,8 +96,8 @@ read it before writing a client for any source whose terms distinguish fields.</
 says resmon has nothing it may keep. That is different from the paper not existing, and
 dropping the record instead would hide it from the user entirely.</li>
 <li><strong>Measure the cost, do not estimate it.</strong> The INSPIRE gate drops about a fifth of
-abstracts — established by sampling 100 live records, not guessed — and that figure is in
-the catalog note because the user is entitled to it.</li>
+abstracts — established by sampling 100 live records — and that figure is in the catalog
+note because the user is entitled to it.</li>
 </ul>
 <hr>
 <h2 id="recording-an-attribution-obligation">Recording an attribution obligation</h2>
@@ -91,9 +108,9 @@ all three states, and the difference is not cosmetic:</p>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">attribution_source</span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"https://api.plos.org/api-display-policy/"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span></code></pre>
 <ul>
 <li><code>required</code> — a license condition. OpenAIRE’s metadata is CC BY; using it without the
-credit is using it without a license. Required credits render on the Repositories page
+credit is using it without a license. Required credits render on the Sources page (Settings › Sources)
 <strong>unconditionally</strong>, because a credit the user must go looking for is not displayed.</li>
-<li><code>requested</code> — a courtesy the upstream would like. arXiv publishes an acknowledgement
+<li><code>requested</code> — a courtesy the upstream would like. arXiv publishes an acknowledgment
 sentence. Rendering it as required would overstate arXiv’s terms.</li>
 <li><code>none</code> — the default. <strong>Do not invent a credit.</strong> Silence is the correct value.</li>
 </ul>
@@ -102,11 +119,12 @@ policy names a phrase, and paraphrasing it misses the obligation — and always 
 of the clause, so the grading can be re-checked rather than trusted.</p>
 <hr>
 <h2 id="the-client-contract">The client contract</h2>
-<p>Every part of this is pinned by an existing test. Break one and the suite tells you.</p>
+<p>Every part of this is pinned by a test. Break one and the suite tells you.</p>
 <ul>
-<li><code>search()</code> returns <code>list[NormalizedResult]</code>, honours <code>date_from</code> / <code>date_to</code> /
+<li><code>search()</code> returns <code>list[NormalizedResult]</code>, honors <code>date_from</code> / <code>date_to</code> /
 <code>max_results</code>, and returns <strong><code>[]</code> on upstream failure</strong> — logged, never raised. A source
-being down degrades a sweep; it does not fail it.</li>
+being down does not abort the other sources’ searches. The run’s status is a separate
+decision: a run whose every selected source was asked and recorded a non-answer is failed.</li>
 <li>Every HTTP call goes through <code>safe_request()</code> with a <strong>module-level</strong> <code>RateLimiter</code>, shared
 by every instance of that client, so concurrent sweeps contend on one object. The same
 limiter carries a valid upstream <code>Retry-After</code> cooldown across retries and client
@@ -121,15 +139,14 @@ figure; do not carry over a number from another source.</li>
 <li>A malformed record is skipped and logged, never allowed to abort the batch.</li>
 </ul>
 <h3 id="fields-the-user-reads-as-claims">Fields the user reads as claims</h3>
-<p><code>rate_limit</code>, <code>upstream_policy</code> and <code>keyword_combination</code> are rendered on the Repositories
-page and are read as statements of fact about someone else’s service.</p>
+<p><code>rate_limit</code>, <code>upstream_policy</code>, and <code>keyword_combination</code> are rendered in Settings › Sources
+and the source pickers and are read as statements of fact about someone else’s service.</p>
 <p><code>keyword_combination</code> in particular describes how the <strong>upstream</strong> combines space-separated
 terms — implicit AND, explicit OR, relevance-ranked. Getting it wrong makes resmon lie about
 another organization’s search engine.</p>
 <blockquote>
 <p>Where the upstream does not document it, the value is <strong>“Undocumented”</strong>. That is a
-correct answer, not a gap. A previous brief instructed a contributor to label OpenAIRE’s
-semantics anyway; refusing that instruction was the right call.</p>
+correct answer, not a gap. Do not label a source’s semantics on a guess to fill the field.</p>
 </blockquote>
 <p>Where a live observation and the documentation differ, say which is which. INSPIRE’s entry
 records <code>Implicit AND</code> <em>and</em> notes that this rests on a live comparison because the help page
@@ -143,17 +160,18 @@ the source returns nothing. Say so in the catalog note. ERIC’s entry is the mo
 no field to filter on, so resmon reports zero results rather than widening the window you
 asked for.</p>
 </blockquote>
-<p>Where the upstream can only filter one end of a range — NIST’s API takes a lower bound and no
-upper — the client applies the other end <strong>locally</strong>, and the catalog entry says so rather
-than implying the upstream filtered something it did not.</p>
+<p>Where the upstream can only filter one end of a range — NIST RMM’s API (since withdrawn) took
+a lower bound and no upper — the client applies the other end <strong>locally</strong>, and the catalog
+entry says so rather than implying the upstream filtered something it did not.</p>
 <p><code>date_granularity</code> on the catalog entry carries the same fact in a form the app can read:
 <code>"day"</code> (the default), <code>"month"</code>, or <code>"year"</code>. It says the finest precision <strong>resmon’s own
 query to this source can express</strong>, read from your client’s date-filter code — not a claim
-about the upstream’s index. It is rendered on the Repositories page, and the
+about the upstream’s index. It is rendered on the Sources page, and the
 <code>window_unanswerable</code> sentence is derived from it rather than from the free-text note.</p>
 <p>The field deliberately does not say what your client <em>does</em> about a window it cannot express,
-because those are two different facts. ERIC and Open Library <strong>refuse</strong>; DataCite, DBLP, NASA
-ADS and Semantic Scholar answer the coarser window. Both are honest. Only the first calls
+because those are two different facts. DBLP, ERIC, and Open Library <strong>refuse</strong> a window
+containing no complete calendar year; DataCite asks for the years touched and filters locally,
+while DOAJ, NASA ADS, and Semantic Scholar answer the coarser window. Only a refusal calls
 <code>note_unanswerable</code>.</p>
 <h3 id="saying-why-a-search-came-back-empty">Saying why a search came back empty</h3>
 <p>A client returning <code>[]</code> is the normal way a source fails, and by the time the engine sees it a
@@ -188,7 +206,7 @@ that already returns <code>[]</code>:</p>
 <code>except</code> catches “the source never answered”, and calling that an unreadable reply tells the
 user the source answered when it did not.</p>
 <p><strong>Never invent a reason.</strong> A zero is a recorded fact with a named source of truth, or it is
-<code>not_recorded</code>. There is no third state, and there is no backfill.</p>
+<code>not_recorded</code>. An earlier unexplained zero is not filled in with a guessed reason.</p>
 <h3 id="local-filtering-and-what-it-licenses-you-to-claim">Local filtering, and what it licenses you to claim</h3>
 <p><code>match_explain._LOCALLY_FILTERED_SOURCES</code> lists the sources whose keyword matching <strong>resmon
 performs itself</strong>, and can therefore speak about with certainty. A source belongs there only
@@ -246,12 +264,24 @@ would be an overclaim.</p>
 
 
 
-<table><thead><tr><th>File</th><th>Change</th></tr></thead><tbody><tr><td><code>implementation_scripts/api_&#x3C;slug>.py</code></td><td><strong>new</strong> — subclass <code>BaseAPIClient</code>, implement <code>search()</code> and <code>get_name()</code>, call <code>register_client()</code> at module scope</td></tr><tr><td><code>implementation_scripts/api_registry.py</code></td><td>add <code>"api_&#x3C;slug>"</code> to <code>_CLIENT_MODULES</code>, alphabetically</td></tr><tr><td><code>implementation_scripts/repo_catalog.py</code></td><td>add an <code>_entry(...)</code>, alphabetically by slug, including <code>date_granularity</code> when it is not <code>"day"</code></td></tr><tr><td><code>implementation_scripts/match_explain.py</code></td><td><code>_LOCALLY_FILTERED_SOURCES</code> — only if resmon does the filtering</td></tr><tr><td><code>verification_scripts/test_repo_catalog.py</code></td><td>the slug set and the two length assertions</td></tr><tr><td><code>verification_scripts/test_api_repositories_catalog.py</code></td><td>the catalog-length assertion</td></tr><tr><td><code>verification_scripts/test_api_tier*.py</code></td><td>registration, instantiation, and a <code>live_network</code> search test</td></tr><tr><td><code>verification_scripts/test_source_outcomes.py</code></td><td>nothing to add — <code>test_every_client_records_an_attempt</code> parametrises over the registry, so a new source is covered the moment it registers, and fails if its <code>search()</code> makes no recorded HTTP attempt</td></tr><tr><td><code>frontend/src/components/Forms/RepositorySelector.tsx</code></td><td>the offline fallback slug list</td></tr><tr><td><code>README.md</code> → <em>Supported Repositories</em></td><td>one row, and the count in the intro line</td></tr></tbody></table>
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>File</th><th>Change</th></tr></thead><tbody><tr><td><code>implementation_scripts/api_&#x3C;slug>.py</code></td><td><strong>new</strong> — subclass <code>BaseAPIClient</code>, implement <code>search()</code> and <code>get_name()</code>, call <code>register_client()</code> at module scope</td></tr><tr><td><code>implementation_scripts/api_registry.py</code></td><td>add <code>"api_&#x3C;slug>"</code> to <code>_CLIENT_MODULES</code>, alphabetically</td></tr><tr><td><code>implementation_scripts/repo_catalog.py</code></td><td>add an <code>_entry(...)</code>, alphabetically by slug, including <code>date_granularity</code> when it is not <code>"day"</code></td></tr><tr><td><code>implementation_scripts/match_explain.py</code></td><td><code>_LOCALLY_FILTERED_SOURCES</code> — only if resmon does the filtering</td></tr><tr><td><code>verification_scripts/test_repo_catalog.py</code></td><td>the slug set and the two length assertions</td></tr><tr><td><code>verification_scripts/test_api_repositories_catalog.py</code></td><td>the catalog-length assertion</td></tr><tr><td><code>verification_scripts/test_api_tier*.py</code></td><td>registration, instantiation, and a <code>live_network</code> search test</td></tr><tr><td><code>verification_scripts/test_source_outcomes.py</code></td><td><code>test_every_client_records_an_attempt</code> parametrizes over the registry, so a new source is covered when it registers and fails if its <code>search()</code> makes no recorded HTTP attempt</td></tr><tr><td><code>verification_scripts/probe_entity_search.py</code>, <code>verification_scripts/probe_paper_lookup.py</code></td><td>the live probes for author queries and one-paper lookups described below</td></tr><tr><td><code>verification_scripts/test_paper_find.py</code></td><td>an authored request and reply in <code>CASES</code> for each supported lookup kind</td></tr><tr><td><code>site/src/data/sources.json</code></td><td>regenerate the catalog copy with <code>.venv/bin/python site/scripts/export_sources.py</code> from the root; <code>test_site_sources.py</code> guards it</td></tr><tr><td><code>README.md</code>, <code>site/src/content/guide/*.md</code></td><td>every written source count, the Sources tables, author-search counts where changed, and an acknowledgment</td></tr><tr><td><code>docs/</code> site output</td><td>rebuild with <code>npm run build</code> in <code>site/</code>, and verify with <code>npm run verify</code> and <code>node scripts/check-tokens.mjs</code></td></tr></tbody></table>
 <p>Do <strong>not</strong> touch <code>resmon.py</code>, <code>implementation_scripts/database.py</code>,
-<code>implementation_scripts/api_base.py</code>, <code>.github/workflows/*</code>, or <code>docs/_posts/*</code>.</p>
+<code>implementation_scripts/api_base.py</code>, or <code>.github/workflows/*</code>.</p>
 <hr>
 <h3 id="entity_search--what-the-source-can-be-asked-about-a-person"><code>entity_search</code> — what the source can be asked about a person</h3>
-<p><strong>Required since 2.1, and a source without one fails the suite.</strong> The field says whether
+<p><strong>Required: a source without one fails the suite.</strong> The field says whether
 this source can answer a query about an <em>author</em>, how, and what the record gives back:
 an ORCID, an affiliation, neither.</p>
 <p>Establish it; do not read it off the documentation. Add a probe for your source to
@@ -286,8 +316,8 @@ dated. The probe runs four queries because the first two are not enough:</p>
 <p>Most of these endpoints tolerate an unknown field prefix and keyword-search the whole
 string, so A looks identical for a source with an author field and a source without one
 — and B is empty either way, because a keyword search for an invented name also finds
-nothing. <strong>D is the control that decides it</strong>, and it caught OAPEN (since withdrawn),
-whose author prefix looked ignored under A-versus-C and is plainly parsed under D.</p>
+nothing. <strong>D is the control that decides it</strong>: an author prefix that looks ignored under
+A-versus-C can be plainly parsed under D.</p>
 <p><strong><code>returns_orcid</code> and <code>returns_affiliation</code> are about what the record carried, not which
 keys it has.</strong> Count them. Crossref puts an <code>affiliation</code> key on every author object and
 leaves it empty on most; DataCite and Zenodo carry an <code>orcid</code> key populated on <strong>none</strong>
@@ -297,15 +327,36 @@ whose citation has no <code>N of M</code> in it. HAL is the subtler case: it ret
 per <em>document</em> — one record listed two authors against one lab — so resmon claims no
 affiliation from it.</p>
 <p><strong><code>unknown</code> is a real answer.</strong> A source whose key this machine does not hold, or whose
-endpoint is down, gets <code>unknown</code> and a sentence saying which. Five entries are <code>unknown</code>
-today for exactly those two reasons.</p>
+endpoint is down, gets <code>unknown</code> and a sentence saying which. An entry is <code>unknown</code> only
+for those two reasons.</p>
+<h3 id="paper_lookup--what-the-source-can-be-asked-for-one-paper"><code>paper_lookup</code> — what the source can be asked for one paper</h3>
+<p><strong>Required, like <code>entity_search</code>: a source without an entry in <code>repo_catalog.PAPER_LOOKUP</code>
+fails the suite.</strong> Find a paper asks a source only by the kinds this names (<code>doi</code>, <code>arxiv</code>,
+<code>pmid</code>, <code>title</code>). A kind with a field syntax (<code>{"doi": 'DOI:"{value}"'}</code>) is asked through
+<code>search()</code> with the syntax filled in, so the same rule holds as for an author: a client that
+rewrites its query string loses the field. A kind with no syntax is asked through the client’s
+own <code>lookup()</code>, for a source with a record endpoint (<code>/works/{doi}</code>); a 404 there is the
+source’s answer, recorded with <code>note_not_found()</code>, not a failure.</p>
+<p>Establish it with <code>verification_scripts/probe_paper_lookup.py</code>: a real paper in the source’s
+coverage must be found by that kind, and an identifier or title that does not exist must find
+nothing. What came back goes in <code>established=</code>, dated. Where it could not be checked (no key,
+or the endpoint was down), the source is asked by nothing and the entry says why. Add the
+source’s request and an authored reply in its shape to <code>test_paper_find.py</code>’s <code>CASES</code>.</p>
+<h3 id="open-copies-and-identifiers">Open copies and identifiers</h3>
+<p>If the source’s record says where an open copy of the paper is, or names an identifier the
+documents table has no column for (an arXiv id, a PMCID, or a PMID), put it on the result:
+<code>open_access=[open_access.location(...)]</code> with the license <strong>the record states for that
+copy</strong>, never one inferred, and <code>identifiers=[("arxiv", "...")]</code>. A copy with no stated
+license is still recorded; it is just never downloaded. Do not record a link the source’s terms
+keep from being downloaded or stored (a text-mining link, a key-gated full-text URL); and
+where a source’s own links may not be downloaded at all, add it to
+<code>open_access.REFUSED_REPORTERS</code> (and its hosts to <code>REFUSED_HOSTS</code>) with the reason.</p>
 <h2 id="retiring-a-source">Retiring a source</h2>
-<p>Removing a module from <code>_CLIENT_MODULES</code> does <strong>not</strong> retire a source, and discovering that
-is why this section exists.</p>
+<p>Removing a module from <code>_CLIENT_MODULES</code> does <strong>not</strong> retire a source.</p>
 <p>Every <code>api_*.py</code> calls <code>register_client()</code> at import scope, so anything that imports the
 module — a test, a debug session — puts the source straight back into the process-wide
-registry. That is exactly what happened to IEEE Xplore: the tier-2/3 tests imported it
-directly and <strong>kept passing when they should have failed</strong>.</p>
+registry. A test that imports a retired client directly would <strong>keep passing when it
+should fail</strong>.</p>
 <p>Retirement therefore has two halves, and both are required:</p>
 <ol>
 <li>Add the slug to <code>api_registry.RETIRED_REPOSITORIES</code> with the reason a user should see.
@@ -318,10 +369,11 @@ so a routine saved before the retirement reports the actual cause instead of
 <em>behavior</em> is not: a written license would restore IEEE Xplore unchanged.</p>
 <hr>
 <h2 id="verifying">Verifying</h2>
-<p>All four, before opening a pull request:</p>
+<p>Before opening a pull request:</p>
 <pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="bash"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">.venv/bin/python</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -m</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> pytest</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -q</span><span style="color:#6A737D;--shiki-dark:#6A737D">                    # hermetic suite</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">.venv/bin/python</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -m</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> pytest</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -m</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> live_network</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -q</span><span style="color:#6A737D;--shiki-dark:#6A737D">    # real APIs; a weekly CI job runs these</span></span>
-<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">cd</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> resmon_scripts/frontend</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> &#x26;&#x26; </span><span style="color:#6F42C1;--shiki-dark:#B392F0">npm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> run</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> typecheck</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> &#x26;&#x26; </span><span style="color:#6F42C1;--shiki-dark:#B392F0">npm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> test</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> &#x26;&#x26; </span><span style="color:#6F42C1;--shiki-dark:#B392F0">npm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> run</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> build</span></span></code></pre>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">cd</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> resmon_scripts/frontend</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> &#x26;&#x26; </span><span style="color:#6F42C1;--shiki-dark:#B392F0">npm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> run</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> typecheck</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> &#x26;&#x26; </span><span style="color:#6F42C1;--shiki-dark:#B392F0">npm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> test</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> &#x26;&#x26; </span><span style="color:#6F42C1;--shiki-dark:#B392F0">npm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> run</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> build</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">npm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> run</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> e2e</span></span></code></pre>
 <p>The hermeticity guard blocks any non-loopback socket from a test that is not marked
 <code>live_network</code>. A new test that needs the network carries the marker — and a source’s
 live search test is then run every Monday by <code>.github/workflows/live-network.yml</code>,
@@ -340,9 +392,9 @@ review required before a new client is accepted.</p>
 <p>A test that passes is not evidence. Break the behavior on purpose and confirm the test
 fails: comment out the date filter, return the wrong field, collapse a list to its first
 element. If nothing goes red, the test asserts shape rather than behavior.</p>
-<p>One caution learned here: a mutation can survive because a <strong>second</strong> layer catches it. When
-ERIC’s year rounding was mutated, all twelve tests still passed — not a coverage gap, but a
-re-filter downstream doing its job. Check the behavior, not only the test result.</p>
+<p>A mutation can survive because a <strong>second</strong> layer catches it. Mutating ERIC’s year rounding
+leaves all twelve of its tests passing — not a coverage gap, but a re-filter downstream doing
+its job. Check the behavior, not only the test result.</p>
 <hr>
 <h2 id="opening-the-pull-request">Opening the pull request</h2>
 <p>Say what changed and why, <strong>how it was verified</strong> with the exact commands and their output
@@ -350,10 +402,10 @@ counts, what the change deliberately does not do, and any file touched outside t
 with the reason.</p>
 <p>For a source, lead with the terms: which clause permits durable local storage, and any
 obligation the catalog entry now records.</p>
-<p>If your research <strong>contradicts</strong> the brief or the survey you were working from, say so
-prominently. That has happened on every delegated batch so far and has been right every time.</p></div> </article>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell footer-inner" data-astro-cid-5hce7sga> <p class="footer-line" data-astro-cid-5hce7sga> <svg class="mark" viewBox="0 0 100 100" aria-hidden="true" focusable="false" data-astro-cid-iifiznic> <rect class="mark-ground" width="100" height="100" rx="24" data-astro-cid-iifiznic></rect> <circle class="mark-dot" cx="28" cy="27" r="4.7" data-astro-cid-iifiznic></circle><circle class="mark-dot" cx="51" cy="27" r="4.7" data-astro-cid-iifiznic></circle><circle class="mark-dot" cx="62.5" cy="27" r="4.7" data-astro-cid-iifiznic></circle><circle class="mark-dot" cx="28" cy="38.5" r="4.7" data-astro-cid-iifiznic></circle><circle class="mark-dot" cx="39.5" cy="38.5" r="4.7" data-astro-cid-iifiznic></circle><circle class="mark-open" cx="74" cy="38.5" r="3.5" data-astro-cid-iifiznic></circle><circle class="mark-dot" cx="28" cy="50" r="4.7" data-astro-cid-iifiznic></circle><circle class="mark-dot" cx="28" cy="61.5" r="4.7" data-astro-cid-iifiznic></circle><circle class="mark-dot" cx="28" cy="73" r="4.7" data-astro-cid-iifiznic></circle> </svg>  <span data-astro-cid-5hce7sga>
-resmon is free and open source under the MIT license. Everything it retrieves stays
-            on the computer that retrieved it.
-</span> </p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source code</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/" data-astro-cid-5hce7sga>Guide</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/reference/" data-astro-cid-5hce7sga>Reference</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/feed.xml" data-astro-cid-5hce7sga>Atom feed</a></li> </ul> <div class="credit" data-astro-cid-if6ord5i> <p class="made" data-astro-cid-if6ord5i>Made by <a href="https://ryanjosephkamp.github.io/" data-astro-cid-if6ord5i>Ryan Kamp</a></p> <ul class="social" aria-label="Ryan Kamp online" data-astro-cid-if6ord5i> <li data-astro-cid-if6ord5i> <a href="https://ryanjosephkamp.github.io/" aria-label="Ryan Kamp’s website" title="Website" data-astro-cid-if6ord5i> <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.2"/><path d="M2.8 12h18.4M12 2.8c2.6 2.6 3.9 5.7 3.9 9.2s-1.3 6.6-3.9 9.2c-2.6-2.6-3.9-5.7-3.9-9.2S9.4 5.4 12 2.8Z"/></g> </svg> </a> </li><li data-astro-cid-if6ord5i> <a href="https://github.com/ryanjosephkamp/" aria-label="Ryan Kamp on GitHub" title="GitHub" data-astro-cid-if6ord5i> <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <path fill="currentColor" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/> </svg> </a> </li><li data-astro-cid-if6ord5i> <a href="https://www.linkedin.com/in/rjk1999" aria-label="Ryan Kamp on LinkedIn" title="LinkedIn" data-astro-cid-if6ord5i> <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <path fill="currentColor" d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/> </svg> </a> </li><li data-astro-cid-if6ord5i> <a href="https://x.com/ryanjosephkamp" aria-label="Ryan Kamp on X" title="X" data-astro-cid-if6ord5i> <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <path fill="currentColor" d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"/> </svg> </a> </li><li data-astro-cid-if6ord5i> <a href="https://m.youtube.com/@RyanJosephKamp" aria-label="Ryan Kamp on YouTube" title="YouTube" data-astro-cid-if6ord5i> <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <path fill="currentColor" d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/> </svg> </a> </li> </ul> <a class="sponsor" href="https://github.com/sponsors/ryanjosephkamp" data-astro-cid-if6ord5i> <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <path d="M10 16.8S3 12.6 3 7.6A3.6 3.6 0 0 1 10 6a3.6 3.6 0 0 1 7 1.6c0 5-7 9.2-7 9.2Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" data-astro-cid-if6ord5i></path> </svg>
+<p>If your research <strong>contradicts</strong> the survey you were working from, say so prominently.</p></div>   </article> </div>  </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell footer-inner" data-astro-cid-5hce7sga> <p class="footer-line" data-astro-cid-5hce7sga> <img class="mark" src="/resmon/mark.webp" width="96" height="96" alt="" decoding="async" data-astro-cid-iifiznic>  <span data-astro-cid-5hce7sga>
+resmon is free and open source under the MIT license. What it collects stays on your
+            computer unless you switch on summaries, delivery, or a backup, and then goes only where
+            you point it.
+</span> </p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source code</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/" data-astro-cid-5hce7sga>Guide</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/reference/" data-astro-cid-5hce7sga>Reference</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> </ul> <div class="credit" data-astro-cid-if6ord5i> <p class="made" data-astro-cid-if6ord5i>Made by <a href="https://ryanjosephkamp.github.io/" data-astro-cid-if6ord5i>Ryan Kamp</a></p> <ul class="social" aria-label="Ryan Kamp online" data-astro-cid-if6ord5i> <li data-astro-cid-if6ord5i> <a href="https://ryanjosephkamp.github.io/" aria-label="Ryan Kamp’s website" title="Website" data-astro-cid-if6ord5i> <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.2"/><path d="M2.8 12h18.4M12 2.8c2.6 2.6 3.9 5.7 3.9 9.2s-1.3 6.6-3.9 9.2c-2.6-2.6-3.9-5.7-3.9-9.2S9.4 5.4 12 2.8Z"/></g> </svg> </a> </li><li data-astro-cid-if6ord5i> <a href="https://github.com/ryanjosephkamp/" aria-label="Ryan Kamp on GitHub" title="GitHub" data-astro-cid-if6ord5i> <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <path fill="currentColor" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/> </svg> </a> </li><li data-astro-cid-if6ord5i> <a href="https://www.linkedin.com/in/rjk1999" aria-label="Ryan Kamp on LinkedIn" title="LinkedIn" data-astro-cid-if6ord5i> <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <path fill="currentColor" d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/> </svg> </a> </li><li data-astro-cid-if6ord5i> <a href="https://x.com/ryanjosephkamp" aria-label="Ryan Kamp on X" title="X" data-astro-cid-if6ord5i> <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <path fill="currentColor" d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"/> </svg> </a> </li><li data-astro-cid-if6ord5i> <a href="https://m.youtube.com/@RyanJosephKamp" aria-label="Ryan Kamp on YouTube" title="YouTube" data-astro-cid-if6ord5i> <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <path fill="currentColor" d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/> </svg> </a> </li> </ul> <a class="sponsor" href="https://github.com/sponsors/ryanjosephkamp" data-astro-cid-if6ord5i> <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <path d="M10 16.8S3 12.6 3 7.6A3.6 3.6 0 0 1 10 6a3.6 3.6 0 0 1 7 1.6c0 5-7 9.2-7 9.2Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" data-astro-cid-if6ord5i></path> </svg>
 Sponsor on GitHub
-</a> </div>  </div> </footer> </body></html> 
+</a> </div>  </div> </footer> <script type="module" src="/resmon/static/Base.astro_astro_type_script_index_0_lang.nXCB1RqC.js"></script> </body> </html>  

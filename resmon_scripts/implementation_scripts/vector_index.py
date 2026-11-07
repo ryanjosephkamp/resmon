@@ -67,6 +67,7 @@ __all__ = [
     "load_extension",
     "nearest",
     "pack_vector",
+    "rank_all",
     "rebuild",
     "unpack_vector",
     "upsert",
@@ -348,7 +349,7 @@ def rebuild(conn: sqlite3.Connection, model: str) -> dict:
     could load the extension and the other could not. The canonical rows are
     never touched.
 
-    **Serialised process-wide** (:data:`_REBUILD_LOCK`). The table lives in the
+    **Serialized process-wide** (:data:`_REBUILD_LOCK`). The table lives in the
     database file, so two threads rebuilding at once drop it out from under each
     other; a caller that already holds the lock uses :func:`_rebuild_locked`.
 
@@ -459,10 +460,15 @@ def nearest(
     candidate set returns 10 rows, all of them inside the set.
 
     The candidate ids go through a temporary table rather than bound parameters.
-    A filtered Explorer view is capped at ``explorer.COUNT_CAP`` = 10,000 ids, and
-    while this SQLite reports a 250,000 parameter ceiling, that limit is a compile
-    option — a build with the old default of 999 would turn a large filtered view
-    into an error rather than a slow query.
+    A candidate set can hold every paper in the collection, and while this SQLite
+    reports a 250,000 parameter ceiling, that limit is a compile option — a build
+    with the old default of 999 would turn a large set into an error rather than a
+    slow query.
+
+    ``k`` must be at most :data:`KNN_K_MAX`: ``vec0`` refuses a larger one
+    outright ("k value in knn query too large"), which reaches a caller as no
+    rows at all, not as the closest 4,096. A ranking of more papers than that is
+    :func:`rank_all`'s.
 
     **The model predicate is a second layer, not the mechanism.** The index holds
     one model at a time (:func:`rebuild`), and this function rebuilds when asked
@@ -489,6 +495,85 @@ def nearest(
             if _index_dims(conn) is None:
                 return []
         return _nearest_locked(conn, model, vector, k, within_ids)
+
+
+_RANK_TABLE = "temp.rank_candidate_ids"
+
+# The largest ``k`` a ``vec0`` nearest-neighbour query accepts in sqlite-vec
+# 0.1.9 (``SQLITE_VEC_VEC0_K_MAX``); measured, 4,097 is refused.
+KNN_K_MAX = 4096
+
+
+def rank_all(
+    conn: sqlite3.Connection,
+    model: str,
+    vector: bytes,
+    *,
+    documents_where: str = "",
+    params: Sequence = (),
+    within_ids: Optional[Sequence[int]] = None,
+) -> list[tuple[int, float]]:
+    """Every paper with a vector for *model*, closest to *vector* first, with distances.
+
+    *documents_where* is a ``WHERE`` clause over ``documents`` (as the Explorer
+    builds one, leading space and all) with its *params*; it restricts the
+    ranking to the papers it matches. *within_ids* restricts it to those ids
+    instead (through a temporary table, as :func:`nearest` takes them). Ties are
+    broken by id, so the order is the same each time.
+
+    **Not a nearest-neighbour query.** ``vec0``'s ``k`` stops at
+    :data:`KNN_K_MAX`, and a ranking of a collection is a ranking of all of it,
+    so this reads the canonical vectors in ``document_embeddings`` and has
+    sqlite-vec measure each one with ``vec_distance_l2``, the distance the index
+    itself ranks by: a paper is the same distance from a phrase here as in
+    :func:`nearest`. Measured on 100,000 papers with 768-dimension vectors:
+    0.24 s for the whole collection, 0.14 s for a source and a date range. The
+    canonical table is read rather than the index because the index answers a
+    full scan one row at a time (15.8 s for the same 100,000).
+
+    A vector of another width (a model that changed its output under the same
+    name) is left out rather than measured, as :func:`rebuild` leaves it out of
+    the index. The extension is still the thing doing the arithmetic, so where
+    it will not load this ranks nothing, as :func:`nearest` does.
+    """
+    if load_extension(conn) is None:
+        return []
+    if within_ids is not None and not within_ids:
+        return []
+    dims = len(vector) // 4
+    where, bound = documents_where, list(params)
+    # A transaction this function began, it ends (see ``_nearest_locked``).
+    began = within_ids is not None and not conn.in_transaction
+    if within_ids is not None:
+        conn.execute(f"DROP TABLE IF EXISTS {_RANK_TABLE}")
+        conn.execute(f"CREATE TEMP TABLE {_RANK_TABLE.split('.')[1]} (id INTEGER PRIMARY KEY)")
+        conn.executemany(f"INSERT OR IGNORE INTO {_RANK_TABLE}(id) VALUES (?)",
+                         [(int(i),) for i in within_ids])
+        within = f"documents.id IN (SELECT id FROM {_RANK_TABLE})"
+        where = f"{where} AND {within}" if where else f" WHERE {within}"
+    cond = f"{where} AND" if where else " WHERE"
+    sql = (
+        "SELECT de.document_id, vec_distance_l2(de.vector, ?) AS distance "
+        "FROM documents JOIN document_embeddings de ON de.document_id = documents.id"
+        f"{cond} de.model = ? AND de.dims = ? AND length(de.vector) = ? "
+        "ORDER BY distance, de.document_id"
+    )
+    try:
+        rows = conn.execute(sql, (vector, *bound, model, dims, dims * 4)).fetchall()
+    except sqlite3.Error as exc:
+        # The same rule as ``_nearest_locked``: a ranking is an enrichment, and
+        # no failure of it may reach the ASGI layer as a bare 500.
+        logger.warning("ranking every paper failed: %s", exc)
+        return []
+    finally:
+        if within_ids is not None:
+            try:
+                conn.execute(f"DROP TABLE IF EXISTS {_RANK_TABLE}")
+            except sqlite3.Error:
+                pass
+            if began and conn.in_transaction:
+                conn.commit()
+    return [(int(row[0]), float(row[1])) for row in rows]
 
 
 def _nearest_locked(

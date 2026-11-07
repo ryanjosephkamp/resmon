@@ -17,13 +17,24 @@
  * the folder chooser and the download destinations. J36 and J37 drive the same
  * screen through `journeys/drivers/atlas.ts`; this spec is the part that runs
  * on every pull request. No network beyond loopback.
+ *
+ * Each step is logged with the time it began (`ANSWERS 17:04:45.120 +3.2 s
+ * …`) and held to a time of its own, inside the test's, so a stall fails with
+ * a sentence naming the step. It is followed by where the window stood: its
+ * address and title, the control the step was acting on (whether it is there,
+ * shown, and enabled, and what is at its center), the engine's health, the
+ * requests still waiting, and what the app wrote. Whatever state the test
+ * stops in, the app is closed in bounded time and what it started is stopped.
  */
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { test, expect, _electron as electron, type Page } from '@playwright/test';
-import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir, selectedEvidenceTransport } from './fixtures/resmon-app';
+import { test, expect, _electron as electron, type ElectronApplication, type Locator, type Page } from '@playwright/test';
+import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, atlasEnv, launchEnv, registerStateDir, selectedEvidenceTransport } from './fixtures/resmon-app';
+import { findCard } from './fixtures/gallery';
+import { closeWithin, removeStateDir } from './fixtures/cleanup';
+import { capture, stepsWithin, tellWhere, watchWindow, type Target, type Watched } from './fixtures/steps';
 
 const FIXTURES = path.join(REPO_ROOT, 'resmon_scripts', 'verification_scripts', 'fixtures', 'evidence');
 const PASSAGE = 'exact passage';
@@ -88,7 +99,14 @@ app.on('window-all-closed',()=>app.quit());
     const printed = execFileSync(python, ['-c',
       "from pypdf import PdfReader;import sys;print('\\n'.join(p.extract_text() or '' for p in PdfReader(sys.argv[1]).pages))", pdf],
     { encoding: 'utf8' });
-    expect(printed, 'the printed answer does not carry its id').toContain(answerId);
+    // A ligature prints "ff" in a hex id as the one character U+FB00, so the
+    // text copied from the printout is not the id; that failed one answer in
+    // ten, whenever the random id held "ff". "file_id", "offsets" and
+    // "confirmed" are on every printout, so this holds on every run.
+    expect(printed.match(/[ﬀ-ﬆ]/gu) ?? [], 'the printout joins letters into ligatures').toEqual([]);
+    // A long value may wrap at any character, so the id is looked for with
+    // the line breaks taken out.
+    expect(printed.replace(/\s+/gu, ''), 'the printed answer does not carry its id').toContain(answerId);
     expect(await reader.evaluate(() => (globalThis as unknown as { reader: { blocked: string[] } }).reader.blocked),
       'the saved answer asked for something besides itself').toEqual([]);
   } finally {
@@ -96,68 +114,95 @@ app.on('window-all-closed',()=>app.quit());
   }
 }
 
+/** Kept back from the test's timeout for saying where a stall stood and for the teardown. */
+const TEARDOWN_MS = 60_000;
+const PREFIX = 'ANSWERS';
+
 test('Answers: an exact disclosure, one answer per Send, citations that resolve, both exports, and every way an answer stops', async () => {
   test.setTimeout(360_000);
+  const { say, step } = stepsWithin(PREFIX, 360_000, TEARDOWN_MS);
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-answers-')));
   const stateDir = path.join(root, 'state');
   const parent = path.join(root, 'parent');
   const downloads = path.join(root, 'downloads');
   for (const dir of [stateDir, parent, downloads]) fs.mkdirSync(dir);
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), PYTHON_KEYRING_BACKEND: 'keyring.backends.null.Keyring' };
+  const env = atlasEnv({ ...launchEnv(stateDir, true), PYTHON_KEYRING_BACKEND: 'keyring.backends.null.Keyring' });
   // The fake's scripts need an absolute interpreter for their shebangs.
   const python = execFileSync(env.RESMON_PYTHON ?? 'python3', ['-c', 'import sys;print(sys.executable)'], { env, encoding: 'utf8' }).trim();
-  const fake = await selectedEvidenceTransport(root, python);
-  env.RESMON_PYTHON = fake.backend;
 
-  const app = await electron.launch({
-    args: ['.', `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`],
-    cwd: FRONTEND_ROOT, env, colorScheme: null, timeout: 180_000,
-  });
-  registerStateDir(stateDir);
+  let fake: Awaited<ReturnType<typeof selectedEvidenceTransport>> | null = null;
+  let app: ElectronApplication | null = null;
+  let win: Page | null = null;
+  let watched: Watched | null = null;
+  let wrote: (() => string) | null = null;
+  // The control the step under way is acting on, for saying where it stood if the step stalls.
+  let target: Target | null = null;
+  const aim = (name: string, locator: Locator): Locator => { target = { name, locator }; return locator; };
+  let passed = false;
   try {
-    await app.evaluate(({ dialog }, chosen) => {
+    const model = await selectedEvidenceTransport(root, python);
+    fake = model;
+    env.RESMON_PYTHON = model.backend;
+    const launched = await step('the app starts', 180_000, (ms) => electron.launch({
+      args: ['.', `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`],
+      cwd: FRONTEND_ROOT, env, colorScheme: null, timeout: ms,
+    }));
+    app = launched;
+    registerStateDir(stateDir);
+    wrote = capture(launched).all;
+    say(`the app is up, pid ${launched.process().pid}, in ${stateDir}`);
+    await step('the folder chooser is scripted', 15_000, () => launched.evaluate(({ dialog }, chosen) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [chosen] });
-    }, parent);
-    const win = await app.firstWindow({ timeout: 180_000 });
-    const problems: string[] = [];
-    win.on('pageerror', (e) => problems.push(e.message));
+    }, parent));
+    const page = await step('the first window opens', 180_000, (ms) => launched.firstWindow({ timeout: ms }));
+    win = page;
+    watched = watchWindow(page);
+    const { problems } = watched;
     // The router sets its own address when it mounts, so nothing navigates before it has.
-    await expect(win.getByRole('navigation', { name: 'Sections' })).toBeVisible({ timeout: 120_000 });
+    await step('Atlas draws its frame', 120_000,
+      (ms) => expect(page.getByRole('navigation', { name: 'Sections' })).toBeVisible({ timeout: ms }));
     // The authored model, reached through the custom API connection. The CLI
     // path is the fake's too, so no real agent CLI can start by a misclick.
-    await library(win, '/api/settings/ai', 'PUT', { settings: { ai_cli_path: fake.cli, ai_custom_base_url: fake.base } });
+    await step('the authored model is the one set', 15_000,
+      () => library(page, '/api/settings/ai', 'PUT', { settings: { ai_cli_path: model.cli, ai_custom_base_url: model.base } }));
 
     // — a library, a project, a saved passage and a note ---------------------------------
-    await win.evaluate(() => { window.location.hash = '#/library/files'; });
-    await win.getByRole('button', { name: 'Choose parent folder' }).click();
-    await win.getByRole('button', { name: 'Create the library here' }).click();
-    const importer = win.getByLabel('Import PDF, TXT, or MD');
-    await expect(importer).toBeEnabled({ timeout: 60_000 });
-    await importer.setInputFiles(['two-pages.pdf', 'unicode.txt'].map((n) => path.join(FIXTURES, n)));
-    await expect(win.locator('[data-library="imported"]')).toHaveText('2 retained, 0 exact duplicates reused.', { timeout: 60_000 });
-    await win.locator('button.library-file', { hasText: 'unicode.txt' }).click();
-    await win.getByRole('link', { name: 'Open in Evidence' }).click();
-    await win.getByLabel('A name for a new project').fill('Atlas answers');
-    await win.getByRole('button', { name: 'Start', exact: true }).click();
-    await win.getByRole('button', { name: 'Add unicode.txt to this project' }).click();
-    const reader = win.getByRole('region', { name: 'Evidence reader' });
-    await reader.getByLabel('Find on this page’s text').fill(PASSAGE);
-    await reader.getByRole('button', { name: 'Find', exact: true }).click();
-    await reader.getByRole('button', { name: 'Use selected passage' }).click();
-    const panel = win.getByRole('region', { name: 'Saved evidence notes' });
-    await panel.getByRole('button', { name: 'Save passage' }).click();
-    await expect(panel.locator('[data-evidence="saved"]')).toBeVisible({ timeout: 30_000 });
-    await panel.getByLabel('Note', { exact: true }).fill(NOTE);
-    await panel.getByRole('button', { name: 'Save note' }).click();
-    await expect(panel.locator('ol.ev-saved > li')).toHaveCount(2, { timeout: 30_000 });
-    await win.getByRole('button', { name: 'Add files', exact: true }).click();
-    await win.getByRole('region', { name: 'Add files from your library' }).locator('label.choice', { hasText: 'two-pages.pdf' }).getByRole('checkbox').check();
-    await win.getByRole('button', { name: 'Add 1 file' }).click();
-    await expect(win.getByRole('region', { name: 'Files in this project' }).locator('button.library-file')).toHaveCount(2, { timeout: 30_000 });
-    const { vault } = await library<{ vault: { vault_id: string } }>(win, '/api/library');
-    const { projects } = await library<{ projects: { project_id: string }[] }>(win, `/api/evidence/projects?expected_vault_id=${vault.vault_id}`);
-    const project = projects[0]!.project_id;
-    const saved = (id: string) => library<Saved>(win, `/api/evidence/projects/${project}/answers/${id}?expected_vault_id=${vault.vault_id}`);
+    await step('the library made, and two files imported', 150_000, async () => {
+      await page.evaluate(() => { window.location.hash = '#/library?show=files'; });
+      await aim('Choose parent folder', page.getByRole('button', { name: 'Choose parent folder' })).click();
+      await aim('Create the library here', page.getByRole('button', { name: 'Create the library here' })).click();
+      const importer = page.getByLabel('Import PDF, TXT, MD, or TeX');
+      await expect(importer).toBeEnabled({ timeout: 60_000 });
+      await importer.setInputFiles(['two-pages.pdf', 'unicode.txt'].map((n) => path.join(FIXTURES, n)));
+      await expect(page.locator('[data-library="imported"]')).toHaveText('2 files added. None was already in the Library.', { timeout: 60_000 });
+    });
+    await step('unicode.txt found on Your files, and read', 60_000,
+      async () => aim('Read on unicode.txt', (await findCard(page, 'unicode.txt')).getByRole('button', { name: 'Read' })).click());
+    await step('the file\'s page opens Evidence', 60_000,
+      () => aim('Open in Evidence', page.getByRole('link', { name: 'Open in Evidence' }).first()).click());
+    const { vault, project } = await step('a project, a saved passage, and a note', 150_000, async () => {
+      await page.getByLabel('A name for a new project').fill('Atlas answers');
+      await aim('Start', page.getByRole('button', { name: 'Start', exact: true })).click();
+      await aim('Add unicode.txt to this project', page.getByRole('button', { name: 'Add unicode.txt to this project' })).click();
+      const reader = page.getByRole('region', { name: 'Evidence reader' });
+      await reader.getByLabel('Find on this page’s text').fill(PASSAGE);
+      await aim('Find', reader.getByRole('button', { name: 'Find', exact: true })).click();
+      await aim('Use selected passage', reader.getByRole('button', { name: 'Use selected passage' })).click();
+      const panel = page.getByRole('region', { name: 'Saved evidence notes' });
+      await aim('Save passage', panel.getByRole('button', { name: 'Save passage' })).click();
+      await expect(panel.locator('[data-evidence="saved"]')).toBeVisible({ timeout: 30_000 });
+      await panel.getByLabel('Note', { exact: true }).fill(NOTE);
+      await aim('Save note', panel.getByRole('button', { name: 'Save note' })).click();
+      await expect(panel.locator('ol.ev-saved > li')).toHaveCount(2, { timeout: 30_000 });
+      await aim('Add files', page.getByRole('button', { name: 'Add files', exact: true })).click();
+      await page.getByRole('region', { name: 'Add files from your library' }).locator('label.choice', { hasText: 'two-pages.pdf' }).getByRole('checkbox').check();
+      await aim('Add 1 file', page.getByRole('button', { name: 'Add 1 file' })).click();
+      await expect(page.getByRole('region', { name: 'Files in this project' }).locator('button.library-file')).toHaveCount(2, { timeout: 30_000 });
+      const status = await library<{ vault: { vault_id: string } }>(page, '/api/library');
+      const { projects } = await library<{ projects: { project_id: string }[] }>(page, `/api/evidence/projects?expected_vault_id=${status.vault.vault_id}`);
+      return { vault: status.vault, project: projects[0]!.project_id };
+    });
+    const saved = (id: string) => library<Saved>(page, `/api/evidence/projects/${project}/answers/${id}?expected_vault_id=${vault.vault_id}`);
     const settled = async (id: string) => {
       await expect.poll(async () => {
         const a = await saved(id);
@@ -167,16 +212,15 @@ test('Answers: an exact disclosure, one answer per Send, citations that resolve,
     };
 
     // — the Answers view, and an exact disclosure ------------------------------------------
-    await win.getByRole('group', { name: 'In this project' }).getByRole('button', { name: 'Answers' }).click();
-    const history = win.getByRole('navigation', { name: 'Saved answers' });
-    await expect(history.getByText('No answers yet.')).toBeVisible({ timeout: 30_000 });
+    const history = page.getByRole('navigation', { name: 'Saved answers' });
+    const article = page.getByRole('article', { name: 'Saved answer' });
     const compose = async () => {
-      await history.getByRole('button', { name: 'New answer' }).click();
-      const composer = win.getByRole('region', { name: 'New answer from selected evidence' });
+      await aim('New answer', history.getByRole('button', { name: 'New answer' })).click();
+      const composer = page.getByRole('region', { name: 'New answer from selected evidence' });
       await expect(composer.getByLabel('Connection', { exact: true })).toBeEnabled({ timeout: 30_000 });
       await composer.getByLabel('Page of two-pages.pdf', { exact: true }).fill('2');
-      await composer.getByRole('button', { name: 'Add the page of two-pages.pdf' }).click();
-      await composer.getByRole('button', { name: `Add the passage “${PASSAGE}”` }).click();
+      await aim('Add the page of two-pages.pdf', composer.getByRole('button', { name: 'Add the page of two-pages.pdf' })).click();
+      await aim('Add the passage', composer.getByRole('button', { name: `Add the passage “${PASSAGE}”` })).click();
       await composer.getByLabel(`Include note: ${NOTE}`, { exact: true }).check();
       await composer.getByLabel('Question or instruction').fill('What do these excerpts say?');
       await composer.getByLabel('Connection', { exact: true }).selectOption('api_key:custom');
@@ -187,130 +231,154 @@ test('Answers: an exact disclosure, one answer per Send, citations that resolve,
       await expect(disclosure.getByRole('heading', { name: 'Check before sending' })).toBeVisible({ timeout: 60_000 });
       return { composer, disclosure };
     };
-    const first = await compose();
-    const heads = await first.disclosure.locator('article.ev-source h4').allInnerTexts();
-    // The engine numbers sources by file id, which is random, so S01 and S02
-    // can fall either way round: the numbers and the sources are held apart.
-    expect(heads.map((h) => h.replace(/^S0[12] · /, '')).sort())
-      .toEqual(['two-pages.pdf · page 2', 'unicode.txt · page 1', 'Your note · revision 1'].sort());
-    expect(heads.map((h) => /^(S\d+) · /.exec(h)?.[1]).filter(Boolean).sort()).toEqual(['S01', 'S02']);
-    await expect(first.disclosure.locator('article.ev-source pre').filter({ hasText: /^Beta evidence stays separate\.$/ })).toHaveCount(1);
-    await expect(first.disclosure.locator('article.ev-source pre').filter({ hasText: new RegExp(`^${PASSAGE}$`) })).toHaveCount(1);
-    await expect(first.disclosure).toContainText('a custom API, requested-synthetic-model, effort not supported, at the custom address set in Settings.');
-    // Changing what would be sent throws the preview away.
-    await first.composer.getByLabel('Answer as').selectOption('briefing');
-    await expect(first.disclosure).toHaveCount(0);
-    await first.composer.getByLabel('Answer as').selectOption('question');
-    await first.composer.getByRole('button', { name: 'Show exactly what will be sent' }).click();
-    await expect(first.disclosure.getByRole('heading', { name: 'Check before sending' })).toBeVisible({ timeout: 60_000 });
-    expect(fake.requests, 'a preview called the model').toHaveLength(0);
-    await first.disclosure.scrollIntoViewIfNeeded();
-    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-answers-preview.png') });
-    await first.disclosure.getByRole('button', { name: 'Send', exact: true }).click();
+    await step('the Answers view, and an exact disclosure, sent once', 150_000, async () => {
+      await aim('Answers', page.getByRole('group', { name: 'In this project' }).getByRole('button', { name: 'Answers' })).click();
+      await expect(history.getByText('No answers yet.')).toBeVisible({ timeout: 30_000 });
+      const first = await compose();
+      const heads = await first.disclosure.locator('article.ev-source h4').allInnerTexts();
+      // The engine numbers sources by file id, which is random, so S01 and S02
+      // can fall either way round: the numbers and the sources are held apart.
+      expect(heads.map((h) => h.replace(/^S0[12] · /, '')).sort())
+        .toEqual(['two-pages.pdf · page 2', 'unicode.txt · page 1', 'Your note · revision 1'].sort());
+      expect(heads.map((h) => /^(S\d+) · /.exec(h)?.[1]).filter(Boolean).sort()).toEqual(['S01', 'S02']);
+      await expect(first.disclosure.locator('article.ev-source pre').filter({ hasText: /^Beta evidence stays separate\.$/ })).toHaveCount(1);
+      await expect(first.disclosure.locator('article.ev-source pre').filter({ hasText: new RegExp(`^${PASSAGE}$`) })).toHaveCount(1);
+      await expect(first.disclosure).toContainText('a custom API, requested-synthetic-model, effort not supported, at the custom address set in Settings.');
+      // Changing what would be sent throws the preview away.
+      await first.composer.getByLabel('Answer as').selectOption('briefing');
+      await expect(first.disclosure).toHaveCount(0);
+      await first.composer.getByLabel('Answer as').selectOption('question');
+      await aim('Show exactly what will be sent', first.composer.getByRole('button', { name: 'Show exactly what will be sent' })).click();
+      await expect(first.disclosure.getByRole('heading', { name: 'Check before sending' })).toBeVisible({ timeout: 60_000 });
+      expect(model.requests, 'a preview called the model').toHaveLength(0);
+      await first.disclosure.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-answers-preview.png') });
+      await aim('Send', first.disclosure.getByRole('button', { name: 'Send', exact: true })).click();
+    });
 
     // — one answer, its citation resolved, and its exports ---------------------------------
-    const article = win.getByRole('article', { name: 'Saved answer' });
-    await expect(article).toBeVisible({ timeout: 30_000 });
-    const answered = await settled(String(await article.getAttribute('data-answer')));
-    expect(answered.state).toBe('succeeded');
-    expect(fake.requests, 'one Send made more or fewer than one request').toHaveLength(1);
-    expect(answered.request.payload.notes.map((n) => n.body)).toEqual([NOTE]);
-    await expect(article).toHaveAttribute('data-state', 'succeeded', { timeout: 30_000 });
-    await expect(article.getByText('Answered', { exact: true })).toBeVisible();
-    await expect(article.locator('[data-answer="unvalidated"]')).toHaveCount(0);
-    await win.evaluate(() => window.scrollTo(0, 0));
-    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-answers.png') });
-    const cite = article.locator('button.ev-cite').first();
-    await expect(cite).toHaveText(/^S0[12] · (two-pages\.pdf · page 2|unicode\.txt · page 1)$/);
-    await cite.click();
-    const check = article.getByRole('region', { name: 'Saved citation' });
-    await expect(check.locator('[data-evidence="resolution"]')).toHaveText(/^Citation matched this exact current text range\./, { timeout: 60_000 });
-    expect(await check.getByLabel('Canonical page text').evaluate((el) => {
-      const t = el as HTMLTextAreaElement;
-      return t.value.slice(t.selectionStart, t.selectionEnd);
-    })).toBe((await check.locator('pre.ev-quote').textContent()) ?? '');
-    await expect(history.locator(`button.ev-answer-row[data-answer="${answered.answer_id}"]`)).toBeVisible();
-    await check.scrollIntoViewIfNeeded();
-    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-answers-citation.png') });
+    const answered = await step('one answer, and its citation resolved', 150_000, async () => {
+      await expect(article).toBeVisible({ timeout: 30_000 });
+      const done = await settled(String(await article.getAttribute('data-answer')));
+      expect(done.state).toBe('succeeded');
+      expect(model.requests, 'one Send made more or fewer than one request').toHaveLength(1);
+      expect(done.request.payload.notes.map((n) => n.body)).toEqual([NOTE]);
+      await expect(article).toHaveAttribute('data-state', 'succeeded', { timeout: 30_000 });
+      await expect(article.getByText('Answered', { exact: true })).toBeVisible();
+      await expect(article.locator('[data-answer="unvalidated"]')).toHaveCount(0);
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-answers.png') });
+      const cite = article.locator('button.ev-cite').first();
+      await expect(cite).toHaveText(/^S0[12] · (two-pages\.pdf · page 2|unicode\.txt · page 1)$/);
+      await aim('the first citation', cite).click();
+      const check = article.getByRole('region', { name: 'Saved citation' });
+      await expect(check.locator('[data-evidence="resolution"]')).toHaveText(/^Citation matched this exact current text range\./, { timeout: 60_000 });
+      expect(await check.getByLabel('Canonical page text').evaluate((el) => {
+        const t = el as HTMLTextAreaElement;
+        return t.value.slice(t.selectionStart, t.selectionEnd);
+      })).toBe((await check.locator('pre.ev-quote').textContent()) ?? '');
+      await expect(history.locator(`button.ev-answer-row[data-answer="${done.answer_id}"]`)).toBeVisible();
+      await check.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-answers-citation.png') });
+      return done;
+    });
 
-    for (const format of ['zip', 'html'] as const) {
-      const target = path.join(downloads, `answer.${format}`);
-      await app.evaluate(({ BrowserWindow }, t) => {
-        BrowserWindow.getAllWindows()[0]!.webContents.session.once('will-download', (_e, item) => item.setSavePath(t));
-      }, target);
-      await article.getByRole('button', { name: format === 'zip' ? 'Save as ZIP' : 'Save as HTML' }).click();
-      await expect(article.locator('[data-answer="saved"]')).toHaveText(
-        new RegExp(`^Saved the answer as ${format === 'zip' ? 'a ZIP archive' : 'one HTML file'}`), { timeout: 60_000 });
-      await expect.poll(() => fs.existsSync(target) && fs.statSync(target).size > 0, { timeout: 30_000 }).toBe(true);
-    }
-    const zip = JSON.parse(execFileSync(python, ['-c', `
+    await step('the answer saved as a ZIP and as one HTML file, and the HTML read offline', 240_000, async () => {
+      for (const format of ['zip', 'html'] as const) {
+        const file = path.join(downloads, `answer.${format}`);
+        await launched.evaluate(({ BrowserWindow }, t) => {
+          BrowserWindow.getAllWindows()[0]!.webContents.session.once('will-download', (_e, item) => item.setSavePath(t));
+        }, file);
+        await aim(format === 'zip' ? 'Save as ZIP' : 'Save as HTML', article.getByRole('button', { name: format === 'zip' ? 'Save as ZIP' : 'Save as HTML' })).click();
+        await expect(article.locator('[data-answer="saved"]')).toHaveText(
+          new RegExp(`^Saved the answer as ${format === 'zip' ? 'a ZIP archive' : 'one HTML file'}`), { timeout: 60_000 });
+        await expect.poll(() => fs.existsSync(file) && fs.statSync(file).size > 0, { timeout: 30_000 }).toBe(true);
+      }
+      const zip = JSON.parse(execFileSync(python, ['-c', `
 import json, sys, zipfile
 with zipfile.ZipFile(sys.argv[1]) as z:
     print(json.dumps({'names': sorted(z.namelist()), 'answer': json.loads(z.read('answer.json'))['answer_id']}))
-`, path.join(downloads, 'answer.zip')], { encoding: 'utf8' })) as { names: string[]; answer: string };
-    expect(zip).toEqual({ names: ['answer.json', 'answer.md', 'evidence.json'], answer: answered.answer_id });
-    const html = fs.readFileSync(path.join(downloads, 'answer.html'), 'utf8');
-    expect(html.startsWith('<!doctype html>') || html.startsWith('<!DOCTYPE html>')).toBe(true);
-    expect(html).toContain(answered.answer_id);
-    await readOffline(path.join(downloads, 'answer.html'), path.join(root, 'offline-reader'), env, python, answered.answer_id);
+`, path.join(downloads, 'answer.zip')], { encoding: 'utf8', timeout: 30_000 })) as { names: string[]; answer: string };
+      expect(zip).toEqual({ names: ['answer.json', 'answer.md', 'evidence.json'], answer: answered.answer_id });
+      const html = fs.readFileSync(path.join(downloads, 'answer.html'), 'utf8');
+      expect(html.startsWith('<!doctype html>') || html.startsWith('<!DOCTYPE html>')).toBe(true);
+      expect(html).toContain(answered.answer_id);
+      await readOffline(path.join(downloads, 'answer.html'), path.join(root, 'offline-reader'), env, python, answered.answer_id);
+    });
 
     // — a reply never marked complete: failed, unvalidated, nothing shown as cited ----------
-    fake.setFault('missing_done');
-    const second = await compose();
-    await second.disclosure.getByRole('button', { name: 'Send', exact: true }).click();
-    await expect(article).not.toHaveAttribute('data-answer', answered.answer_id, { timeout: 30_000 });
-    const failed = await settled(String(await article.getAttribute('data-answer')));
-    expect([failed.state, failed.result]).toEqual(['failed', null]);
-    await expect(article).toHaveAttribute('data-state', 'failed', { timeout: 30_000 });
-    await expect(article.locator('[data-answer="unvalidated"]')).toContainText('Nothing here was accepted as an answer');
-    await expect(article.locator('button.ev-cite')).toHaveCount(0);
+    const failed = await step('a reply never marked complete is failed, and shown unvalidated', 150_000, async () => {
+      model.setFault('missing_done');
+      const second = await compose();
+      await aim('Send', second.disclosure.getByRole('button', { name: 'Send', exact: true })).click();
+      await expect(article).not.toHaveAttribute('data-answer', answered.answer_id, { timeout: 30_000 });
+      const done = await settled(String(await article.getAttribute('data-answer')));
+      expect([done.state, done.result]).toEqual(['failed', null]);
+      await expect(article).toHaveAttribute('data-state', 'failed', { timeout: 30_000 });
+      await expect(article.locator('[data-answer="unvalidated"]')).toContainText('Nothing here was accepted as an answer');
+      await expect(article.locator('button.ev-cite')).toHaveCount(0);
+      return done;
+    });
 
     // — Stop, and leaving the view, each cancel a running answer -----------------------------
-    fake.setFault('hold');
-    const third = await compose();
-    await third.disclosure.getByRole('button', { name: 'Send', exact: true }).click();
-    await expect(article).not.toHaveAttribute('data-answer', failed.answer_id, { timeout: 30_000 });
-    const stopping = String(await article.getAttribute('data-answer'));
-    await expect(history.getByRole('button', { name: 'New answer' })).toBeDisabled();
-    await history.getByRole('button', { name: 'Stop the answer' }).click();
-    expect((await settled(stopping)).state).toBe('cancelled');
-    await expect(article).toHaveAttribute('data-state', 'cancelled', { timeout: 30_000 });
-    await expect(history.getByRole('button', { name: 'New answer' })).toBeEnabled({ timeout: 30_000 });
+    const stopping = await step('Stop cancels a running answer', 150_000, async () => {
+      model.setFault('hold');
+      const third = await compose();
+      await aim('Send', third.disclosure.getByRole('button', { name: 'Send', exact: true })).click();
+      await expect(article).not.toHaveAttribute('data-answer', failed.answer_id, { timeout: 30_000 });
+      const running = String(await article.getAttribute('data-answer'));
+      await expect(history.getByRole('button', { name: 'New answer' })).toBeDisabled();
+      await aim('Stop the answer', history.getByRole('button', { name: 'Stop the answer' })).click();
+      expect((await settled(running)).state).toBe('cancelled');
+      await expect(article).toHaveAttribute('data-state', 'cancelled', { timeout: 30_000 });
+      await expect(history.getByRole('button', { name: 'New answer' })).toBeEnabled({ timeout: 30_000 });
+      return running;
+    });
 
-    const fourth = await compose();
-    await fourth.disclosure.getByRole('button', { name: 'Send', exact: true }).click();
-    await expect(article).not.toHaveAttribute('data-answer', stopping, { timeout: 30_000 });
-    const leaving = String(await article.getAttribute('data-answer'));
-    await win.getByRole('group', { name: 'In this project' }).getByRole('button', { name: 'Files and passages' }).click();
-    expect((await settled(leaving)).state, 'leaving the Answers view left its answer running').toBe('cancelled');
+    const leaving = await step('leaving the Answers view cancels a running answer', 150_000, async () => {
+      const fourth = await compose();
+      await aim('Send', fourth.disclosure.getByRole('button', { name: 'Send', exact: true })).click();
+      await expect(article).not.toHaveAttribute('data-answer', stopping, { timeout: 30_000 });
+      const running = String(await article.getAttribute('data-answer'));
+      await aim('Files and passages', page.getByRole('group', { name: 'In this project' }).getByRole('button', { name: 'Files and passages' })).click();
+      expect((await settled(running)).state, 'leaving the Answers view left its answer running').toBe('cancelled');
+      return running;
+    });
 
     // — the Claude Code lane, which here is only the fake runtime: discovery is
     // configured-only and the configured command is the fake's ------------------------------
-    fake.setFault('none');
-    await win.getByRole('group', { name: 'In this project' }).getByRole('button', { name: 'Answers' }).click();
-    const ran = fake.captures().length;
-    const apiCalls = fake.requests.length;
-    const viaCli = await compose();
-    const connection = viaCli.composer.getByLabel('Connection', { exact: true });
-    const cliKey = await connection.evaluate((select) =>
-      [...(select as HTMLSelectElement).options].find((o) => o.value.startsWith('claude_cli:') && !o.disabled)?.value ?? '');
-    expect(cliKey, 'the Claude Code connection is not offered, or not available').not.toBe('');
-    await connection.selectOption(cliKey);
-    await viaCli.composer.getByRole('button', { name: 'Show exactly what will be sent' }).click();
-    await expect(viaCli.disclosure.getByRole('heading', { name: 'Check before sending' })).toBeVisible({ timeout: 60_000 });
-    await viaCli.disclosure.getByRole('button', { name: 'Send', exact: true }).click();
-    await expect(article).not.toHaveAttribute('data-answer', leaving, { timeout: 30_000 });
-    const cliAnswer = await settled(String(await article.getAttribute('data-answer')));
-    expect(cliAnswer.state).toBe('succeeded');
-    expect(fake.captures().length, 'the Claude Code lane did not run the fake runtime exactly once').toBe(ran + 1);
-    expect(fake.requests.length, 'the Claude Code lane also called the API').toBe(apiCalls);
-    await expect(article).toHaveAttribute('data-state', 'succeeded', { timeout: 30_000 });
-    await expect(article.locator('button.ev-cite').first()).toBeVisible();
+    await step('the Claude Code lane runs the fake runtime once', 150_000, async () => {
+      model.setFault('none');
+      await aim('Answers', page.getByRole('group', { name: 'In this project' }).getByRole('button', { name: 'Answers' })).click();
+      const ran = model.captures().length;
+      const apiCalls = model.requests.length;
+      const viaCli = await compose();
+      const connection = viaCli.composer.getByLabel('Connection', { exact: true });
+      const cliKey = await connection.evaluate((select) =>
+        [...(select as HTMLSelectElement).options].find((o) => o.value.startsWith('claude_cli:') && !o.disabled)?.value ?? '');
+      expect(cliKey, 'the Claude Code connection is not offered, or not available').not.toBe('');
+      await connection.selectOption(cliKey);
+      await aim('Show exactly what will be sent', viaCli.composer.getByRole('button', { name: 'Show exactly what will be sent' })).click();
+      await expect(viaCli.disclosure.getByRole('heading', { name: 'Check before sending' })).toBeVisible({ timeout: 60_000 });
+      await aim('Send', viaCli.disclosure.getByRole('button', { name: 'Send', exact: true })).click();
+      await expect(article).not.toHaveAttribute('data-answer', leaving, { timeout: 30_000 });
+      const cliAnswer = await settled(String(await article.getAttribute('data-answer')));
+      expect(cliAnswer.state).toBe('succeeded');
+      expect(model.captures().length, 'the Claude Code lane did not run the fake runtime exactly once').toBe(ran + 1);
+      expect(model.requests.length, 'the Claude Code lane also called the API').toBe(apiCalls);
+      await expect(article).toHaveAttribute('data-state', 'succeeded', { timeout: 30_000 });
+      await expect(article.locator('button.ev-cite').first()).toBeVisible();
+    });
 
     expect(problems).toEqual([]);
+    say('done');
+    passed = true;
   } finally {
-    await app.close();
-    await fake.close();
-    fs.rmSync(root, { recursive: true, force: true });
+    if (!passed) await tellWhere(PREFIX, { app, win, stateDir, watched, wrote, target });
+    say('putting away what the test started');
+    if (app) await closeWithin(app, PREFIX);
+    const model = fake;
+    if (model) await Promise.race([model.close(), new Promise((resolve) => setTimeout(resolve, 10_000))]);
+    removeStateDir(root);
   }
 });

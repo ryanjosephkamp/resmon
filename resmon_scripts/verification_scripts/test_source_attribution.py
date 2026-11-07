@@ -31,7 +31,6 @@ _BY_SLUG = {e.slug: e for e in REPOSITORY_CATALOG}
 REQUIRED = {
     "core": "Powered by CORE",
     "ndl_search": "NDL Search API",
-    "nist_rmm": "NIST",
     "openaire": "OpenAIRE",
     "plos": "Data Provided by PLOS",
     "semantic_scholar": "Semantic Scholar",
@@ -60,7 +59,7 @@ def test_plos_wording_is_verbatim():
     assert _BY_SLUG["plos"].attribution == "Data Provided by PLOS"
 
 
-def test_requested_attribution_is_not_labelled_required():
+def test_requested_attribution_is_not_labeled_required():
     """arXiv asks; it does not require. Conflating the two overclaims its terms."""
     arxiv = _BY_SLUG["arxiv"]
     assert arxiv.attribution_requirement == "requested"
@@ -94,13 +93,14 @@ def test_attribution_reaches_the_api_payload():
 
 
 # ---------------------------------------------------------------------------
-# NDL Search and NIST RMM
+# NDL Search
 # ---------------------------------------------------------------------------
 #
-# NDL Search and NIST RMM both make a credit a condition of reuse. A catalog
-# note does not discharge an obligation, so these pin the credits into the
-# attribution fields, where they actually render rather than sitting in prose
-# nobody is shown.
+# NDL Search makes a credit a condition of reuse. A catalog note does not
+# discharge an obligation, so this pins the credits into the attribution
+# fields, where they actually render rather than sitting in prose nobody is
+# shown. NIST RMM made its acknowledgment a condition too; it was withdrawn in
+# November 2026 and has no catalog entry to carry one.
 
 def test_ndl_credits_both_the_api_and_the_contributing_institution():
     """NDL asks for two credits, not one: the API and the metadata provider."""
@@ -108,24 +108,3 @@ def test_ndl_credits_both_the_api_and_the_contributing_institution():
     assert "NDL Search API" in entry.attribution
     assert "National Diet Library" in entry.attribution
     assert entry.attribution_requirement == "required"
-
-
-def test_nist_acknowledgment_is_recorded_as_a_condition():
-    """NIST conditions reuse on acknowledgment; it is not a courtesy."""
-    entry = _BY_SLUG["nist_rmm"]
-    assert entry.attribution_requirement == "required"
-    assert "NIST" in entry.attribution
-
-
-def test_nist_says_its_field_mapping_is_unverified():
-    """Someone seeing zero NIST results is entitled to know why.
-
-    The endpoint returns HTTP 500, so the record-field mapping has never met a
-    live response. The parser skips what it
-    cannot map, so the failure mode is no results rather than wrong ones -- and
-    the catalog says both halves of that.
-    """
-    notes = _BY_SLUG["nist_rmm"].notes
-    assert "provisional" in notes
-    assert "never been checked against a live response" in notes
-    assert "no results rather than wrong ones" in notes

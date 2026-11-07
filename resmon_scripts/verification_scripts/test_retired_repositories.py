@@ -9,6 +9,9 @@ fail silently — a test that imports ``api_ieee`` directly runs its module-scop
 
 OAPEN is withdrawn for neither its terms nor its client: its search API answers
 HTTP 403. The same two halves apply to it.
+
+NIST RMM is withdrawn because its papers API has answered HTTP 500 to every
+search since the source was added. The same two halves apply to it too.
 """
 
 import importlib
@@ -40,6 +43,18 @@ def test_oapen_is_retired():
     """
     assert "oapen" in RETIRED_REPOSITORIES
     assert "HTTP 403" in RETIRED_REPOSITORIES["oapen"]
+
+
+def test_nist_rmm_is_retired():
+    """Withdrawn because its papers API answers every search with HTTP 500.
+
+    The parametrized cases below read their slugs from RETIRED_REPOSITORIES,
+    so dropping the entry would quietly stop them covering NIST RMM; this one
+    would fail instead.
+    """
+    assert "nist_rmm" in RETIRED_REPOSITORIES
+    assert "HTTP 500" in RETIRED_REPOSITORIES["nist_rmm"]
+    assert "November 4, 2026" in RETIRED_REPOSITORIES["nist_rmm"]
 
 
 @pytest.mark.parametrize("slug", RETIRED)
@@ -81,7 +96,7 @@ def test_registry_refuses_to_register_a_retired_slug(slug):
     assert slug not in list_repositories()
 
 
-@pytest.mark.parametrize("module", ["api_ieee", "api_oapen", "api_repec", "api_ssrn"])
+@pytest.mark.parametrize("module", ["api_ieee", "api_nist_rmm", "api_oapen", "api_repec", "api_ssrn"])
 def test_importing_a_retired_client_module_registers_nothing(module):
     """The modules are kept on disk for reference; importing must be inert."""
     importlib.import_module(f"implementation_scripts.{module}")

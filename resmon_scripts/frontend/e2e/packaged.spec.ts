@@ -14,7 +14,7 @@
  *   2. **The bundled backend.** A packaged app runs `Contents/Resources/backend`
  *      with its own interpreter and points its state at the per-user directory.
  *      `RESMON_STATE_DIR` still redirects that, and `RESMON_DB_PATH` /
- *      `RESMON_REPORTS_DIR` are honoured because `main.ts` sets them with `||`.
+ *      `RESMON_REPORTS_DIR` are honored because `main.ts` sets them with `||`.
  *
  * The spec **skips rather than fails** when no packaged app is present, and the
  * skip reason names what is missing. Building one takes minutes and downloads a
@@ -35,6 +35,7 @@ import { test, expect, _electron as electron } from '@playwright/test';
 import { launchEnv, atlasEnv, FRONTEND_ROOT, WINDOW_WIDTH, ATLAS_LANDMARK } from './fixtures/resmon-app';
 import { readFuses, FUSES_VERIFICATION_DEPENDS_ON, fuseBinaryFor } from './fixtures/electron-fuses';
 import { SCREENS } from './screens';
+import { removeStateDir } from './fixtures/cleanup';
 
 // A deliberate `require`: the path is computed, so an `import` cannot express
 // it. This carried a suppression for `@typescript-eslint/no-var-requires`,
@@ -200,6 +201,6 @@ test('Q6: the packaged app launches under Playwright and serves every screen', a
     expect(empty).toEqual([]);
   } finally {
     await app.close().catch(() => { /* already gone */ });
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });

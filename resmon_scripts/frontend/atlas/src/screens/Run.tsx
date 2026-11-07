@@ -1,33 +1,44 @@
-import { useMemo, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { answer, engine, EngineError } from '../api/client';
+import { answer, engine, EngineError, stopRefusal } from '../api/client';
 import { Icon } from '../shell/Icon';
+import { useScrollerPlace } from '../shell/stageScroll';
 import { breakable } from '../shell/breakable';
 import { SAVED_KEY, savedFromRun } from './collection/savedSearches';
 import { duration, when } from './today/format';
 import { useRunEnding } from './today/freshness';
 import {
   deletedSentence, deleteQuestion, FINAL_EVENTS, interruptedSentence, liveSources, RESTARTABLE, runKind, runTitle,
-  selectedSources, type CoverageSource, type ProgressEvent, type Run as RunData,
+  selectedSources, type CoverageSource, type LiveSource, type ProgressEvent, type Run as RunData,
 } from './runs/model';
 import { saveBundle } from './runs/downloads';
 import { useDeleteRuns } from './runs/remove';
 import { RestartFacts } from './runs/RestartFacts';
+import { RunPdfs } from './fulltext/RunPdfs';
 import { exportReferences, FORMATS, type ReferenceFormat } from './runs/references';
-import { RUNS_KEY, type RunLogNotice } from './runs/RunLog';
+import { RUNS_KEY } from './runs/model';
+import type { RunsNotice } from './runs/Runs';
+import { Confirm } from './runs/Confirm';
 import { RunSky } from './runs/RunSky';
 import { MapPaper } from './sky/MapPaper';
 import type { PaperSkyHandle, SkyChoice } from './sky/PaperSky';
 import { LivePanel } from './runs/LivePanel';
-import { RunTabs, type RunPaper, type Tab } from './runs/RunTabs';
+import { RunTabs, type RunPaper } from './runs/RunTabs';
+import { runPath, tabOf } from './runs/tabs';
 import { aiChoiceOf, needsSignIn, runSummaries } from './runs/summaries';
 import { CliSignIn } from './settings/CliSignIn';
 import { runWindowSentence } from './watches/window';
 import { commandEnter } from '../shell/shortcuts';
+import { useMinute } from '../lib/useMinute';
+import { collectionParam, useCollection } from '../collections/current';
+import { useNow } from '../lib/useNow';
+import { elapsedWords, liveStage, secondsSince, sourcesFinished } from './runs/live';
+import { finishedTip, recordedTip } from './runs/runTips';
+import { useChartTip } from '../charts/ChartTip';
 
-/** How many of a run's papers are read for the sky; a sweep can store thousands. */
-const SKY_LIMIT = 2_000;
+/** How many of a run's papers its Papers tab reads at a time; More papers reads the next. */
+const PAPERS_PAGE = 200;
 
 /** The engine's own sentence for a refusal where it gave one, otherwise what failed. */
 function refusal(error: Error): string {
@@ -50,7 +61,9 @@ function OutcomeMark({ category, inPart }: { category: string; inPart: boolean }
  * log, metadata, progress).
  *
  * While the run is running the sources are the live panel, read from the
- * run's progress events every second. Once it has settled they are the
+ * run's progress events every second (only the events not yet read), under
+ * the stage the run is at and a bar of the sources that have finished, with
+ * the run's clock ticking in its heading. Once it has settled they are the
  * recorded coverage the engine builds from the saved per-source rows, led by
  * its one-sentence summary; the live panel stays in the Progress tab, so the
  * two accounts can be compared rather than one drawn from the other.
@@ -81,20 +94,78 @@ function RunSummaryNote({ run, events }: { run: RunData; events: ProgressEvent[]
   );
 }
 
+/** How long a running run has run, by the page's clock from its recorded start, ticking each second. */
+function RunClock({ start }: { start: string | null | undefined }) {
+  const now = useNow(1_000, true);
+  const seconds = secondsSince(start, now);
+  if (seconds === null) return null;
+  return <span className="run-clock num" data-run="clock">for {elapsedWords(seconds)}</span>;
+}
+
+/**
+ * Where a running run is: its stage in words, with what the stage counts, and
+ * a bar of how many of its sources have finished being asked, whatever each
+ * answered. A run that asks no source (a person watch checking retractions)
+ * has no bar.
+ */
+function RunProgress({ stage, count, sources, nameOf }: {
+  stage: string; count: string | null; sources: readonly LiveSource[]; nameOf: (slug: string) => string;
+}) {
+  const tip = useChartTip();
+  const finished = sourcesFinished(sources);
+  const total = sources.length;
+  return (
+    <div className="run-progress" data-run="progress">
+      <p className="coverage-sentence run-stage">
+        <span data-run="stage">{stage}</span>
+        {count && <span className="run-stage-count num"> · {count}</span>}
+      </p>
+      {total > 0 && (
+        <p className="run-finished num" data-run="finished">
+          {finished} of {total} {total === 1 ? 'source' : 'sources'} finished
+        </p>
+      )}
+      {total > 0 && (
+        // What takes the pointer is the bar and a band around it; the tip is set beside the bar.
+        <div className="meter-at" {...tip.mark(finishedTip(sources, nameOf), (at) => at.firstElementChild)}>
+          <div className="run-meter" role="progressbar" aria-label="Sources finished" aria-valuemin={0} aria-valuemax={total}
+            aria-valuenow={finished} aria-valuetext={`${finished} of ${total} finished`}>
+            <span style={{ width: `${(finished / total) * 100}%` }} />
+          </div>
+        </div>
+      )}
+      {tip.layer}
+    </div>
+  );
+}
+
 export function Run() {
-  const { id: raw } = useParams();
+  const { id: raw, tab: tabSlug } = useParams();
   const id = Number(raw);
   const navigate = useNavigate();
   const client = useQueryClient();
-  const [now] = useState(() => new Date());
-  const [tab, setTab] = useState<Tab>('Papers');
+  const now = useMinute();
+  // The run's small map is the shown collection's, so it reads the run's papers in that collection.
+  const { id: collection } = useCollection();
+  // The open tab is in the address (`/runs/12/map`), so Back returns to it; an address with none opens Papers.
+  const tab = tabOf(tabSlug);
+  // The page scrolls in its own box: Back and Forward put it where it was left, by the paper at its top, on the
+  // tab it was left on.
+  const page = useRef<HTMLDivElement>(null);
+  const recordedTips = useChartTip();
   // The map is opened and then scrolled to, once the tab has drawn it and the page is its full height.
+  const scrollToMap = useRef(false);
   const openMap = () => {
-    setTab('Map');
+    scrollToMap.current = true;
+    void navigate(runPath(id, 'Map'));
+  };
+  useEffect(() => {
+    if (tab !== 'Map' || !scrollToMap.current) return;
+    scrollToMap.current = false;
     requestAnimationFrame(() => document.getElementById('run-record')?.scrollIntoView({
       block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
     }));
-  };
+  }, [tab]);
 
   const run = useQuery({
     queryKey: ['run', id],
@@ -103,6 +174,7 @@ export function Run() {
     refetchInterval: (query) => (query.state.data?.status === 'running' ? 1_000 : false),
   });
   const running = run.data?.status === 'running';
+  useScrollerPlace(page, { name: 'run', under: tab, drawn: run.isSuccess, screen: `/runs/${id}` });
   useRunEnding(running ? id : null);
   // Keyed on how the run ended, so the events are read once more when it
   // settles: the last poll while running can land before the final events.
@@ -110,31 +182,47 @@ export function Run() {
   const events = useQuery({
     queryKey: ['run-events', id, settledAt],
     enabled: run.isSuccess,
-    queryFn: async () => (await answer(engine().GET('/api/executions/{exec_id}/progress/events', {
-      params: { path: { exec_id: id } },
-    }))) as unknown as ProgressEvent[],
+    // While the run runs its events only grow, so each read asks for the ones after those already
+    // held; a sweep's heartbeat adds one every two seconds for each source still being asked. Once it
+    // has settled the key changes, and the whole list is read once more.
+    queryFn: async ({ queryKey }) => {
+      const held = running ? client.getQueryData<ProgressEvent[]>(queryKey) ?? [] : [];
+      const fresh = (await answer(engine().GET('/api/executions/{exec_id}/progress/events', {
+        params: { path: { exec_id: id }, query: { since: held.length } },
+      }))) as unknown as ProgressEvent[];
+      // When each arrived, so a source's time moves on from it until the next heartbeat (`runs/live.ts`).
+      const received = Date.now();
+      return fresh.length ? [...held, ...fresh.map((event) => ({ ...event, received }))] : held;
+    },
     refetchInterval: (query) => {
       const list = query.state.data;
       return running && !(list ?? []).some((event) => FINAL_EVENTS.has(event.type)) ? 1_000 : false;
     },
   });
-  const papers = useQuery({
+  // The Papers tab reads a page at a time, as it is asked to; the map reads every paper the run
+  // stored, by id, in one request, which the Map tab shares (`RunMap`). The map once read the papers
+  // themselves, 200 at a time up to 2,000, and a sweep that stored more was drawn as if it had not.
+  const papers = useInfiniteQuery({
     queryKey: ['run-papers', id, settledAt],
     enabled: run.isSuccess && !running,
-    queryFn: async () => {
-      const first = await answer(engine().GET('/api/executions/{exec_id}/documents', {
-        params: { path: { exec_id: id }, query: { limit: 200, offset: 0 } },
-      }));
-      const all: RunPaper[] = [...first.papers];
-      while (all.length < Math.min(first.total, SKY_LIMIT)) {
-        const next = await answer(engine().GET('/api/executions/{exec_id}/documents', {
-          params: { path: { exec_id: id }, query: { limit: 200, offset: all.length } },
-        }));
-        if (!next.papers.length) break;
-        all.push(...next.papers);
-      }
-      return { papers: all, total: first.total };
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => answer(engine().GET('/api/executions/{exec_id}/documents', {
+      params: { path: { exec_id: id }, query: { limit: PAPERS_PAGE, offset: pageParam } },
+    })),
+    getNextPageParam: (last, all) => {
+      const read = all.reduce((n, page) => n + page.papers.length, 0);
+      return last.papers.length && read < last.total ? read : undefined;
     },
+  });
+  const paperPages = useMemo<{ papers: RunPaper[]; total: number } | null>(() => (papers.data
+    ? { papers: papers.data.pages.flatMap((page) => page.papers), total: papers.data.pages[0]?.total ?? 0 }
+    : null), [papers.data]);
+  const runIds = useQuery({
+    queryKey: ['run-ids', id, settledAt, collection],
+    enabled: run.isSuccess && !running,
+    queryFn: () => answer(engine().GET('/api/executions/{exec_id}/document-ids', {
+      params: { path: { exec_id: id }, query: collectionParam(collection) },
+    })),
   });
   const catalog = useQuery({
     queryKey: ['catalog'], staleTime: Infinity,
@@ -154,11 +242,16 @@ export function Run() {
   });
   const restart = useMutation({
     mutationFn: () => answer(engine().POST('/api/executions/{exec_id}/restart', {
-      params: { path: { exec_id: id } }, body: { request_id: crypto.randomUUID() },
+      params: { path: { exec_id: id } }, body: { request_id: crypto.randomUUID(), again: false },
     })),
     onSuccess: (started) => {
       void client.invalidateQueries({ queryKey: RUNS_KEY });
-      navigate(`/runs/${started.execution_id}`);
+      // Waiting for a free slot, the restart has no page yet: the Runs tab lists it under Waiting.
+      if (started.execution_id === null) {
+        navigate('/runs', { state: { queued: started.detail ?? 'The restart waits for a free run slot.' } satisfies RunsNotice });
+      } else {
+        navigate(`/runs/${started.execution_id}`);
+      }
     },
   });
   const exporting = useMutation({
@@ -184,16 +277,17 @@ export function Run() {
       void client.invalidateQueries({ queryKey: RUNS_KEY });
     },
   });
-  // Deleted, the run has no page: back to the log, which no longer lists it,
-  // in place of this page in the history so Back does not return to it.
+  // Deleted, the run has no page: back to the Runs tab, which no longer lists
+  // it, in place of this page in the history so Back does not return to it.
+  // The question is asked on the page, under the actions, not in a system dialog.
   const remove = useDeleteRuns();
-  const askToDelete = (data: RunData, title: string) => {
-    const question = deleteQuestion([{ id: data.id, status: data.status, title }]);
-    if (!question || !window.confirm(question)) return;
+  const [weighingDelete, setWeighingDelete] = useState<number | null>(null);
+  const deleteRun = (data: RunData) => {
     remove.mutate([data.id], {
       onSuccess: (outcome) => {
+        setWeighingDelete(null);
         const said = deletedSentence(outcome);
-        if (said) navigate('/search/ask', { replace: true, state: { deleted: said } satisfies RunLogNotice });
+        if (said) navigate('/runs', { replace: true, state: { deleted: said } satisfies RunsNotice });
       },
     });
   };
@@ -203,11 +297,12 @@ export function Run() {
     () => (run.data ? liveSources(selectedSources(run.data), events.data ?? [], run.data.status !== 'running') : []),
     [run.data, events.data],
   );
-  const paperIds = useMemo(() => (papers.data?.papers ?? []).map((paper) => paper.id), [papers.data]);
+  const paperIds = useMemo(() => runIds.data?.ids ?? [], [runIds.data]);
   // A paper chosen on the run's small map opens in the sources' place, beside it, for this run only.
   const [opened, setOpened] = useState<{ runId: number; choice: SkyChoice } | null>(null);
   const onMap = opened?.runId === id ? opened.choice : null;
   const sky = useRef<PaperSkyHandle>(null);
+  const stage = useMemo(() => liveStage(events.data ?? []), [events.data]);
 
   if (run.isPending) return <div className="page"><p className="page-lede">Reading run {raw}.</p></div>;
   if (run.isError || !run.data) {
@@ -215,7 +310,7 @@ export function Run() {
       <div className="page">
         <h1 className="page-title">Run {raw} could not be read</h1>
         <p className="page-lede">{run.error?.message ?? 'The engine has no such run.'}</p>
-        <p><Link to="/search/ask" className="btn">Back to the runs</Link></p>
+        <p><Link to="/runs" className="btn">Back to the runs</Link></p>
       </div>
     );
   }
@@ -229,7 +324,9 @@ export function Run() {
   // A stop is cooperative: the run ends at its next checkpoint, so the screen
   // says a stop was asked for until the run says it has ended.
   const stopping = running && stop.variables === id && (stop.isPending || stop.isSuccess);
-  const failure = (stop.variables === id ? stop.error : null) ?? restart.error ?? exporting.error
+  const stopError = stop.variables === id ? stop.error : null;
+  const tooLate = stopRefusal(stopError);
+  const failure = (tooLate ? null : stopError) ?? restart.error ?? exporting.error
     ?? (bundle.variables === id ? bundle.error : null) ?? (keep.variables?.runId === id ? keep.error : null);
   const title = runTitle(data, watch);
   // The dates this run asked for, as its own parameters record them: for a
@@ -245,15 +342,15 @@ export function Run() {
   };
 
   return (
-    <div className="run" data-run={data.id} data-status={data.status}>
+    <div className="run" ref={page} data-run={data.id} data-status={data.status}>
       <header className="run-head">
-        <Link to="/search/ask" className="back"><Icon name="back" size={14} />Runs</Link>
+        <Link to="/runs" className="back"><Icon name="back" size={14} />Runs</Link>
         <div className="run-headline">
           <h1 className={watch ? 'run-name it' : 'run-name'}>{breakable(title)}</h1>
           <div className="run-actions">
             {running && (
-              <button type="button" className="btn" onClick={() => stop.mutate(id)} disabled={stopping}>
-                <Icon name="stop" size={14} />{stopping ? 'Stopping…' : 'Stop'}
+              <button type="button" className="btn" onClick={() => stop.mutate(id)} disabled={stopping || tooLate !== null}>
+                <Icon name="stop" size={14} />{stopping ? 'Stopping…' : tooLate !== null ? 'Finishing…' : 'Stop'}
               </button>
             )}
             {RESTARTABLE.has(data.status) && (
@@ -285,7 +382,7 @@ export function Run() {
             {/* A run still running is not offered: the engine refuses to delete it. */}
             {!running && (
               <button type="button" className="btn quiet" data-run="delete" disabled={remove.isPending}
-                onClick={() => askToDelete(data, title)}>
+                onClick={() => { remove.reset(); setWeighingDelete(id); }}>
                 {remove.isPending && remove.variables?.[0] === id ? 'Deleting' : 'Delete this run'}
               </button>
             )}
@@ -300,6 +397,7 @@ export function Run() {
           <span className="run-status" data-status={data.status}>
             {running && <i className="live-dot" aria-hidden="true" />}
             {data.status}
+            {running && <RunClock start={data.start_time} />}
           </span>
           {data.restarted_from && (
             <><span className="sep" /><Link to={`/runs/${data.restarted_from}`}>restarted from run {data.restarted_from}</Link></>
@@ -349,6 +447,13 @@ export function Run() {
             </span>
           </div>
         )}
+        {weighingDelete === id && !running && (() => {
+          const question = deleteQuestion([{ id: data.id, status: data.status, title }]);
+          return question && (
+            <Confirm name="delete-run" question={question} act="Delete this run" busy={remove.isPending}
+              onAct={() => deleteRun(data)} onCancel={() => setWeighingDelete(null)} />
+          );
+        })()}
         {kept && naming === null && (
           <p className="settings-said" role="status" data-run="kept">
             Saved as “{kept}”, under <Link to="/search/saved">Saved</Link>.
@@ -359,9 +464,17 @@ export function Run() {
             Stopping. resmon has asked this run to stop, and it stops at its next checkpoint; until then it is still running.
           </p>
         )}
+        {tooLate && running && <p className="run-note" role="status" data-run="finishing">{tooLate}</p>}
         {data.status === 'interrupted' && <p className="run-note">{interruptedSentence(data)}</p>}
         {data.status === 'failed' && data.error_message && <p className="run-note">{data.error_message}</p>}
-        {RESTARTABLE.has(data.status) && <RestartFacts run={data} />}
+        {RESTARTABLE.has(data.status) && <RestartFacts run={data} setTo={events.isSuccess ? choice?.enabled ?? null : undefined} />}
+        {data.execution_type === 'find_paper' && !running && (
+          <p className="run-note" data-run="find">
+            A find. <Link to={`/search/find?run=${data.id}`}>See what each source said</Link>: whether it holds the paper,
+            how its copy matched, what differs, and its open copy.
+          </p>
+        )}
+        {data.execution_type === 'automated_sweep' && !running && <RunPdfs runId={data.id} />}
         {!running && (
           <p id="run-bundle-what" className="sr-only">
             The run&rsquo;s bundle: its report, with a PDF and LaTeX where they could be made, the log, the metadata, and the
@@ -389,19 +502,21 @@ export function Run() {
         <section className="run-sources" aria-label="Sources" hidden={onMap !== null}>
           {running ? (
             <>
-              <p className="coverage-sentence">
-                Asking {live.length} {live.length === 1 ? 'source' : 'sources'}; each line changes as its answer arrives.
-              </p>
+              <RunProgress stage={stage.words} count={stage.count} sources={live} nameOf={(slug) => names.get(slug) ?? slug} />
               <LivePanel sources={live} names={names} />
             </>
           ) : (
             <>
               <p className="coverage-sentence" data-coverage-summary>{data.coverage.summary}</p>
               <ol className="recorded" aria-label="Recorded outcome of each source">
+                {recordedTips.layer}
                 {recorded.map((source) => (
                   <li key={source.source} className="recorded-row" data-source={source.source} data-category={source.category}
                     data-in-part={source.in_part ? 'true' : undefined}>
-                    <OutcomeMark category={source.category} inPart={source.in_part} />
+                    {/* The mark's tip says the outcome and its count, for a pointer; the row says them in words. It opens nothing: this is the run's page. */}
+                    <span className="omark-at" {...recordedTips.mark(recordedTip(source, names.get(source.source) ?? source.source))}>
+                      <OutcomeMark category={source.category} inPart={source.in_part} />
+                    </span>
                     <span className="src-name">{names.get(source.source) ?? source.source}</span>
                     <span className="src-label">{source.label}</span>
                     <span className="src-count num">
@@ -415,14 +530,15 @@ export function Run() {
             </>
           )}
         </section>
-        <RunSky ref={sky} paperIds={paperIds} endedAt={running ? null : data.end_time ?? null}
-          onOpenMap={!running && (papers.data?.total ?? 0) > 0 ? openMap : undefined}
+        <RunSky ref={sky} paperIds={paperIds} endedAt={running ? null : data.end_time ?? null} running={running}
+          onOpenMap={!running && paperIds.length > 0 ? openMap : undefined}
           chosen={onMap?.id ?? null} onChoose={(next) => setOpened(next ? { runId: id, choice: next } : null)}
           sourceName={(slug) => names.get(slug) ?? slug} />
       </div>
 
-      <RunTabs run={data} live={live} names={names} events={events.data ?? []} papers={papers.data ?? null} running={running}
-        tab={tab} onTab={setTab} />
+      <RunTabs run={data} live={live} names={names} events={events.data ?? []} papers={paperPages} running={running}
+        morePapers={papers.hasNextPage ? () => void papers.fetchNextPage() : undefined} readingMore={papers.isFetchingNextPage}
+        tab={tab} onTab={(next) => { if (next !== tab) void navigate(runPath(id, next)); }} />
     </div>
   );
 }

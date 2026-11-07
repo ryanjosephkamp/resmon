@@ -1,354 +1,405 @@
 ---
 title: "HTTP API reference"
-summary: "The endpoint-by-endpoint tour of the local API. The generated, guarded contract for every route is in the reference section."
-order: 10
-readmeLines:
-  - "907-1254"
+summary: "The local HTTP API, route by route. The generated contract for every route is in the reference section."
+order: 17
 ---
-## API Reference
+**The machine-readable contract is [`docs/api-contract/`](docs/api-contract/).** `openapi.json` there describes every one of the 244 routes: method, path, parameters, and request body. `http.md` indexes them against the user journeys they serve, with each route's auth class, whether it streams, the response model it declares, and a one-line purpose. Both are generated from the running app, and a test fails when they drift, so they cannot describe an engine that no longer exists. The tables below are the guided tour of the same surface. Where the two differ, the contract is the one that was checked.
 
-**The machine-readable contract is [`docs/api-contract/`](docs/api-contract/).** `openapi.json` there describes every one of the 207 routes — method, path, parameters, request body — and `http.md` indexes them against the user journeys they serve, with each route's auth class, whether it streams, and a one-line purpose. Both are generated from the running app and a test fails when they drift, so they cannot describe a version of resmon that no longer exists. The prose below is the guided tour of the same surface; where the two differ, the contract is the one that was checked. No route declares a response model, so the contract describes what each route *accepts* and this section is where you find what it *answers with*.
+## Using it
 
-All REST endpoints are served by the local FastAPI daemon (`resmon_scripts/resmon.py`) bound to `127.0.0.1:8742` by default. Every request needs the backend's local API token in `Authorization: Bearer <token>` and a loopback `Host`; refusals are `401 token_missing` / `401 token_invalid` / `403 host_refused` / `403 origin_refused` ([security model](docs/local-api-security.md)). Requests and responses are JSON unless noted; error responses use FastAPI's standard `{"detail": "..."}` envelope and the shared frontend API client (`api/client.ts`) unwraps it into a single readable message. The groups below are summarized from the Backend sections of the corresponding info docs under `resmon_reports/info_docs/`.
+The engine serves HTTP on `127.0.0.1` only. The background service uses port 8742 unless you set `RESMON_DAEMON_PORT`; the engine a window starts for itself uses a free port chosen at start. **Health › This engine** shows the address the window is using, and the port file a running engine writes beside its database names it for a program.
 
-### `/api/health`
+Requests need the engine's local API token in `Authorization: Bearer <token>` and a loopback `Host`. A request carrying an `Origin` must name resmon's own renderer. The one token exception is the delivery-bundle route below, which checks its signed link instead. The token is in an owner-only file named `api-token-<port>` in resmon's state directory. Refusals are `401 token_missing`, `401 token_invalid`, `403 host_refused`, and `403 origin_refused`. See [`docs/local-api-security.md`](docs/local-api-security.md).
 
-- `GET /api/health` — cheap readiness probe used by the Electron main process to decide when to open the renderer window. Returns process identity, the app version, and `embeddings: {extension, reason}` — whether *this* backend can load the vector extension, and why not when it cannot. The extension load is attempted per call rather than read from a cached probe, because a health endpoint answering from memory would keep reporting a capability the process had lost; measured at 0.076 ms per repeat load on one connection.
+Requests and responses are JSON unless a route says otherwise. An error response is FastAPI's standard `{"detail": "..."}`. A search asked for while the engine runs as many runs as it allows waits its turn: the answer is `202` with no run id yet, `queued: true`, its place, and a ticket. Only when as many more are waiting as the engine queues is it refused, with `429` and a `Retry-After: 5` header. Most routes declare a response model, and `http.md` says which. Three routes use server-sent events: a run's progress, a selected-evidence answer's events, and a message to the assistant. Reference exports stream bytes in their chosen format.
 
-### `/api/search`
+Credentials never travel back: a route reports whether one is stored, as `present`, `absent`, or `unreadable`, and never its value.
 
-Manual execution dispatch. Each endpoint registers a new execution with the admission controller, starts the `SweepEngine` pipeline on a worker thread, and returns the assigned execution id.
+## Health and identity
 
-- `POST /api/search/dive` — single-repository Deep Dive. Body carries `repository`, `keywords`, optional `date_range`, `max_results`, `ai_enabled`, per-execution `ai_overrides`, and an optional ephemeral API key.
-- `POST /api/search/sweep` — multi-repository Deep Sweep. Body carries `repositories` (array of slugs), `keywords`, optional `date_range`, `max_results` (applied **per repository**), `ai_enabled`, per-execution `ai_overrides`, and a map of ephemeral per-repository keys. Returns HTTP `429` with `Retry-After: 5` when the admission controller has no free slot.
-- `GET /api/search/repositories` — repository catalog surface consumed by the search pages to render the repository selector.
+Who the engine is, and whether this window may talk to it.
 
-### `/api/routines`
-
-CRUD, activation, and cancel control for scheduled Automated Deep Sweeps.
-
-- `GET /api/routines` — list of local routines; used by the Routines and Calendar pages.
-- `POST /api/routines` — create a local routine; the response includes the row's `id`, which is then stored as `linked_routine_id` inside the matching `routine` configuration row.
-- `PUT /api/routines/{id}` — patch routine fields (including the inline Email / AI / Notify column toggles on the Routines page, which each patch a single flag).
-- Both take an optional `intent` — the sentence the coverage audit compares the routine's results against, stored in `routines.intent`. It is never defaulted from the keywords: an intent copied from a query would make every routine claim its owner stated one. A field absent from the body leaves the stored value alone; an empty string clears it.
-- `DELETE /api/routines/{id}` — delete a routine; also removes the APScheduler job.
-- `POST /api/routines/{id}/activate` / `POST /api/routines/{id}/deactivate` — register or unregister the APScheduler job without deleting the DB row. Invoked from the Routines table and from the Calendar popover's routine toggle.
-- `POST /api/routines/{id}/run` — run once, now, outside the schedule. It also marks that routine's `recorded` missed fires `ran_late`: a run was started after those fires came due, which is what happened, and not that each missed fire produced its own run. The **Run now** button beside the missed-fire line on the Routines page is this endpoint. At the run limit it answers `202` with `queued: true` and `queue_position`, and the run starts on its own when a slot frees; only when the queue is full too is it refused with a `409`.
-- `GET / POST /api/routines/{id}/delivery-targets` and `PUT / DELETE .../{target_id}` — the routine's delivery destinations. `channel` is one of the schema's four: `email`, `folder`, `webhook`, `feed`. A destination resmon can already tell will not work — a webhook that is not `https://` and not on the loopback, a feed with no folder — is refused at the route with that said. A target's channel cannot be edited, because the deliveries already recorded against it were attempted over it.
-- `GET /api/deliveries/{id}/bundle?exp=&sig=` — the bundle a webhook envelope linked to. **The one route resmon serves without its local API token**, because a webhook receiver is not resmon and should not hold a credential that opens every route; it carries a per-destination HMAC over the delivery id and an expiry instead, and the Host and Origin checks still apply. A missing, wrong or expired signature gets the same 403 as a delivery that was never a webhook. See [docs/local-api-security.md](docs/local-api-security.md) and [docs/delivery.md](docs/delivery.md).
-- `GET /api/routines/{id}/deliveries` and `GET /api/executions/{id}/deliveries` — the delivery record, either way round.
-- `POST /api/deliveries/{id}/deliver` — release one that was waiting for review. The only promotion out of `awaiting_review` there is.
-- `POST /api/deliveries/{id}/skip` — decide not to send one.
-- `POST /api/deliveries/{id}/retry` — a failed or skipped delivery back into the queue with the attempt counter reset: the human overruling the backoff, which is a different decision from the backoff's own retry and so a different route.
-
-### `/api/executions`
-
-History, reporting, log and progress surfaces, export, delete, and cancel control for every execution (Deep Dive, Deep Sweep, Automated Deep Sweep).
-
-- `GET /api/executions/{id}` — execution metadata row (type, status, query, counts, timestamps, routine id, etc.).
-- `GET /api/executions/{id}/report` — rendered Markdown report.
-- `GET /api/executions/{id}/log` — raw per-execution log text (written by `TaskLogger`).
-- `GET /api/executions/{id}/progress/events` — historical progress event list. Returns the live `progress_store` events if the execution is still registered in memory and falls back to persisted events from the `execution_progress` table after cleanup.
-- `GET /api/executions/{id}/progress/stream` — SSE progress stream (used by `ExecutionContext` and the Monitor page) with `~300 ms` heartbeats, `last_event_id` resumption, and a post-terminal drain.
-- `GET /api/executions/active` — cheap `{active_ids: [...]}` payload polled every 3 seconds as a safety net that attaches background-initiated runs.
-- `POST /api/executions/export` — body `{ "ids": [...] }`; the backend assembles a zip bundle of the selected executions' reports, logs, and artifacts and returns `{ "path": "<absolute path>" }`. When the Storage tab's `export_directory` is set, the zip lands there; otherwise a temp file is used.
-- `POST /api/executions/{id}/cancel` — cooperative cancel: sets the `ProgressStore` cancel flag, the pipeline's 2-second heartbeat observes it, a partial report is flushed, and the execution finalizes as `cancelled`.
-- `GET /api/executions/{id}/documents?limit=&offset=&only_new=` — one page of the papers the run stored, newest publication first, each carrying its corpus document `id` and its `queue_status` (`to_read`, `read`, or `null` when it is not saved). `limit` defaults to 50 and is capped at 200; an unknown execution is a 404 and an out-of-range `limit` or a negative `offset` is a 400. This is what the Papers tab reads — an execution id is not a paper id, and the report is prose.
-- `DELETE /api/executions/{id}` — delete an execution row and its artifacts. Papers the run found stay in the corpus, and any reading-queue entries pointing at them stay too.
-
-### `/api/configurations`
-
-See [Configuration](#configuration) for the full round-trip workflow.
-
-- `GET /api/configurations` — list all rows (optional `config_type` filter). `parameters` is JSON-decoded into a dict per row when possible, otherwise returned as the raw string.
-- `POST /api/configurations` — create a configuration from a `ConfigCreate` body (`name`, `config_type`, `parameters`). Response: `{ "id", "name", "config_type" }`.
-- `PUT /api/configurations/{id}` — update a configuration from a `ConfigUpdate` body (`name?`, `parameters?`); 404 if the id is unknown.
-- `DELETE /api/configurations/{id}` — delete a configuration; cascades to the linked routine when `config_type == 'routine'` and the parameters carry a valid `linked_routine_id`.
-- `POST /api/configurations/export` — body `{ "ids": [...] }`; writes a ZIP archive of per-config JSON files and returns `{ "path": "<absolute path>" }`.
-- `POST /api/configurations/import` — accepts a multipart `files: list[UploadFile]` of `.json` files; response `{ "imported": <n>, "errors": [...] }`.
-
-### `/api/analytics`
-
-Read-only analysis of the locally stored corpus. Every endpoint reads the `documents`,
-`execution_documents`, `executions`, and `routines` tables — no external requests are made,
-so these work offline and consume no repository quota.
-
-| Method | Path | Returns |
+| Method | Path | What it does |
 |---|---|---|
-| GET | `/api/analytics/overview` | All four sections plus the corpus summary, in one round trip. Used by the Analytics page. |
-| GET | `/api/analytics/summary` | Corpus headline counts: papers, distinct papers after de-duplication, distinct authors, sources used, completed executions, DOI coverage. |
-| GET | `/api/analytics/source-contribution` | Per source: total papers, papers unique to that source, and papers that also arrived elsewhere. Identity is DOI, falling back to a normalized title. |
-| GET | `/api/analytics/discovery-lag` | Per source: median, fastest, and slowest days between `publication_date` and `first_seen_at`. |
-| GET | `/api/analytics/routine-health` | Per routine: new results per run, consecutive runs with nothing new, and a `healthy` / `stale` / `insufficient_data` status. |
-| GET | `/api/analytics/publication-volume` | Papers per publication month. `?group_by=source\|category` (default `source`), `?months=N` (default 12). |
-| GET | `/api/analytics/keyword-contribution` | Per keyword: papers matched, papers **no other keyword** matched, and papers no keyword accounts for. `?execution_id=N` scopes to one run; omitted, it pools every keyword ever searched against the whole corpus. Reads every candidate document once, so it is cached and is not part of `/overview`. |
+| `GET` | `/api/health` | Liveness, process identity (the runtime id, process id, and start time), the version and build, the database schema, and whether the similarity index loaded. |
+| `POST` | `/api/renderer/heartbeat` | A ping from the window, so the engine knows one is present. |
+| `POST` | `/api/auth/renderer-origin` | Allow one more exact renderer origin on this engine. |
 
-**Thin-corpus contract.** Every payload carries `sample_size`. Any derived statistic also
-carries `sufficient`; when it is `false` the value is `null` and `insufficient_reason`
-explains why. Counts are always reported — a percentage of an empty corpus is `null`, not
-`0.0`, because a proportion of nothing is undefined rather than zero. The thresholds live
-in `implementation_scripts/analytics.py` (`MIN_SAMPLE_FOR_LAG`, `MIN_RUNS_FOR_HEALTH`,
-`STALE_RUN_THRESHOLD`) and are deliberately low: they exist to stop a single data point
-being presented as a trend, not to withhold information from a small corpus.
+## Asking the sources
 
-### `/api/executions/{id}/search-record`
+Starting a Deep Dive or a Deep Sweep, and the catalog they choose from. Both start routes take an optional `request_id`: two requests with the same one are one submission, and the second is answered with the first's run and `duplicate: true`.
 
-The complete, dated account of one search. Reads only what the run already recorded.
-
-| Method | Path | Returns |
+| Method | Path | What it does |
 |---|---|---|
-| GET | `/api/executions/{id}/search-record` | JSON: search parameters, per-source identification counts, deduplication figures with their PRISMA mapping, and the caveats. |
-| GET | `/api/executions/{id}/search-record?format=markdown` | The same as a `text/markdown` download, shaped for a methods section. |
+| `POST` | `/api/search/dive` | Start a Deep Dive on one source. Answers with the run's id at once, or, at the run limit, with its place in the queue. Its papers land in `collection` (an id or a name), or the default collection. |
+| `POST` | `/api/search/sweep` | Start a Deep Sweep on several sources. The cap on papers applies to each source. Its papers land in `collection`, as a Deep Dive's do. |
+| `GET` | `/api/search/repositories` | The slugs of the sources this copy of resmon can ask. |
+| `GET` | `/api/repositories/catalog` | The source catalog: each source's coverage, key requirement, pace, how it combines terms and dates papers, credit, whether it can be asked about an author, and what it can be asked for one paper by. It never returns a secret. |
 
-**Why each figure carries a `prisma` field.**
+### Find a paper
 
-| resmon figure | PRISMA 2020 box | Note |
+One paper, by DOI, arXiv id, PMID, or title, asked of every source that can look it up. A find is a run: it is listed with the others, its papers land in `collection`, and Health counts each source's answer.
+
+| Method | Path | What it does |
 |---|---|---|
-| Per-source `records_identified` | Records identified from databases | Maps cleanly. |
-| `cross_source_duplicates` | Duplicate records removed before screening | **resmon does not remove them.** It flags the overlap and keeps both rows. Reported as duplicates *found*. |
-| `discarded_unusable` | Records marked as ineligible by automation tools | A data-quality discard (no title, no identifier) — not a relevance judgement. |
-| `records_added` | Records screened | Records newly added to the corpus and therefore available for screening. |
-| `already_held` | **none** | Records a repeating search re-encountered. PRISMA describes a single search; this has no box, and the record says so. |
+| `GET` | `/api/find/plan` | What `q` reads as (a DOI, an arXiv id, a PMID, or a title) and which sources a find would ask, with why each other source would not be asked. |
+| `POST` | `/api/find` | Start a find. `repositories` names the sources to ask (absent, every source that can look up that kind). Answers like a Deep Sweep: the run's id, or its place in the queue. |
+| `GET` | `/api/executions/{exec_id}/find` | What each source said: found or not, how its copy matched (by DOI, arXiv id, PMID, exact title, or close title), what differs from the reference copy, and its open copy with its license. |
 
-`cross_source` was computed on every run since the beginning but never stored. Runs
-predating schema 8 report it as `null` — *not recorded* — rather than `0`, because "we did
-not measure this" and "there were none" are different claims and a methods section must not
-make the second on the first's behalf. Schema 8 promotes all five deduplication figures out
-of the progress-events blob into columns and backfills the four that history can supply.
+## Runs
 
-### `/api/documents/{id}/why`
+Every run, whether you started it or a watch fired it. A run's progress is read as a list of events or as a server-sent stream.
 
-Match transparency for one paper. Reads only stored metadata; makes no external requests.
-
-| Method | Path | Returns |
+| Method | Path | What it does |
 |---|---|---|
-| GET | `/api/documents/{id}/why` | Per keyword: whether it appears, and in which of title / abstract / categories / authors. Plus a `verdict`, a `headline`, the source's documented keyword semantics, and `what_resmon_cannot_see`. `?execution_id=N` scopes to one run's keywords; omitted, the union across every run that returned the paper is explained. |
+| `GET` | `/api/executions` | One page of runs, newest first, with each run's coverage. Filter by `type` and `status` (one value or several, comma-separated) and by `q` (a run's terms, sources, watch, saved search, or number); the `X-Resmon-Total` header says how many match. |
+| `GET` | `/api/executions/active` | The runs going now, each with its search and its events so far; the runs waiting for a free slot, next first; and the runs that failed since the run monitor's panel was last opened. |
+| `DELETE` | `/api/executions/waiting/{ticket}` | Take a run you asked for out of the queue before it starts. A watch's run is not taken out here. |
+| `POST` | `/api/executions/seen` | The run monitor's panel was opened: runs that failed until now are seen, and `failed_unseen` on `/api/executions/active` is empty until another fails. |
+| `GET` | `/api/executions/{exec_id}` | One run: its kind, status, parameters, times, counts, coverage, and the summary connections it tried. |
+| `DELETE` | `/api/executions/{exec_id}` | Delete a run's record. Its report and log files stay where they were written, and its papers stay in the collection. |
+| `POST` | `/api/executions/{exec_id}/cancel` | Ask a running run to stop at its next checkpoint. |
+| `POST` | `/api/executions/{exec_id}/restart` | Repeat the search, never resume it. A watch still saved uses its current settings and delivery, without a restart link, and refuses while already running; another run copies its saved search and links back to this one. With `again: true` a completed run can run again. At the run limit it waits in the queue. |
+| `GET` | `/api/executions/{exec_id}/report` | The run's Markdown report. |
+| `GET` | `/api/executions/{exec_id}/log` | The run's log text. |
+| `GET` | `/api/executions/{exec_id}/search-record` | The complete, dated account of one search, as JSON or Markdown. |
+| `GET` | `/api/executions/{exec_id}/documents` | One page of the papers the run found, each with its stored id and its place in the reading queue. `only_new=true` keeps those it was the first to store in the database. |
+| `GET` | `/api/executions/{exec_id}/document-ids` | Every paper the run stored that is in the collection named (`?collection=`, the default one when none is), by id. |
+| `GET` | `/api/executions/{exec_id}/references` | Export one run's papers as BibTeX, RIS, CSV, or JSON. JSON can include stored ids with `include_ids=true`. |
+| `GET` | `/api/executions/{exec_id}/progress/events` | The run's events so far, live or as saved after it ended; `since` skips the ones already read. |
+| `GET` | `/api/executions/{exec_id}/progress/stream` | The same events as server-sent events, with resumption from a cursor. |
+| `GET` | `/api/executions/{exec_id}/deliveries` | Where this run's report was sent, and the state of each delivery. |
+| `GET` | `/api/executions/{exec_id}/bundle` | One run's bundle as bytes: report, log, metadata, and search record. |
+| `POST` | `/api/executions/export` | Write the selected runs' bundle into the export folder and answer with its path. |
+| `POST` | `/api/executions/archive` | The same archive, as bytes. |
 
-**What it will not claim.** resmon cannot know why an upstream source returned a paper.
-Most sources are relevance-ranked — they score documents against the whole
-query and return the best matches, so a paper can legitimately come back containing none
-of the terms literally. resmon also stores only title, abstract, authors and categories,
-never full text, so a match may exist somewhere it cannot see. Both limits ship in
-`what_resmon_cannot_see` on **every** response, including ones where every keyword matched:
-a title match makes a paper *plausible*, which is not the same as knowing the upstream's
-reasoning, and the difference matters to anyone defending a search strategy.
+## Watches and the schedule
 
-The `verdict` grades the explanation, never the paper:
+A watch is called a routine in the API. Deactivating one keeps it and stops its schedule; a routine can be run once whatever its state. Each watch's papers land in its collection (`collection_id`); `collection` (an id or a name) on making or changing one chooses it, and without one a new watch's papers land in the default collection.
 
-| Verdict | Meaning |
-|---|---|
-| `resmon_filtered` | For bioRxiv and medRxiv, resmon filtered date-range API records locally instead of relying on an upstream result ranking. |
-| `local_evidence` | At least one keyword is verifiably present. The paper is a plausible match. |
-| `no_local_evidence` | Nothing matched in what resmon stores. Normal on a relevance-ranked source. |
-| `no_keywords_recorded` | The run stored no keywords, so there is nothing to check against. |
-
-Matching is word-boundary and case-insensitive, phrase-aware for quoted keywords, and
-tolerant of terms that end in punctuation (`C++`, `cs.LG`). Keywords containing `AND` /
-`OR` / `NOT` are **flagged, not parsed** — several upstreams forward operators verbatim,
-and implementing a boolean engine whose semantics differed from the upstream's would be
-another way of over-claiming.
-
-### `/api/lifecycle`
-
-What has happened to papers since resmon found them. The **only** part of resmon that
-makes outbound requests without the user starting a search, which is why the check is
-explicit rather than automatic.
-
-| Method | Path | Returns |
+| Method | Path | What it does |
 |---|---|---|
-| GET | `/api/lifecycle` | Recorded events, severity counts, **coverage**, and the state of any running check. |
-| POST | `/api/lifecycle/check` | Starts a bounded background check over the least recently checked papers. `{"limit": N}`, default 200. `409` if one is already running. |
-| POST | `/api/lifecycle/for-documents` | Events for up to 500 document ids in one round trip — what the Explorer uses to badge a page of results. |
-| GET | `/api/documents/{id}/lifecycle` | Events for one paper, plus whether it has ever been checked. |
+| `GET` | `/api/routines` | Every watch. |
+| `POST` | `/api/routines` | Make a watch. The answer includes `entity_warning` when it follows a person through sources that cannot be asked about one. |
+| `GET` | `/api/routines/{routine_id}` | One watch, with its next computed dates and its record of missed fires. |
+| `PUT` | `/api/routines/{routine_id}` | Change a watch: its name, schedule, parameters, switches (including `download_full_text`, off by default), summaries, intent, or collection. Papers its earlier runs filed stay where they are. |
+| `DELETE` | `/api/routines/{routine_id}` | Delete a watch and its schedule. Its runs and papers stay. |
+| `POST` | `/api/routines/{routine_id}/activate` | Put the watch on the schedule. |
+| `POST` | `/api/routines/{routine_id}/deactivate` | Take the watch off the schedule without deleting it. |
+| `POST` | `/api/routines/{routine_id}/run` | Run once, now, outside the schedule. At the run limit it is queued and the answer says so; only when the queue is full is it refused. |
+| `GET` | `/api/routines/{routine_id}/coverage` | The coverage audit: is this watch finding what its intent says, and what is it missing. |
+| `GET` | `/api/routines/{routine_id}/documents` | The papers this watch's runs collected that the collection holds. |
+| `GET` | `/api/routines/{routine_id}/delivery-targets` | The watch's destinations. |
+| `POST` | `/api/routines/{routine_id}/delivery-targets` | Add a destination: email, folder, webhook, or feed. |
+| `PUT` | `/api/routines/{routine_id}/delivery-targets/{target_id}` | Change a destination's mode (automatic or review) or turn it on or off. |
+| `DELETE` | `/api/routines/{routine_id}/delivery-targets/{target_id}` | Remove a destination. |
+| `GET` | `/api/routines/{routine_id}/deliveries` | The delivery record for a watch. |
+| `GET` | `/api/scheduler/status` | Whether each active watch will actually fire, and what decides it. |
+| `GET` | `/api/scheduler/jobs` | The jobs registered with the scheduler. |
+| `GET` | `/api/calendar/events` | Past runs and the fires each active watch's schedule promises, between two instants. |
 
-**Never assert alone.** `record_lifecycle_finding` raises `MissingNoticeError` when a
-finding arrives without a resolvable `notice_url`, so a lifecycle event that a reader
-cannot open cannot be stored, let alone displayed. A false retraction flag is defamatory
-and "we inferred it from the metadata" is not a defense. The upstream `label` is kept
-verbatim — resmon does not translate "Correction" into "Retraction" or soften
-"Retraction" into "Update", because the wording *is* the claim — and `provider_source`
-records whether Crossref got the notice from Retraction Watch or from the publisher.
+## Delivery
 
-| Severity | Used for |
-|---|---|
-| `critical` | retraction, withdrawal, removal, partial retraction — the paper was withdrawn from the record |
-| `caution` | expression of concern — explicitly **not** a retraction |
-| `informational` | correction, erratum, new version, preprint reaching a journal |
+Where a report went, and the three decisions the queue is not allowed to make for you: release, skip, and retry.
 
-An unrecognised Crossref update type is recorded as `informational` with its label intact,
-never promoted to a retraction.
-
-**Coverage is part of the answer.** The payload reports how many papers were checked, how
-many carry no DOI or supported identifier and therefore *cannot* be checked, how many
-errored, and how many remain — because an empty findings list over an unchecked corpus is
-"nobody looked", not "nothing has been retracted", and the interface must be able to tell
-the two apart. Papers whose Crossref batch failed are left unchecked rather than stamped
-clean; a DOI Crossref simply has no record of is a real answer and *is* marked checked, so
-one unknown DOI cannot stall the walk through the corpus. Papers are re-checked after 30
-days.
-
-**Batching.** DOIs go to Crossref forty at a time and arXiv ids fifty at a time, so a corpus
-of fifteen thousand papers is a few hundred requests rather than fifteen thousand. The first
-draft of this feature queried arXiv one paper per request with a per-run default of 200,
-which meant covering a real corpus would have taken seventy-nine presses of a button —
-bounded, but not usable. It was fixed before 1.7.0 shipped.
-
-### `/api/watchdog`
-
-Silent-failure detection over the same local data. Reads `execution_sources`, `executions`,
-and `routines`; makes no external requests.
-
-| Method | Path | Returns |
+| Method | Path | What it does |
 |---|---|---|
-| GET | `/api/watchdog` | `findings`, `counts`, `not_enough_data`, `watching`, and the `thresholds` used. |
-| POST | `/api/watchdog/mute` | Acknowledge one finding by `finding_key`. It stays listed and stops counting. |
-| POST | `/api/watchdog/unmute` | Return a finding to the alarm total. |
+| `POST` | `/api/deliveries/{delivery_id}/deliver` | Release a delivery that was waiting for review. The only way out of that state. |
+| `POST` | `/api/deliveries/{delivery_id}/skip` | Decide not to send a delivery. |
+| `POST` | `/api/deliveries/{delivery_id}/retry` | Start the attempts again after the backoff has given up. |
+| `GET` | `/api/deliveries/{delivery_id}/bundle` | The report bundle a webhook envelope linked to, for whoever holds the signed link. The one route served without the local API token. |
 
-Each finding carries a stable `key`, a `severity` of `broken` / `unusual` / `advice`, the
-`scope` it concerns, a `title`, a `detail`, a `what_to_do`, and the `evidence` behind it.
+## The background service
 
-**The severity contract.** `broken` is only ever used for conditions resmon recorded
-happening — never for an inference. `unusual` is a departure from a baseline the user's own
-history established, and its payload always carries that baseline and its sample size.
-`advice` is not an alarm and is excluded from `counts.alarms`. Thresholds live in
-`implementation_scripts/watchdog.py` and are deliberately conservative: an alarm that is
-wrong gets muted, and a muted watchdog misses the failure it was built for.
-
-**Per-source execution record.** The `execution_sources` table stores what each source did
-on each run — `ok`, `error`, `skipped_missing_key`, or `cancelled`, with the raw result
-count and any error text. The sweep engine writes a row as each repository finishes.
-Databases created before this table are backfilled once from the progress events already
-stored on each execution, so the watchdog is useful on an existing install immediately
-rather than after several more runs. Failing to write a health row never fails a sweep.
-
-**Per-lane AI record.** The `execution_ai` table is the same idea for AI (schema 9). One
-row per lane per execution records what was tried — provider, model, and the *alias* of the
-credential slot used, never its value — alongside `docs_attempted` / `docs_succeeded` and,
-on failure, a classified error kind. `ok`, `partial` and `failed` are held apart on purpose:
-partial is a normal run with one awkward abstract, failed is a lane that did not work.
-
-Before this table an AI failure was a line in the task log, which meant a run whose every
-summary failed still completed and looked healthy. Failures are now classified as
-**lane-fatal** (a rejected key, an exhausted quota, a model that does not exist — the lane
-is finished for this run) or **document-local** (an abstract past the context window, content
-the provider declined — this paper failed and the lane did not). That distinction is what
-fallback chains will act on. As with the per-source record, failing to write an AI row never
-fails a sweep.
-
-### `/api/explorer`
-
-Corpus-wide search. `POST` rather than `GET` because the filter set is a structure with
-repeated values, not a flat query string.
-
-| Method | Path | Returns |
+| Method | Path | What it does |
 |---|---|---|
-| POST | `/api/explorer/search` | One page of matching papers plus `next_cursor`. Body: `query`, `sources[]`, `authors[]`, `categories[]`, `date_from`, `date_to`, `cursor`, `limit`, `sort` (`newest` \| `similarity`). With `similarity`, `query` is the **ranking phrase rather than a text filter** — the structured filters still apply and are unchanged by the sort, so the two sorts can return different sets. Carries `distance` per paper, `ranked_count`, `unranked_count` and `model`; reports the `sort` it actually served, and `similarity_unavailable` when it could not rank. `used_full_text_index` is always false in this mode, because the phrase never goes through FTS. |
-| GET | `/api/documents/{id}/similar?k=` | The nearest papers to this one, with distances and sources, self excluded. Costs one index query and nothing at any embedding provider — the vector is already stored. An empty list carries `reason`. |
-| GET | `/api/documents/{id}/links` | Records that look like the same work as this one, each with the `method` that found it (`shared_doi` or `vector+title`) and a rendered label. |
-| POST | `/api/links/for-documents` | Links for a page of results in one round trip — what the Explorer uses to badge them. |
-| POST | `/api/links/collapse-preview` | Which of these ids a collapse *would* fold. Returns a grouping; folds nothing. |
-| GET/POST | `/api/links/status`, `/api/links/scan`, `/api/links/scan/cancel` | The corpus-wide scan: how many links are stored by method, start, and stop after the document in flight. ~4 minutes on 15,000 papers. |
-| GET | `/api/routines/{id}/coverage` | The coverage audit: the two lists, the distribution the cutoff came from, and `cannot_see`. Each list is capped at 25 and carries its total (`off_target_total`, `missed_in_corpus_total`); the missed total comes from a bounded index query, so `missed_in_corpus_total_is_lower_bound` says when it is a floor rather than a count. |
-| POST | `/api/explorer/facets` | Available filter values with counts, for the current filters. A facet excludes its own filter so alternatives stay selectable. |
-| POST | `/api/explorer/export` | Everything matching the filters as `bibtex`, `ris`, `csv`, or `json` — not just the current page. |
+| `GET` | `/api/service/status` | Whether the service's unit is installed, where, what it runs, and whether the app is available to run it. |
+| `GET` | `/api/service/daemon-status` | Whether the service is actually running, read from its lock file. |
+| `POST` | `/api/service/install` | Write the unit for this platform and, if asked, register it with the system. |
+| `POST` | `/api/service/uninstall` | Remove the unit, and deregister it first if asked. |
 
-### `/api/embeddings`
+## Saved searches
 
-Configuring the embedding model and embedding the corpus. All eight endpoints are no-ops on
-an install that has not set one up, which is the state every install starts in.
+Saved Deep Dives, saved Deep Sweeps, and the copy kept of every watch. Imports always add rows.
 
-| Method | Path | Returns |
+| Method | Path | What it does |
 |---|---|---|
-| GET | `/api/settings/embeddings` | The stored settings, the resolved lane, the capability, the backfill status, and a **can-embed answer for every provider resmon lists** — including the ones that cannot, each with its reason and the live observation that reason rests on. |
-| PUT | `/api/settings/embeddings` | Stores them. **Refuses a provider that cannot embed with HTTP 400 and the sentence**, at configuration rather than at backfill: a user who picks Anthropic learns it when they pick it, not after waiting for a run that was never going to produce anything. A model change rebuilds the index from the stored vectors. |
-| POST | `/api/embeddings/probe` | Asks the configured — or a supplied, unsaved — lane to embed one short string, and reports the width it answered with. This is the only thing that turns a claim about a *provider* into a fact about *this* machine: a local server can list its models happily and still refuse to embed, because a chat model is not an embedding model, and the probe says exactly that. |
-| GET | `/api/embeddings/status` | `N of M embedded with model X`, the running backfill, the index state, and the extension state — read from the database rather than from run counters, so the numbers are right after a restart. |
-| GET | `/api/embeddings/estimate` | What a backfill would cost, computed from the documents that will actually be sent. A provider with no price on record reports `cost_usd: null`, never `0` — zero reads as free. |
-| POST | `/api/embeddings/backfill` | Embeds every document lacking a vector for the active model, on a worker thread. Refused before it starts if the lane cannot embed. |
-| POST | `/api/embeddings/backfill/cancel` | Stops after the batch in flight. Vectors already written are kept. |
-| POST | `/api/embeddings/rebuild` | Rebuilds the vector index from the canonical table — the one action that fixes a database copied from a machine that could not load the extension. |
+| `GET` | `/api/configurations` | Every saved configuration. |
+| `POST` | `/api/configurations` | Save a search. `link_to_execution_id` links it to the run it came from. |
+| `PUT` | `/api/configurations/{config_id}` | Change a saved search. |
+| `DELETE` | `/api/configurations/{config_id}` | Delete one. A watch's copy takes its watch with it. |
+| `POST` | `/api/configurations/export` | Write the chosen rows as a ZIP into the export folder and answer with its path. |
+| `POST` | `/api/configurations/archive` | The same archive, as bytes. |
+| `POST` | `/api/configurations/import` | Read ZIP or JSON files and add every entry as a new row. A watch arrives paused. |
 
-**Resume is a query, not a bookmark.** The work remaining is *rows lacking a vector for the
-active model*, which is a fact about the database rather than about the last run, so it is
-correct after a cancel, a crash, a model change and a corpus that grew in between. A stored
-cursor would be wrong after any of those and would look right. The write is idempotent on
-`(document_id, model)`, so a re-run costs a wasted call and never a duplicate row.
+## Collections
 
-**Scale contract.** The design target is 100,000 papers, and three choices follow from it,
-each measured rather than assumed:
+Several collections inside the one database: a paper is stored once and can be in more than one. Every route that reads "the collection" (Today, the map, Search › Your collection, Analytics, a watch's papers, a person's matches, and the reading queue) takes `collection`, an id or a name, in its query or body; without one it reads the default collection, which holds every paper a database had before collections. The default collection can be renamed and never deleted. Nothing here deletes a paper.
 
-- **Free text uses FTS5**, declared external-content so abstracts are not stored twice, with
-  triggers keeping it in step. `LIKE '%term%'` has no usable prefix and reads every abstract.
-  Where FTS5 is unavailable the query degrades to `LIKE` and `used_full_text_index` reports it.
-- **Authors and categories are read from `document_authors` and `document_categories`**,
-  indexed copies of the comma-joined strings on `documents`, which remains the source of truth.
-- **Pagination is keyset, on the generated column `pub_sort`.** SQLite will not match a
-  row-value comparison against an *expression* index, so the sort key is a real column. At row
-  90,000 of 100,000: `SEARCH` in 0.30 ms, against 1.66 ms for `LIMIT/OFFSET` at the same depth.
-  `pub_sort` is `COALESCE(publication_date, '')` — against a real `NULL` a row-value comparison
-  yields `NULL`, which would silently drop every undated paper out of pagination.
-
-Totals are capped at `COUNT_CAP` (10,000) and reported as `total_is_capped`; counting an
-unbounded match set is the one query that cannot be bounded, and an exact five-digit number
-changes no decision.
-
-### `/api/reading-queue`
-
-Membership over the corpus: which papers the user saved, and whether they have read them. Nothing here
-deletes a paper.
-
-| Method | Path | Returns |
+| Method | Path | What it does |
 |---|---|---|
-| GET | `/api/reading-queue?status=&limit=&offset=` | One page of saved papers, each with its membership row and the stored document. `status` is `to_read`, `read`, or `all` / omitted; `limit` defaults to 50 and is capped at 200. Carries `total` for the current filter and `counts` for all three. Order is `saved_at` then `document_id`, both descending, so a paper cannot appear on two pages. |
-| POST | `/api/reading-queue` | Save `{"document_id": n}`. **Idempotent**: a paper already saved is returned unchanged, including its original `saved_at` and a `read` status it already had. 201 either way; 404 for a document the corpus does not hold. |
-| PUT | `/api/reading-queue/{document_id}` | `{"status": "to_read" \| "read"}`. Sets `read_at` when a paper becomes read and clears it when it stops being read. A request that changes nothing writes nothing, so `updated_at` records state changes rather than requests. 404 when the paper is not in the queue; 400 for an unknown status. |
-| DELETE | `/api/reading-queue/{document_id}` | Removes the membership row only. The document, its authors, its provenance and every run that found it are untouched. 404 when there was nothing to remove. |
+| `GET` | `/api/collections` | Every collection with how many papers and watches each has, the one the app shows, and the default one. |
+| `POST` | `/api/collections` | Make an empty collection. Names are unique without regard to case. |
+| `PUT` | `/api/collections/current` | Remember the collection the app shows, by id or name. |
+| `GET` | `/api/collections/{collection_id}` | One collection, and what deleting it would do: how many of its papers are in no other collection, and which watches put their papers there. |
+| `PUT` | `/api/collections/{collection_id}` | Rename a collection. |
+| `DELETE` | `/api/collections/{collection_id}` | Delete a collection. Papers only it held are kept in the default collection, papers also elsewhere stay there, its watches put their papers in the default collection, and its map goes with it. |
+| `POST` | `/api/collections/{collection_id}/papers` | Move or copy papers into the collection, by id or by a search of the collection they come from. A copy adds them; a move adds them and then takes them out of the collection they came from. The answer is what an undo sends back. |
+| `POST` | `/api/collections/{collection_id}/papers/undo` | Undo a move or a copy, from what it answered: the papers it added leave, and the places it took them from are put back as they were. |
 
-The queue exports through the existing `POST /api/export/references` with `document_ids`; there is no
-separate export route, and the formats and citation-key allocation are the ones documented below.
+## Today and the map
 
-Erasing the corpus from **Settings → Advanced** deletes queue rows along with the papers, by
-`ON DELETE CASCADE` — a saved paper that no longer exists would be an entry nobody could open.
+Each collection has its own Today, with its own last look, and its own map.
 
-### `/api/export`
-
-| Method | Path | Returns |
+| Method | Path | What it does |
 |---|---|---|
-| GET | `/api/executions/{id}/references` | The execution's papers as `?format=bibtex\|ris\|csv\|json`. JSON accepts `?include_ids=true` to add existing corpus document IDs. `?only_new=true` restricts to papers that were new at the time of the run. Responds with a `Content-Disposition` attachment header. |
-| POST | `/api/export/references` | The same formats for `{"document_ids": [...], "format": "..."}` or `{"execution_ids": [...], "format": "..."}`. Execution selections union stored document IDs and render once; unknown executions fail with 404. Nonempty document IDs cannot be combined with execution IDs. |
+| `GET` | `/api/today` | The papers a run put in the collection since its Today was last marked read, by watch, with each watch's last run: the first 1,000, newest first, and a cursor to the rest. |
+| `GET` | `/api/today/papers` | The next 1,000 of Today's new papers, after the cursor the page before gave. |
+| `POST` | `/api/today/looked` | Mark all read: the collection's next window starts now. |
+| `GET` | `/api/map` | Where every paper of the collection sits on its plate, the basis it was placed on, and the regions. Each collection's map is fitted over its papers alone. |
+| `GET` | `/api/map/facets` | What the map's filters and colors read about every paper of the collection: source, dates, reading state, whether it is new, and its watches. |
+| `GET` | `/api/map/find` | Papers of the collection whose title or authors contain a string of at least two characters, newest first. |
+| `GET` | `/api/map/views/{name}` | The filters and colors a map (`today` or `run`) was last left with. |
+| `PUT` | `/api/map/views/{name}` | Keep a map's filters and colors. |
+| `POST` | `/api/documents/briefs` | A line about each paper asked for: title, authors, source, and dates. |
+| `GET` | `/api/onboarding` | What the first-run card shows, as facts. |
+| `POST` | `/api/onboarding/dismiss` | Put the first-run card away for good. |
 
-### `/api/calendar`
+## Your collection
 
-- `GET /api/calendar/events?start=<iso>&end=<iso>` — combined payload of historical executions (from `get_executions(conn, limit=500)`) and expanded upcoming routine fires. `start` / `end` are parsed with `datetime.fromisoformat(...)` (trailing `Z` replaced with `+00:00`). Defaults clamp the window to `[now, now + 90 days]`; `window_start` is forced to `now` so past fires are never synthesized from cron. Each event carries `id`, `title`, `start`, `end`, `color`, `execution_id`, `routine_id`, `type`, `status`, `query`, `total_results`, `new_results`. Scheduled expansion is capped at `MAX_PER_ROUTINE = 200` fires per routine per request.
+Searching what resmon holds, one paper, links between records of the same work, the reading queue, and reference exports.
 
-### `/api/settings`
+| Method | Path | What it does |
+|---|---|---|
+| `POST` | `/api/explorer/search` | Search a collection by words or by meaning, with filters, counting every match (a count that runs out of time says so) and, in the newest order, starting at a date. POST because the filter set is a structure. |
+| `POST` | `/api/explorer/facets` | The filter values available under the current filters, with counts. |
+| `POST` | `/api/explorer/export` | Export everything matching the current filters, not only the page shown, however many: the file is sent as it is written. |
+| `GET` | `/api/documents/{doc_id}` | One paper as stored, its place in the reading queue, and every collection it is in, with when and how it arrived in each. |
+| `GET` | `/api/documents/{doc_id}/why` | What is locally verifiable about why a paper is in the collection, and what resmon cannot see. |
+| `GET` | `/api/documents/{doc_id}/lifecycle` | Retractions, concerns, corrections, and newer versions recorded against one paper. |
+| `GET` | `/api/documents/{document_id}/similar` | The papers nearest one paper, with distances and sources. |
+| `GET` | `/api/documents/{document_id}/links` | What else in the collection looks like the same work. |
+| `POST` | `/api/links/for-documents` | Links for a page of results in one round trip. |
+| `POST` | `/api/links/collapse-preview` | Which of these ids a fold would hide, without folding anything. |
+| `POST` | `/api/links/scan` | Find records that look like the same work across the collection. Returns at once. |
+| `POST` | `/api/links/scan/cancel` | Stop the scan after the paper in flight. Links already written are kept. |
+| `GET` | `/api/links/status` | How many links exist, by method, and the scan's state. |
+| `GET` | `/api/reading-queue` | One page of the saved papers a collection holds, filtered by `to_read`, `read`, or all, found by title, authors, or source, in an order (saved, published, title, source, or the map's), each with its linked PDF and the run that found it. |
+| `POST` | `/api/reading-queue` | Save a paper. Saving one already saved returns it unchanged. |
+| `PUT` | `/api/reading-queue/{document_id}` | Mark a saved paper read or unread. |
+| `DELETE` | `/api/reading-queue/{document_id}` | Take a paper out of the queue, answering with the entry as it was. The paper is not touched. |
+| `POST` | `/api/reading-queue/{document_id}/restore` | Undo a removal: the entry back with the state and dates it had. |
+| `POST` | `/api/reading-queue/batch` | Save many papers at once, up to 20,000: each one not in the queue is added, each one in it is left as it is, and the answer counts both and lists what it added, for Undo. |
+| `POST` | `/api/reading-queue/batch/all` | Save every paper of a search, a run (or only its new papers), or Today, without listing them, up to 20,000. Refused when the set holds more than the number the person was asked about. |
+| `POST` | `/api/reading-queue/batch/undo` | Undo a save of many: the entries it added go, unless they were marked read or saved again since. |
+| `POST` | `/api/export/references` | Render a selection of papers as BibTeX, RIS, CSV, or JSON, with one entry per stored paper. |
+| `GET` | `/api/shared-wording` | The last scan, the scan in progress, and the pairs it found by group. |
+| `POST` | `/api/shared-wording/scan` | Compare every abstract with every other, in the background. Returns at once. |
+| `POST` | `/api/shared-wording/scan/cancel` | Stop the scan. The answer stored before it is kept. |
+| `GET` | `/api/shared-wording/pairs/{a}/{b}` | Two abstracts side by side, the passages they share, and the numbers. |
+| `GET` | `/api/shared-wording/papers/{document_id}` | The pairs one paper is in. |
 
-Read/write surface for the eight Settings panels. Each slice is a keyed subset of the `settings` table, written through `set_setting`.
+## People
 
-- `GET /api/settings/email` / `PUT /api/settings/email` — `smtp_server`, `smtp_port`, `smtp_username`, `smtp_from`, `smtp_to`.
-- `POST /api/settings/email/test` — sends a test email using the saved SMTP settings and the stored `smtp_password` credential.
-- `GET /api/settings/ai` / `PUT /api/settings/ai` — `ai_provider`, `ai_model`, `ai_local_model`, `ai_summary_length`, `ai_tone`, `ai_temperature`, `ai_extraction_goals`, `ai_custom_base_url`, `ai_custom_header_prefix`.
-- `GET /api/settings/storage` / `PUT /api/settings/storage` — `pdf_policy`, `txt_policy`, `archive_after_days`, `export_directory` (policy values are constrained to `save` / `archive` / `discard`).
-- `GET /api/settings/notifications` / `PUT /api/settings/notifications` — desktop-notification toggles.
-- `GET /api/settings/execution` / `PUT /api/settings/execution` — admission-controller tunables (`max_concurrent` clamped to `[1, 8]`, routine queue clamped to `[1, 64]`); reloaded live by the admission controller.
-- Diagnostics: `GET /api/scheduler/jobs` (APScheduler job snapshot consumed by Settings → Advanced), `GET /api/scheduler/status` (whether each active routine will fire — `true`, `false`, or `null` where a running service cannot be seen into — and which of seven states decides it; consumed by the Routines page), `POST /api/service/install` and related `/api/service/*` routes for OS-service integration via `service_manager.py`.
+Watch profiles, which the app calls people. Every match records its basis.
 
-### `/api/credentials`
+| Method | Path | What it does |
+|---|---|---|
+| `GET` | `/api/profiles` | Every person. |
+| `POST` | `/api/profiles` | Add a person. |
+| `GET` | `/api/profiles/{profile_id}` | One person. |
+| `PUT` | `/api/profiles/{profile_id}` | Change a person. |
+| `DELETE` | `/api/profiles/{profile_id}` | Remove a person and their matches. The papers stay. |
+| `GET` | `/api/profiles/{profile_id}/matches` | Papers of the collection matched to a person, each with the basis it matched on. |
+| `GET` | `/api/profiles/{profile_id}/lifecycle` | Retractions and other notices on that person's papers, with coverage. |
+| `GET` | `/api/profiles/{profile_id}/export` | A person as JSON. |
+| `POST` | `/api/profiles/import` | Import exported people. |
+| `GET` | `/api/profiles/starter` | The curated people that ship with the app, not yet anyone's profile. |
+| `POST` | `/api/profiles/matches/for-documents` | Which people matched a page of papers, and on what basis. |
 
-Presence-only surface over the OS keyring through `credential_manager.py`. Secrets are never returned; `GET` responses only report whether a named credential exists.
+## Health
 
-- `GET /api/credentials` — map of `{credential_name: present_boolean}`.
-- `PUT /api/credentials/{name}` — store a credential (Email panel uses `smtp_password`; AI panel derives names from the provider, e.g. `openai_api_key`, `anthropic_api_key`, `custom_llm_api_key`).
-- `DELETE /api/credentials/{name}` — remove a credential.
-- `POST /api/credentials/validate` — validate a remote LLM key (Test key button on the AI panel).
-- `POST /api/ai/models` — list the per-provider model catalog using either the freshly typed key or the stored credential (Load models button on the AI panel).
+The Source wall, the Watchdog, retractions and updates, and analytics.
 
-### `/api/backup` and `/api/restore`
+| Method | Path | What it does |
+|---|---|---|
+| `GET` | `/api/coverage/source-wall` | Every source's recorded answer to each of the last `limit` runs. |
+| `GET` | `/api/watchdog` | Findings, what could not be judged yet, and the thresholds used. |
+| `POST` | `/api/watchdog/mute` | Acknowledge a finding so it stops counting toward the alarm total. |
+| `POST` | `/api/watchdog/unmute` | Return a finding to the alarm total. |
+| `GET` | `/api/lifecycle` | Recorded notices, how much of the collection they cover, and the state of a check. |
+| `POST` | `/api/lifecycle/check` | Start a bounded check of the least recently checked papers. |
+| `POST` | `/api/lifecycle/stop` | Ask a running check to stop before its next request. |
+| `POST` | `/api/lifecycle/for-documents` | Notices for a page of results in one round trip. |
+| `GET` | `/api/analytics/overview` | Everything Analytics needs about one collection, in one round trip. |
+| `GET` | `/api/analytics/summary` | The collection's summary counts. |
+| `GET` | `/api/analytics/source-contribution` | Per source: papers delivered, and how many nothing else found. |
+| `GET` | `/api/analytics/keyword-contribution` | Per keyword: papers it found that no other keyword did. |
+| `GET` | `/api/analytics/discovery-lag` | Median days between publication and resmon first seeing each paper. |
+| `GET` | `/api/analytics/routine-health` | Per watch: new results per run, and whether it has gone quiet. |
+| `GET` | `/api/analytics/publication-volume` | Papers per publication month, by source or by subject category. |
 
-Backup and restore — see [Google Drive Backup](#google-drive-backup) for keeping a backup in Drive. resmon does not sign in to Google; the `/api/cloud` routes were removed on October 30, 2026.
+## Embeddings
 
-- `POST /api/backup` — writes one bundle into `export_directory` (the system's temporary folder when it is unset); the body carries `confirm: "CONFIRM"` and `include_reports`.
-- `POST /api/backup/verify` — recomputes a bundle's hashes and reports what a restore would do with it.
-- `GET /api/backup/last` — the last bundle, a staged restore, the last restore's record, the undo copies, and `drive_upload_retired`: whether this database still has the removed upload to Google Drive switched on.
-- `POST /api/backup/drive-upload-notice/acknowledge` — dismisses the notice that the upload has gone, and deletes its two settings.
-- `POST /api/restore`, `POST /api/restore/cancel`, `POST /api/restore/acknowledge`, `POST /api/restore/undo-copy/delete` — stage a restore for the next start, cancel it, dismiss the card it leaves, and delete the copies it set aside.
+Ranking by meaning and placing papers on the map by meaning.
+
+| Method | Path | What it does |
+|---|---|---|
+| `GET` | `/api/embeddings/status` | How many papers are embedded with which model, the state of a backfill, the index, and the extension. The counts are every paper resmon holds; with `?collection=`, `collection_coverage` counts that collection's papers too. |
+| `GET` | `/api/embeddings/estimate` | What a backfill would cost, before it starts. |
+| `POST` | `/api/embeddings/probe` | Ask the configured or supplied lane to embed one short string. |
+| `POST` | `/api/embeddings/backfill` | Embed every paper without a vector for the active model. |
+| `POST` | `/api/embeddings/backfill/cancel` | Stop after the batch in flight. Vectors already written are kept. |
+| `POST` | `/api/embeddings/rebuild` | Rebuild the similarity index from the stored vectors. |
+| `GET` | `/api/settings/embeddings` | The stored settings, with everything the Settings group needs to describe each provider honestly. |
+| `PUT` | `/api/settings/embeddings` | Store the settings. A provider that cannot embed is refused. |
+
+## The Library
+
+Every Library route needs the header `X-Resmon-Library: 1`; operations on an existing vault also name its expected id. File storage and Evidence are unavailable on Windows; the reading-queue routes above still work.
+
+| Method | Path | What it does |
+|---|---|---|
+| `GET` | `/api/library` | Whether a Library exists, where its folder is, whether resmon can use it now, counts, and limits. |
+| `POST` | `/api/library/vault` | Make the Library folder inside a folder you name. |
+| `POST` | `/api/library/vault/relink` | Record where the Library folder is now, after checking it is this Library's own. Nothing in it changes. |
+| `POST` | `/api/library/vault/move` | Move the Library folder into another folder: one rename on a disk, a checked copy across disks that leaves the old folder. |
+| `GET` | `/api/library/files` | Files, filtered by name, in an order (added, name, or size), a page at a time. |
+| `POST` | `/api/library/files` | Import a file, as raw bytes. |
+| `GET` | `/api/library/files/{file_id}` | One file's record. |
+| `DELETE` | `/api/library/files/{file_id}` | Remove a file: its bytes are held in the Library folder, and its record kept for Undo and Restore. |
+| `GET` | `/api/library/files/{file_id}/removal` | What would go with a file if it were removed: its links, and the projects it is in or has notes in. |
+| `POST` | `/api/library/files/{file_id}/open` | Verify the stored copy and answer with the path to open. |
+| `POST` | `/api/library/files/{file_id}/paper-links` | Link a file to a paper in your collection. |
+| `GET` | `/api/library/files/{file_id}/text` | A TXT, MD, or TeX file as literal text, within its bounds; with `lines`, only its first lines. |
+| `GET` | `/api/library/files/{file_id}/pdf` | A kept PDF's bytes, verified, for the reader. |
+| `GET` | `/api/library/files/{file_id}/picture` | The first-page picture kept for a PDF. |
+| `PUT` | `/api/library/files/{file_id}/picture` | Keep the first-page picture the app drew of a PDF. |
+| `GET` | `/api/library/removed` | Removed files still on record, and whether their bytes are still held. |
+| `POST` | `/api/library/removed/{file_id}/restore` | Put a removed file back, with everything that went with it. |
+| `POST` | `/api/library/removed/{file_id}/release` | A held file's path, for the desktop to send to the Trash. |
+| `DELETE` | `/api/library/removed/{file_id}` | Forget a removed file once its bytes have left the Library folder. |
+| `GET` | `/api/library/files/{file_id}/shared-wording` | The last comparison of this file since the engine started, or that there is none. |
+| `POST` | `/api/library/files/{file_id}/shared-wording` | Compare this file, page by page, with the abstracts and the other Library files. |
+| `GET` | `/api/library/export` | A JSON inventory of what the database records about each file. |
+
+### Get the PDF
+
+Open-access PDFs into the Library. These routes need no Library header. A PDF is fetched only where a source states an open license for the copy, never from NASA ADS, Springer, CORE, BMC, or nature.com.
+
+| Method | Path | What it does |
+|---|---|---|
+| `POST` | `/api/documents/{doc_id}/full-text` | Ask for a paper's PDF. Recorded before anything is fetched; a request that cannot go ahead comes back `skipped` with its reason and sends nothing. |
+| `POST` | `/api/full-text/for-documents` | For each paper: its open copies, the one resmon would get or why there is none, its latest request, and the PDF the Library holds for it. |
+| `GET` | `/api/executions/{exec_id}/full-text` | Every PDF a watch's run asked for, and what came of each: stored (and whether the Library holds the file still), skipped, or failed, with why. |
+| `GET` | `/api/full-text/rules` | The limits (a watch run's cap, the day's cap, one download at a time from a site and its pace, and the size limit), the license rule, and the sources and sites never downloaded from. |
+
+## Evidence
+
+Projects of exact file versions, notes and passages, exports, and selected-evidence answers. These routes use the same Library header.
+
+| Method | Path | What it does |
+|---|---|---|
+| `GET` | `/api/evidence/projects` | Projects. |
+| `POST` | `/api/evidence/projects` | Start a project. |
+| `GET` | `/api/evidence/projects/{project_id}` | One project and its revision. |
+| `PATCH` | `/api/evidence/projects/{project_id}` | Rename a project. |
+| `GET` | `/api/evidence/projects/{project_id}/files` | The exact file versions a project holds. |
+| `POST` | `/api/evidence/projects/{project_id}/files` | Add a file version to a project. |
+| `DELETE` | `/api/evidence/projects/{project_id}/files/{file_id}` | Remove a file from a project. Its saved records stay. |
+| `GET` | `/api/evidence/projects/{project_id}/notes` | The project's notes and passages. |
+| `POST` | `/api/evidence/projects/{project_id}/notes` | Save a note or a passage. The engine checks the exact quote against the stored file first. |
+| `PATCH` | `/api/evidence/projects/{project_id}/notes/{note_id}` | Edit a note's body. The pin never moves. |
+| `GET` | `/api/evidence/projects/{project_id}/reader/{file_id}` | One page of a file, as canonical text. |
+| `POST` | `/api/evidence/projects/{project_id}/bundle` | Export 1 to 20 chosen files and their records as a ZIP. |
+| `POST` | `/api/evidence/projects/{project_id}/answer-previews` | Assemble and show exactly what a selected-evidence answer would send. Calls no model. |
+| `GET` | `/api/evidence/projects/{project_id}/answers` | The project's saved answers. |
+| `POST` | `/api/evidence/projects/{project_id}/answers` | Send a confirmed preview: one new saved answer. |
+| `GET` | `/api/evidence/projects/{project_id}/answers/{answer_id}` | One saved answer. |
+| `POST` | `/api/evidence/projects/{project_id}/answers/{answer_id}/cancel` | Stop a running answer. |
+| `GET` | `/api/evidence/projects/{project_id}/answers/{answer_id}/events` | A running answer's events, as server-sent events. |
+| `GET` | `/api/evidence/projects/{project_id}/answers/{answer_id}/export` | A saved answer as an offline HTML document or a ZIP. |
+
+## Ask
+
+The assistant, its saved conversations, and the command sign-in checks.
+
+| Method | Path | What it does |
+|---|---|---|
+| `GET` | `/api/assistant/status` | Whether the assistant can run, and if not, why in one sentence. Also the choices a new conversation offers. |
+| `GET` | `/api/assistant/sessions` | Saved conversations. |
+| `GET` | `/api/assistant/sessions/browse` | Saved conversations, a page at a time, with a title filter. |
+| `POST` | `/api/assistant/sessions` | Start a conversation. |
+| `GET` | `/api/assistant/sessions/{session_id}` | One conversation with its messages. |
+| `DELETE` | `/api/assistant/sessions/{session_id}` | Delete a conversation and its messages. |
+| `POST` | `/api/assistant/sessions/{session_id}/messages` | Send a message. The answer streams back as events. |
+| `POST` | `/api/assistant/sessions/{session_id}/cancel` | Stop the running turn. |
+| `GET` | `/api/assistant/sessions/{session_id}/export` | A saved conversation as Markdown or JSON. |
+| `POST` | `/api/assistant/permissions` | Ask the person, and hold the request open until they answer. This is the assistant's permission tool. |
+| `POST` | `/api/assistant/permissions/{request_id}` | The panel's Allow or Deny. |
+| `GET` | `/api/ai/cli/sign-in` | Ask the `claude` or `codex` command itself whether it is signed in. No model call, no cost. |
+| `POST` | `/api/ai/cli/sign-in` | Start the command's own login in a terminal, or say the command to run. |
+| `GET` | `/api/ai/last-answered` | Which model last answered each requested alias, from answers already kept. |
+| `POST` | `/api/ai/models` | The model ids a provider's credential can access. |
+
+## Settings and credentials
+
+A credential's value is never returned. The engine reports only whether one is stored.
+
+| Method | Path | What it does |
+|---|---|---|
+| `GET` | `/api/appearance` | The theme, the accent, and whether the top bar shows the run monitor. |
+| `PUT` | `/api/appearance` | Store the theme and accent, and the run monitor's switch when it is sent. |
+| `GET` | `/api/top-bar` | The top bar's sections in order, the hidden ones, the start page, and where the resmon name goes. |
+| `PUT` | `/api/top-bar` | Store all four. A section left out of the order goes back where it goes by default. |
+| `GET` | `/api/settings/ai` | Summary settings, including the connection chain. |
+| `PUT` | `/api/settings/ai` | Store them. |
+| `GET` | `/api/settings/ai/cli-status` | Whether each command can be found, and where. |
+| `GET` | `/api/settings/assistant` | What a new conversation starts with. |
+| `PUT` | `/api/settings/assistant` | Store it. |
+| `GET` | `/api/settings/email` | The mail account, without its password. |
+| `PUT` | `/api/settings/email` | Store it. |
+| `POST` | `/api/settings/email/test` | Send a test email with the stored settings. |
+| `GET` | `/api/settings/notifications` | When desktop notifications are posted. |
+| `PUT` | `/api/settings/notifications` | Store it. |
+| `GET` | `/api/settings/storage` | The export folder, where backups go. |
+| `PUT` | `/api/settings/storage` | Store it. |
+| `GET` | `/api/settings/sources` | The contact address resmon gives Crossref and OpenAlex, if you set one, and the sources it goes to. |
+| `PUT` | `/api/settings/sources` | Store it, or clear it with `null`; with none, nothing is sent. |
+| `GET` | `/api/settings/execution` | How many runs go at once, and how many manual searches and watch runs may wait in their shared queue. |
+| `PUT` | `/api/settings/execution` | Store them. |
+| `GET` | `/api/credentials` | Per credential name: `present`, `absent`, or `unreadable`. |
+| `PUT` | `/api/credentials/{key_name}` | Store a credential in the system keychain. |
+| `DELETE` | `/api/credentials/{key_name}` | Remove a credential. |
+| `POST` | `/api/credentials/validate` | Try a key against its provider: accepted, refused, unanswered, unreachable, or untestable. |
+
+## Backup and restore
+
+A restore is staged and runs the next time an engine starts.
+
+| Method | Path | What it does |
+|---|---|---|
+| `POST` | `/api/backup` | Write one bundle: the snapshotted database, the Library's bytes, and optionally the reports. |
+| `GET` | `/api/backup/last` | The last bundle, the last restore's outcome, a staged restore, whether a restore's undo copy exists, and `pre_upgrade_copy`, the database copy kept before a schema upgrade, or `null`. |
+| `POST` | `/api/backup/verify` | Recompute every hash in a bundle and report what a restore would and would not do. |
+| `POST` | `/api/backup/drive-upload-notice/acknowledge` | Dismiss the Backup page's one-time notice about Google Drive. |
+| `POST` | `/api/restore` | Verify a bundle and stage it. |
+| `POST` | `/api/restore/cancel` | Forget a staged restore. Nothing had been moved. |
+| `POST` | `/api/restore/acknowledge` | Dismiss the one-time card listing the credentials to enter again. |
+| `POST` | `/api/restore/undo-copy/delete` | Delete the copies a restore set aside. Irreversible, so it needs `CONFIRM`. |
+
+## The Danger zone
+
+Each takes `{"confirm": "CONFIRM"}` except the two that erase only keys.
+
+| Method | Path | What it does |
+|---|---|---|
+| `POST` | `/api/admin/erase-ai-keys` | Erase every AI provider key. |
+| `POST` | `/api/admin/erase-repo-keys` | Erase every source key. |
+| `POST` | `/api/admin/erase-configs` | Erase every saved search and every watch linked to one. |
+| `POST` | `/api/admin/erase-executions` | Erase every run and the run counter. Papers are kept. |
+| `POST` | `/api/admin/erase-corpus` | Erase every paper. Runs, watches, settings, and keys are kept. |
+| `POST` | `/api/admin/erase-execution-data` | Erase all configs and all runs. Settings and keys are kept. |
+| `POST` | `/api/admin/erase-app-data` | Erase the papers, saved searches, runs, and every key. |
+| `POST` | `/api/admin/reset-settings` | Reset every setting and erase every key. Saved searches and runs are kept. |
+| `POST` | `/api/admin/factory-reset` | Erase every key, saved search, run, paper, and setting. The Library is kept. |

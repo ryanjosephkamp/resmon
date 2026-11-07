@@ -5,11 +5,10 @@ Why root rather than the module's own logger. The original leak was not
 resmon's log line -- that line was already sanitized. It was ``httpx``, which
 logs every request at INFO as ``HTTP Request: POST <url> "HTTP/1.1 404 ..."``
 with the URL intact, and ``httpcore``, which writes the request target at
-DEBUG. Neither is a resmon logger, both propagate to root, and the backend
-installs no root handler, so those records go out through
-``logging.lastResort`` to stderr, which Electron pipes into the main process
-console. A fixture attached to ``implementation_scripts.*`` watches the one
-place that was never the problem.
+DEBUG. Neither is a resmon logger, both propagate to root, and the backend's
+one root handler (``logger.install_engine_log``) writes every warning and error
+to stderr, which Electron pipes into the main process console. A fixture attached to ``implementation_scripts.*``
+watches the one place that was never the problem.
 
 What stood here before. Exactly one test in the merge gate holds this
 property: ``test_assistant_api_key_boundary``'s

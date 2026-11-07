@@ -11,6 +11,7 @@ import {
 import { count, number, when } from '../today/format';
 import { PlaceHelp } from '../watches/people/People';
 import { instantOf } from './model';
+import { useCollection } from '../../collections/current';
 
 function said(error: Error | null): string | null {
   if (!error) return null;
@@ -28,6 +29,8 @@ function said(error: Error | null): string | null {
  * many papers it left unchecked, and the reason, before anything else.
  */
 export function LifecycleCheck() {
+  // The check covers every paper resmon holds; with several collections, its sentences say so.
+  const { several } = useCollection();
   const client = useQueryClient();
   const report = useQuery({
     queryKey: LIFECYCLE_KEY,
@@ -61,7 +64,7 @@ export function LifecycleCheck() {
   });
 
   const refused = said(start.error) ?? said(stop.error);
-  const last = data && !running && data.run.last ? lastRunLines(data.run.last, data.coverage, now) : null;
+  const last = data && !running && data.run.last ? lastRunLines(data.run.last, data.coverage, now, several) : null;
   const started = instantOf(data?.run.started_at);
 
   return (
@@ -76,8 +79,8 @@ export function LifecycleCheck() {
       <PlaceHelp summary="What the check asks, and of whom">
         <p>
           Your papers are asked about by their identifiers. Each paper with a DOI is asked of Crossref,
-          {' '}{CHECK_FACTS.crossrefBatch} DOIs to a request at no more than {CHECK_FACTS.crossrefPerSecond} requests a
-          second. Each arXiv paper held at a version number, such as 2301.00001v2, is asked of arXiv,
+          {' '}{CHECK_FACTS.crossrefBatch} DOIs to a request at no more than
+          {' '}{CHECK_FACTS.crossrefPerSecond === 1 ? 'one request' : `${CHECK_FACTS.crossrefPerSecond} requests`} a second. Each arXiv paper held at a version number, such as 2301.00001v2, is asked of arXiv,
           {' '}{CHECK_FACTS.arxivBatch} to a request. Each bioRxiv preprint is asked of bioRxiv, one request each, at no
           more than {CHECK_FACTS.biorxivPerSecond} a second. Asking tells those services which papers you hold, so the
           check runs only when asked: from here, or by a watch set to look for a person&rsquo;s retractions.
@@ -146,7 +149,7 @@ export function LifecycleCheck() {
           )}
 
           <ul className="life-coverage" data-lifecycle="coverage">
-            {coverageSentences(data.coverage, now).map((line) => <li key={line}>{line}</li>)}
+            {coverageSentences(data.coverage, now, several).map((line) => <li key={line}>{line}</li>)}
           </ul>
 
           {data.findings.length === 0 ? (

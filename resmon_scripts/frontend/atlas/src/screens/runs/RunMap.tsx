@@ -1,13 +1,18 @@
 import { useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { answer, engine } from '../../api/client';
+import { answer, engine, EngineError } from '../../api/client';
 import type { components } from '../../api/schema';
 import { useAppearance } from '../../theme/appearance';
-import { Tip, findPosition } from '../Today';
-import { MAP_KEY } from '../today/freshness';
+import { Tip, findPosition, paperTip } from '../Today';
+import { tipWords } from '../../charts/ChartTip';
+import { opensWords } from '../sky/PaperSky';
+import { mapKey, readMap } from '../today/freshness';
+import { collectionParam, useCollection, useCollectionWords } from '../../collections/current';
+import { YOUR_COLLECTION, type CollectionWords } from '../../collections/words';
 import { useReadAfter } from '../sky/readAfter';
 import { ColorKey, DimKey, MapBar } from '../sky/MapControls';
 import { MapPaper } from '../sky/MapPaper';
+import { SaveLit } from '../sky/SaveLit';
 import { filterCount } from '../sky/look';
 import { useMapLook } from '../sky/useMapLook';
 import { count, number } from '../today/format';
@@ -39,18 +44,23 @@ interface Props {
 export function RunMap({ runId, running, settledAt, endedAt, names }: Props) {
   const { theme, shown } = useAppearance();
   const [now] = useState(() => new Date());
+  const { id: collection } = useCollection();
+  const shownWords = useCollectionWords();
   const map = useQuery({
-    queryKey: MAP_KEY,
-    queryFn: () => answer(engine().GET('/api/map')),
+    queryKey: mapKey(collection),
+    queryFn: () => readMap(collection),
     refetchInterval: (query) => {
       const data = query.state.data as CollectionMap | undefined;
       return data && (data.state === 'fitting' || data.refitting) ? 2_000 : false;
     },
   });
+  // The map is the shown collection's, so the run's papers are those in it.
   const ids = useQuery({
-    queryKey: ['run-ids', runId, settledAt],
+    queryKey: ['run-ids', runId, settledAt, collection],
     enabled: !running,
-    queryFn: () => answer(engine().GET('/api/executions/{exec_id}/document-ids', { params: { path: { exec_id: runId } } })),
+    queryFn: () => answer(engine().GET('/api/executions/{exec_id}/document-ids', {
+      params: { path: { exec_id: runId }, query: collectionParam(collection) },
+    })),
   });
   // A run that has just finished stored papers the map was read without: the
   // run's page reports it (`useRunEnding`), which reads the map again and places them.
@@ -97,13 +107,19 @@ export function RunMap({ runId, running, settledAt, endedAt, names }: Props) {
     return <p className="record-cap">The run&rsquo;s map is drawn when it has finished storing its papers.</p>;
   }
   if (map.isError || ids.isError) {
-    return <p className="record-cap" role="alert">The map could not be read: {(map.error ?? ids.error)?.message}.</p>;
+    const failure = map.error ?? ids.error;
+    return (
+      <p className="record-cap" role="alert">
+        {failure instanceof EngineError && failure.detail
+          ? `The map could not be read. ${failure.detail}` : `The map could not be read: ${failure?.message}.`}
+      </p>
+    );
   }
   const total = ids.data?.ids.length ?? null;
   const placed = built?.sky.count ?? null;
   const selectedIndex = selectedId !== null && sky ? sky.indexOf.get(selectedId) ?? null : null;
   const look = mapLook.look;
-  const account = placementWords(current ? map.data : undefined, total, placed);
+  const account = placementWords(current ? map.data : undefined, total, placed, shownWords);
 
   return (
     <div className="run-map" data-run-map={runId} data-placed={placed ?? ''} data-total={total ?? ''}>
@@ -111,7 +127,8 @@ export function RunMap({ runId, running, settledAt, endedAt, names }: Props) {
         {sky && (
           <MapBar name="run" view={mapLook.view} onView={mapLook.setView} look={look} facts={mapLook.facts}
             facetsError={mapLook.facetsError} total={sky.count} names={sourceName} find={mapLook.find}
-            findAt={findPosition(sky, look?.found, selectedId)} onStep={step} onWant={mapLook.wantFacets} keepError={mapLook.saveError} />
+            findAt={findPosition(sky, look?.found, selectedId)} onStep={step} onWant={mapLook.wantFacets} keepError={mapLook.saveError}
+            save={<SaveLit sky={sky} look={look} finding={mapLook.find.finding} waiting={mapLook.find.waiting} />} />
         )}
         {sky && field && built ? (
           <Plate
@@ -125,20 +142,28 @@ export function RunMap({ runId, running, settledAt, endedAt, names }: Props) {
             pointed={null}
             onSelect={(index) => setSelectedId(index === null ? null : sky.ids[index] ?? null)}
             onHover={setHover}
+            onKeyed={setHover}
             paletteKey={`${theme}:${shown.accent ?? ''}`}
-            label={`Map of this run's ${count(sky.count, 'paper')} the map has placed, in ${count(built.regions.length, 'region')}, each where the map of your whole collection puts it.`}
+            label={`Map of this run's ${count(sky.count, 'paper')} the map has placed, in ${count(built.regions.length, 'region')}, each where the map of ${shownWords.named ? shownWords.name : 'your whole collection'} puts it.`}
             onAway={() => undefined}
             whole="all of this run's papers"
             look={mapLook.plateLook}
           >
             {hover && (
               <Tip hover={hover} brief={brief.data ?? undefined} now={now} sourceName={sourceName}
-                cell={gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds)} />
+                cell={gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds)}
+                opens={opensWords(hover.via ?? 'pointer', true, hovered === selectedId)} />
             )}
           </Plate>
         ) : (
           <div className="plate plate-waiting"><p role="status">{account.waiting ?? account.sentence}</p></div>
         )}
+        {/* The paper the keyboard chose, said as its tip says it: the map itself is one picture to a screen reader. */}
+        <p className="sr-only" aria-live="polite" data-map-said="">
+          {hover?.via === 'keyboard' && sky ? tipWords(paperTip({
+            brief: brief.data ?? undefined, now, sourceName, cell: gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds),
+          })) : ''}
+        </p>
         {sky && (
           <PlateKey showWatches={false}
             colors={look && look.legend.length > 0 ? <ColorKey look={look} /> : undefined}
@@ -165,7 +190,7 @@ export function RunMap({ runId, running, settledAt, endedAt, names }: Props) {
             {sky && (
               <>
                 <p className="run-map-note">
-                  Each paper sits where the map of your whole collection puts it, {basisWords(map.data)}, and the
+                  Each paper sits where the map of {shownWords.named ? shownWords.name : 'your whole collection'} puts it, {basisWords(map.data)}, and the
                   frame is drawn around this run&rsquo;s papers alone, so they fill it. Region names are the whole
                   map&rsquo;s.
                 </p>
@@ -193,23 +218,26 @@ function basisWords(map: CollectionMap | undefined): string {
  * to place, or, on a map drawn from an embedding model, when the model has not
  * read it yet. The map does not say which of the two each one is.
  */
-export function placementWords(map: CollectionMap | undefined, total: number | null, placed: number | null): {
+export function placementWords(map: CollectionMap | undefined, total: number | null, placed: number | null,
+  shown: CollectionWords = YOUR_COLLECTION): {
   sentence: string; unplaced: string | null; waiting: string | null;
 } {
+  // The run's papers counted are those in the collection shown; where it is named, the sentences say so.
+  const stored = shown.named ? `this run stored in ${shown.name}` : 'this run stored';
   if (!map || total === null) return { sentence: 'Reading the run’s papers and the map.', unplaced: null, waiting: 'Reading the map.' };
   if (map.state === 'fitting') {
     return {
-      sentence: 'The map of your collection is being drawn; this run’s papers are placed on it when it is done.',
-      unplaced: null, waiting: 'Drawing the map of your collection. A large collection takes up to half a minute.',
+      sentence: `The map of ${shown.name} is being drawn; this run’s papers are placed on it when it is done.`,
+      unplaced: null, waiting: `Drawing the map of ${shown.name}. A large collection takes up to half a minute.`,
     };
   }
   if (map.state === 'failed') {
     return { sentence: `The map could not be drawn: ${map.error ?? 'the engine gave no reason'}.`, unplaced: null, waiting: null };
   }
-  if (total === 0) return { sentence: 'This run stored no papers that are still in your collection.', unplaced: null, waiting: null };
+  if (total === 0) return { sentence: `This run stored no papers that are still in ${shown.name}.`, unplaced: null, waiting: null };
   const on = placed ?? 0;
   if (on === total) {
-    return { sentence: `All ${count(total, 'paper')} this run stored are on the map.`, unplaced: null, waiting: null };
+    return { sentence: `All ${count(total, 'paper')} ${stored} are on the map.`, unplaced: null, waiting: null };
   }
   const off = total - on;
   const why = map.basis === 'embeddings'
@@ -217,8 +245,8 @@ export function placementWords(map: CollectionMap | undefined, total: number | n
     : 'they have too little text in their titles and abstracts to place by wording';
   return {
     sentence: on === 0
-      ? `None of the ${count(total, 'paper')} this run stored is on the map.`
-      : `${number(on)} of the ${count(total, 'paper')} this run stored are on the map.`,
+      ? `None of the ${count(total, 'paper')} ${stored} is on the map.`
+      : `${number(on)} of the ${count(total, 'paper')} ${stored} are on the map.`,
     unplaced: `${number(off)} ${off === 1 ? 'is' : 'are'} not: ${why}. ${off === 1 ? 'It is' : 'They are'} still in the Papers tab.`,
     waiting: null,
   };

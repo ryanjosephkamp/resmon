@@ -150,3 +150,24 @@ describe('Escape in the list', () => {
     await waitFor(() => expect(title).toHaveAttribute('aria-pressed', 'false'));
   });
 });
+
+describe('a map the engine could not read', () => {
+  test('says the engine\'s own sentence, not a route and a status', async () => {
+    (engine as jest.Mock).mockReturnValue({
+      GET: jest.fn((path: string) => (path === '/api/map'
+        ? Promise.resolve({
+          data: undefined, error: { detail: 'The engine failed while answering this request (IndexError).' },
+          response: { url: 'http://127.0.0.1:9/api/map', status: 500 } as Response,
+        })
+        : reply(answers(path)))),
+      POST: jest.fn((path: string) => reply(answers(path))),
+      PUT: jest.fn((path: string) => reply(answers(path))),
+      DELETE: jest.fn(() => reply({})),
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><Today /></QueryClientProvider>);
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The engine failed while answering this request (IndexError). Nothing here is shown from memory.');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('HTTP 500');
+  });
+});

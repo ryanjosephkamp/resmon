@@ -23,9 +23,10 @@ Real, public papers, so the map has a true shape:
    is recorded on each as the engine records a source with no key. The papers
    are arXiv's; the times are a reconstruction, which is why the newest papers
    are left out of it.
-3. **Two searches, for real.** The engine is started headless and asked a
-   Deep Sweep over several sources and a Deep Dive, so the Source wall has
-   more than arXiv to show. Today is then marked as looked at.
+3. **Three searches, for real.** The engine is started headless and asked a
+   Deep Sweep over several sources, a Deep Dive, and a Deep Sweep of ten
+   sources over the last three days, so the Source wall has more than arXiv
+   to show, and more kinds of answer. Today is then marked as looked at.
 4. **Today's runs, for real.** Each watch is run once, now. Those runs find
    the papers the history left out, so Today's new papers came from runs the
    engine really made, and the protein watch's second source, CORE, is
@@ -89,12 +90,20 @@ WATCHES = [
 ]
 #: How long ago the watches were made, in days. Their first run took everything older.
 HISTORY_DAYS = 18
-#: Two searches made by hand. The sweep's sources answer without a key, and the
-#: dive asks OpenAlex so arXiv is asked no more than the watches need.
+#: Three searches made by hand. The first sweep's sources answer without a key,
+#: and the dive asks OpenAlex so arXiv is asked no more than the watches need.
+#: The last sweep asks ten sources about the last three days, as a person
+#: checking a topic for the week might: a window that short is one some sources
+#: date too coarsely to answer, and one where a quiet field may have nothing,
+#: so the Source wall shows how each source answered, whatever that is on the
+#: day. None of them needs a key.
 SEARCHES = [
     {"kind": "sweep", "query": "protein language models",
      "sources": ["arxiv", "europepmc", "openalex", "crossref"], "max_results": 60},
     {"kind": "dive", "query": "equivariant graph neural networks", "sources": ["openalex"], "max_results": 80},
+    {"kind": "sweep", "query": "protein structure", "days": 3, "max_results": 20,
+     "sources": ["openalex", "crossref", "europepmc", "pubmed", "plos", "hal", "zenodo", "dblp", "doaj",
+                 "semantic_scholar"]},
 ]
 #: arXiv asks for one request every three seconds and answers a burst with 429s
 #: for a while after; the pause between topics, and before the engine asks again.
@@ -119,6 +128,8 @@ def isolate(root: Path) -> dict[str, str]:
         "RESMON_REPORTS_DIR": str(state / "reports"),
         "RESMON_PORT_FILE": str(state / "resmon.port"),
         "RESMON_SERVICE_UNIT_DIR": str(state / "service-units"),
+        "RESMON_SERVICE_LABEL": "com.resmon.demo",
+        "RESMON_LAUNCHCTL": str(Path(__file__).resolve().parents[2] / "verification_scripts" / "fixtures" / "fake_launchctl.py"),
         # Nothing is read from or written to the keychain, so no source has a key.
         "PYTHON_KEYRING_BACKEND": "keyring.backends.null.Keyring",
         # No AI command is looked for, so none can run.
@@ -238,6 +249,8 @@ def seed_history(db_path: str, now: datetime) -> dict[str, int]:
                 if fresh:
                     conn.execute("UPDATE documents SET first_seen_at = ? WHERE id = ?",
                                  (sqlite_time(started), row["id"]))
+                    conn.execute("UPDATE collection_documents SET added_at = ? WHERE document_id = ?",
+                                 (sqlite_time(started), row["id"]))
                     new += 1
                 link_execution_document(conn, exec_id, row["id"], is_new=fresh)
             record_execution_source(conn, exec_id, "arxiv", "ok", result_count=len(batch),
@@ -349,7 +362,9 @@ SHOWABLE_LICENSES = {
 }
 #: The pages the Library demo films: the first, scrolled into the second, where text is selected.
 FILMED_PAGES = 3
-EMAIL = re.compile(r"[\w.+-]+\s*@\s*[\w-]+(?:\.[\w-]+)+")
+# A domain after @ is enough to reject a filmed page. Papers often group
+# addresses as {first, second}@domain, which has no literal local part.
+EMAIL = re.compile(r"@\s*[\w-]+(?:\.[\w-]+)+")
 
 
 def fetch(url: str) -> bytes | None:
@@ -389,9 +404,9 @@ def emails_on_first_pages(pdf: Path) -> bool:
 def build_library(root: Path, db_path: str) -> None:
     """A vault inside the collection's folder, with a few of the collection's papers as PDFs.
 
-    Only papers whose own license allows their pages to be shown publicly are
-    chosen, and of those, papers whose filmed pages show no email address come
-    first; the first file is the one the Library demo opens. What was chosen,
+    Only papers whose own license allows their pages to be shown publicly and
+    whose filmed pages contain no detected email address are chosen. The first
+    file is the one the Library demo opens. What was chosen,
     and under which license, is written to `library.json` beside the state.
 
     Made through the library module, as the engine's own routes make it: those
@@ -415,11 +430,19 @@ def build_library(root: Path, db_path: str) -> None:
                ORDER BY d.publication_date DESC LIMIT 40""", (watch["name"],)).fetchall()
         for watch in WATCHES
     ]
-    candidates = [row for group in zip(*per_watch) for row in group]
+    # A paper can belong to more than one watch. Importing its bytes twice
+    # keeps one file, so it must count only once toward the three PDFs.
+    candidates = []
+    seen: set[str] = set()
+    for group in zip(*per_watch):
+        for row in group:
+            paper_id = unversioned(row["external_id"])
+            if paper_id not in seen:
+                candidates.append(row)
+                seen.add(paper_id)
     downloads = root / "downloads"
     downloads.mkdir()
     clean: list[dict] = []
-    with_email: list[dict] = []
     for row in candidates:
         if len(clean) >= LIBRARY_PAPERS:
             break
@@ -440,10 +463,11 @@ def build_library(root: Path, db_path: str) -> None:
             "license": SHOWABLE_LICENSES[license_url], "license_url": license_url,
             "file": target,
         }
-        (with_email if emails_on_first_pages(target) else clean).append(chosen)
-    picked = (clean + with_email)[:LIBRARY_PAPERS]
+        if not emails_on_first_pages(target):
+            clean.append(chosen)
+    picked = clean[:LIBRARY_PAPERS]
     if len(picked) < LIBRARY_PAPERS:
-        raise SystemExit(f"Only {len(picked)} recent papers here may be shown publicly; widen the search.")
+        raise SystemExit(f"Only {len(picked)} recent papers here have a permitted license and no detected email on filmed pages; widen the search.")
     for paper in picked:
         with library.Import(conn, vault, f"{paper['arxiv_id']}.pdf", paper["document_id"]) as upload:
             upload.write(paper["file"].read_bytes())
@@ -502,6 +526,9 @@ def main() -> None:
             if search["kind"] == "sweep":
                 body = {"repositories": search["sources"], "query": search["query"],
                         "max_results": search["max_results"]}
+                if "days" in search:
+                    body["date_from"] = (now - timedelta(days=search["days"])).date().isoformat()
+                    body["date_to"] = now.date().isoformat()
                 start = lambda body=body: engine.call("POST", "/api/search/sweep", body)  # noqa: E731
             else:
                 body = {"repository": search["sources"][0], "query": search["query"],

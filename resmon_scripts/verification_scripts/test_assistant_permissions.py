@@ -85,7 +85,7 @@ def test_answering_something_that_does_not_exist_says_so():
     assert _broker().answer("nope", allow=True) is False
 
 
-def test_cancelling_a_session_denies_everything_it_had_pending():
+def test_canceling_a_session_denies_everything_it_had_pending():
     """A card for a conversation that has ended is a question with no asker."""
     broker = _broker()
     mine = [_open(broker, session_id=1), _open(broker, session_id=1)]

@@ -19,6 +19,8 @@
  * `RESMON_REQUIRE_PACKAGED=1` (the release workflow sets it), when a missing or
  * stale build fails instead: a release must never pass by not looking.
  */
+import { createHash } from 'crypto';
+import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -31,6 +33,10 @@ import {
 } from './fixtures/packaged-app';
 import { changesBetween, snapshotTree } from './fixtures/app-tree';
 import { consoleWindowsShown, describeWindows, startWindowWatch, type WindowWatch } from './fixtures/console-windows';
+import { removeStateDir } from './fixtures/cleanup';
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { bundleVersionFor } = require('../scripts/bundle-version.js') as { bundleVersionFor: (v: string) => string };
 
 const REQUIRED = process.env.RESMON_REQUIRE_PACKAGED === '1';
 
@@ -59,6 +65,28 @@ async function engine<T>(win: Page, route: string, init: { method?: string; json
     return response.json();
   }, [route, init] as const) as Promise<T>;
 }
+
+/**
+ * macOS shows the icon of the highest bundle version of a bundle id it knows,
+ * in the Dock and on every notification, so the built app must carry resmon's
+ * icon and a bundle version above every earlier build of com.resmon.app
+ * (`scripts/bundle-version.js`). Read out of the built Info.plist with plutil.
+ */
+test('the macOS app carries resmon\'s icon and a bundle version above every earlier build', () => {
+  test.skip(process.platform !== 'darwin', 'Info.plist and the .icns are the macOS bundle\'s');
+  const exe = packagedExecutable();
+  if (exe === null) unavailable('no packaged app under resmon_scripts/frontend/release: run `npm run dist` first');
+  const contents = path.resolve(exe, '..', '..');
+  const plist = JSON.parse(execFileSync('plutil', ['-convert', 'json', '-o', '-', path.join(contents, 'Info.plist')], { encoding: 'utf8' })) as Record<string, string>;
+  expect(plist.CFBundleIdentifier).toBe('com.resmon.app');
+  expect(plist.CFBundleShortVersionString).toBe(CHECKOUT_VERSION);
+  expect(plist.CFBundleVersion).toBe(bundleVersionFor(CHECKOUT_VERSION));
+  const iconFile = plist.CFBundleIconFile ?? '';
+  expect(iconFile, 'the bundle names no icon file').toMatch(/^icon(\.icns)?$/);
+  const shipped = path.join(contents, 'Resources', iconFile.endsWith('.icns') ? iconFile : `${iconFile}.icns`);
+  const digest = (file: string) => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+  expect(digest(shipped), 'the app\'s icon is not resmon\'s').toBe(digest(path.join(__dirname, '..', 'build-resources', 'icon.icns')));
+});
 
 test('the command line in the packaged app answers from the instance, and no console window shows', async () => {
   test.setTimeout(600_000);
@@ -187,8 +215,8 @@ test('the command line in the packaged app answers from the instance, and no con
     expect(changes, 'the app wrote into its own folder').toEqual([]);
   } finally {
     await watch?.stop().catch(() => undefined);
-    fs.rmSync(stateDir, { recursive: true, force: true });
-    fs.rmSync(scratch, { recursive: true, force: true });
+    removeStateDir(stateDir);
+    removeStateDir(scratch);
   }
 });
 
@@ -265,7 +293,7 @@ test('Install and Uninstall "resmon" Command write a launcher that runs the app\
   } finally {
     await app.close().catch(() => { /* already gone */ });
     expect(changesBetween(before, snapshotTree(folder)), 'the app wrote into its own folder').toEqual([]);
-    fs.rmSync(stateDir, { recursive: true, force: true });
-    fs.rmSync(root, { recursive: true, force: true });
+    removeStateDir(stateDir);
+    removeStateDir(root);
   }
 });

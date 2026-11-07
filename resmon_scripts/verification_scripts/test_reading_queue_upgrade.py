@@ -175,7 +175,7 @@ def build_schema_13(path: Path) -> sqlite3.Connection:
     conn.execute(
         "INSERT INTO execution_ai (execution_id, lane_index, lane_label, lane_kind, "
         "provider, model, outcome, docs_attempted, docs_succeeded, started_at, ended_at) "
-        "VALUES (1, 0, 'Local summariser', 'local', 'ollama', 'llama3', 'ok', 2, 2, "
+        "VALUES (1, 0, 'Local summarizer', 'local', 'ollama', 'llama3', 'ok', 2, 2, "
         "'2026-01-16 09:01:00', '2026-01-16 09:01:30')")
     conn.execute(
         "INSERT INTO document_lifecycle (document_id, kind, severity, notice_key, label, "
@@ -289,7 +289,11 @@ def test_the_fixture_fills_every_table_the_preservation_check_reads(legacy):
 
 
 def test_upgrading_adds_the_queue_and_changes_nothing_else(legacy):
-    before = contents(legacy)
+    # Any launch also recounts the runs' new papers once; the rows are compared
+    # with the fixture as that recount leaves it.
+    recounted = _as_recounted(legacy)
+    before = contents(recounted)
+    recounted.close()
 
     database.init_db(conn=legacy)
 
@@ -319,6 +323,7 @@ def test_upgrading_adds_the_queue_and_changes_nothing_else(legacy):
 # wherever app_settings is compared across an init_db.
 from verification_scripts.test_cumulative_upgrade import (  # noqa: E402
     _MARKERS_A_LAUNCH_MAY_ADD as BACKFILL_MARKERS,
+    _as_recounted,
 )
 
 
@@ -467,7 +472,30 @@ SCHEMA_14_TO_18_OBJECTS = {"reading_queue", "idx_reading_queue_status_saved",
                             "idx_documents_metadata_hash",
                             # Schema 23: failed Ask turns, and the models a
                             # summary lane's command reported.
-                            "assistant_turn_failures", "execution_ai_models"}
+                            "assistant_turn_failures", "execution_ai_models",
+                            # Schema 25: the record of files removed from the
+                            # Library. (It also rebuilds ``library_files``,
+                            # already listed above.)
+                            "library_removed",
+                            # Schema 26: collections, their indexes, and the
+                            # triggers that file a paper and count revisions.
+                            "collections", "collection_documents",
+                            "idx_collection_documents_document",
+                            "idx_collection_documents_added",
+                            "collection_documents_revise_in",
+                            "collection_documents_revise_out",
+                            "documents_file_in_default",
+                            # Schema 27: where open copies are, a paper's
+                            # other identifiers, Find a paper's record, and
+                            # every PDF asked for.
+                            "document_open_access", "idx_document_open_access_document",
+                            "document_identifiers", "idx_document_identifiers_value",
+                            "execution_find_results", "full_text_downloads",
+                            "idx_full_text_downloads_document",
+                            "idx_full_text_downloads_state",
+                            "idx_full_text_downloads_execution",
+                            "idx_full_text_downloads_requested",
+                            "idx_full_text_downloads_one_pending"}
 
 
 def test_the_fixture_holds_every_object_the_application_owns(legacy, tmp_path):

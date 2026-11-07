@@ -95,7 +95,7 @@ function copyTree(from, to) {
   }
 }
 
-/** Download and extract the runtime, install the requirements, fetch NLTK's data. */
+/** Download and extract the runtime, and install the requirements. */
 async function installRuntime(pythonBin, pydir, marker, pin) {
   fs.rmSync(pydir, { recursive: true, force: true });
   const { name, url } = runtimeUrl();
@@ -117,18 +117,6 @@ async function installRuntime(pythonBin, pydir, marker, pin) {
   console.log('[prepare-backend] installing dependencies (a few minutes)...');
   execFileSync(pythonBin, ['-m', 'pip', 'install', '--quiet', '--no-warn-script-location',
                '-r', path.join(STAGE, 'requirements.txt')], { stdio: 'inherit' });
-
-  // NLTK's sentence data is not a pip package. It lives at sys.prefix/nltk_data,
-  // which for the standalone runtime is the python/ directory itself — on NLTK's
-  // default search path, so no env var is needed at run time. The app degrades
-  // gracefully if this fetch ever fails, so it is not fatal.
-  try {
-    execFileSync(pythonBin,
-                 ['-m', 'nltk.downloader', '-d', path.join(pydir, 'nltk_data'), 'punkt_tab'],
-                 { stdio: 'inherit' });
-  } catch {
-    console.warn('[prepare-backend] punkt_tab download failed; the app will fall back');
-  }
 
   fs.writeFileSync(marker, pin + '\n');
 }

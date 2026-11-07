@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from 'react';
+import { useState, type FormEvent, type KeyboardEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { answer, engine, EngineError } from '../../api/client';
@@ -79,6 +79,7 @@ export function Sources() {
           missing. They are most likely still there; storing a key again replaces it for this build.
         </p>
       )}
+      <ContactAddress />
       {catalog.isError && <p className="field-error" role="alert">The engine did not list the sources ({catalog.error.message}).</p>}
       {credits.length > 0 && (
         <section className="sources-credits" aria-labelledby="credits-title" data-sources="credits">
@@ -104,7 +105,10 @@ function SourceRow({ entry, state }: { entry: CatalogEntry; state: string | null
         <button type="button" className="source-entry-name" aria-expanded={open} onClick={() => setOpen(!open)}>
           {entry.name}
         </button>
-        <span className="source-entry-req">{REQUIREMENT[entry.api_key_requirement] ?? entry.api_key_requirement}</span>
+        <span className="source-entry-req">
+          {REQUIREMENT[entry.api_key_requirement] ?? entry.api_key_requirement}
+          {entry.service_notice && <span className="source-notice" title={entry.service_notice}> · end announced</span>}
+        </span>
         {entry.credential_name && <KeyField name={entry.credential_name} source={entry.name} state={state} />}
       </div>
       {open && (
@@ -117,6 +121,7 @@ function SourceRow({ entry, state }: { entry: CatalogEntry; state: string | null
           {entry.keyword_combination_notes && <><dt>About combining terms</dt><dd>{entry.keyword_combination_notes}</dd></>}
           <dt>Query method</dt><dd>{entry.query_method || 'Not stated'}</dd>
           <dt>Endpoint</dt><dd><code>{entry.endpoint || 'Not stated'}</code></dd>
+          {entry.service_notice && <><dt>Notice</dt><dd data-sources="service-notice">{entry.service_notice}</dd></>}
           {entry.notes && <><dt>Notes</dt><dd>{entry.notes}</dd></>}
           {entry.website && <><dt>Website</dt><dd><a href={entry.website} target="_blank" rel="noreferrer noopener">{entry.website}</a></dd></>}
           {entry.registration_url && (
@@ -178,3 +183,63 @@ function KeyField({ name, source, state }: { name: string; source: string; state
     </span>
   );
 }
+
+const CONTACT_KEY = ['source-settings'] as const;
+
+/**
+ * The contact address resmon gives Crossref and OpenAlex. Nothing is sent
+ * until one is entered here, and it goes to those two sources and no other
+ * (`source_contact.py`); Remove takes it back.
+ */
+function ContactAddress() {
+  const client = useQueryClient();
+  const stored = useQuery({ queryKey: CONTACT_KEY, queryFn: () => answer(engine().GET('/api/settings/sources')) });
+  /** What is typed; null while the field shows what is stored. */
+  const [typed, setTyped] = useState<string | null>(null);
+  const saved = stored.data?.contact_email ?? null;
+  const value = typed ?? saved ?? '';
+  const save = useMutation({
+    mutationFn: (contact: string | null) => answer(engine().PUT('/api/settings/sources', { body: { contact_email: contact } })),
+    onSuccess: (answered) => {
+      client.setQueryData(CONTACT_KEY, answered);
+      setTyped(null);
+    },
+  });
+  const dirty = typed !== null && typed.trim() !== (saved ?? '');
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (dirty) save.mutate(typed.trim() || null);
+  };
+  return (
+    <section className="sources-contact" aria-labelledby="contact-title" data-sources="contact" aria-busy={stored.isPending}>
+      <h3 id="contact-title" className="field-title">A contact address for Crossref and OpenAlex</h3>
+      <p className="field-lede">
+        Crossref and OpenAlex let a program name a contact address with its requests. Crossref answers requests that
+        carry one from its polite pool, and either can write to you about a problem rather than block it. resmon sends
+        an address only if you enter one here, and only to those two sources; with none, nothing is sent.
+      </p>
+      {stored.isError && <p className="field-error" role="alert">The engine did not say what is set ({stored.error.message}).</p>}
+      <form className="contact-form" onSubmit={submit} aria-label="A contact address for Crossref and OpenAlex">
+        <label className="sr-only" htmlFor="contact-email">Your email address</label>
+        <input
+          id="contact-email" type="email" value={value} autoComplete="email" spellCheck={false}
+          placeholder="you@example.org" disabled={!stored.data}
+          onChange={(event) => setTyped(event.target.value)}
+        />
+        <button type="submit" className="btn sm" disabled={!dirty || save.isPending}>Save</button>
+        {saved && (
+          <button type="button" className="btn quiet sm" disabled={save.isPending} onClick={() => save.mutate(null)}>
+            Remove
+          </button>
+        )}
+      </form>
+      {save.isSuccess && !dirty && (
+        <p className="settings-said" role="status" data-sources="contact-said">
+          {save.data.contact_email ? `Saved. Crossref and OpenAlex are sent ${save.data.contact_email}.` : 'Removed. No address is sent.'}
+        </p>
+      )}
+      {save.error && <p className="field-error" role="alert">{refusal(save.error)}</p>}
+    </section>
+  );
+}
+

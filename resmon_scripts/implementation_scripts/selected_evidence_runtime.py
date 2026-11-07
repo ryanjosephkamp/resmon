@@ -49,7 +49,7 @@ class Job:
     runtime: object
     native_id: str
     request: dict
-    cancelled: threading.Event = field(default_factory=threading.Event)
+    canceled: threading.Event = field(default_factory=threading.Event)
     completed: threading.Event = field(default_factory=threading.Event)
     events: queue.Queue = field(default_factory=lambda: queue.Queue(maxsize=16))
     lock: threading.RLock = field(default_factory=threading.RLock)
@@ -66,8 +66,6 @@ class Lane:
     def __init__(self, db_path: str, runtime_id: str, port: int,
                  settings: Callable[[sqlite3.Connection], dict]) -> None:
         ev.identity(runtime_id); ev.integer(port, 1, 65535)
-        if port == 8742:
-            se.fail('Selected evidence requires an explicit isolated serving port.', 'invalid_port', 409)
         self.db_path = db_path
         self.runtime_id = runtime_id
         self.port = port
@@ -169,6 +167,10 @@ class Lane:
             if snapshot != preview.request:
                 se.fail('Preview content changed. Inspect a new preview before Send.', 'changed_preview', 409)
             runtime = assistant_runtime.get_bound_runtime(binding, settings, backend_port=self.port, profile=se.PROFILE)
+            # The runtime the answer runs on is checked itself, as assembly
+            # checks its own: a command gone since then starts nothing.
+            if not runtime.status().available:
+                se.fail('The selected connection is unavailable. Review its existing settings.', 'runtime_unavailable', 503)
             runtime.selected_system_sha256 = snapshot['system_sha256']
             # Freeze system bytes only through the fixed, trusted profile. A
             # changed asset between preview and process construction refuses.
@@ -181,7 +183,7 @@ class Lane:
                     if assistant_choices.route_digest(self.settings(conn),binding['runtime'],binding['provider']) != binding['route_digest']:
                         se.fail('The selected route changed during admission.', 'changed_route', 409)
                     if cancel.is_set() or preview.expires <= time.monotonic():
-                        se.fail('Preview admission was cancelled or expired.', 'preview_conflict', 409)
+                        se.fail('Preview admission was canceled or expired.', 'preview_conflict', 409)
                     if conn.execute("SELECT 1 FROM evidence_answers WHERE state IN ('admitted','running') OR cleanup_state IN ('pending','unknown') LIMIT 1").fetchone():
                         se.fail('Another selected operation or unresolved cleanup owns this state.', 'lane_busy', 409)
                     if conn.execute('SELECT count(*) FROM evidence_answers WHERE project_id=?', (project_id,)).fetchone()[0] >= 1000:
@@ -208,7 +210,7 @@ class Lane:
                     job.thread.start(); worker_started = True
                     job.timer.start()
                 except Exception:
-                    job.cancelled.set()
+                    job.canceled.set()
                     se.finish(conn,answer_id,self.runtime_id,'failed',partial=job.partial,reports=job.reports,
                               code='startup_failed',message='The selected worker or subscriber lease could not start.',
                               cleanup='pending' if worker_started else 'confirmed')
@@ -243,12 +245,12 @@ class Lane:
         try:
             cursor = conn.execute("UPDATE evidence_answers SET state='running',started_at_utc=?,cleanup_state='pending' WHERE id=? AND state='admitted' AND owner_runtime_id=?",
                                   (ev.utc_now(),job.id,job.owner)); conn.commit()
-            if cursor.rowcount != 1 or job.cancelled.is_set():
+            if cursor.rowcount != 1 or job.canceled.is_set():
                 return
             self._publish(job,'progress',state='running',cleanup_state='pending')
             iterator = job.runtime.run_turn(-job.id,job.request['user_prompt'],cli_session_id=job.native_id,resume=False,history=None)
             for event in iterator:
-                if job.cancelled.is_set():
+                if job.canceled.is_set():
                     break
                 if time.monotonic() >= deadline:
                     raise TimeoutError('selected operation deadline')
@@ -283,7 +285,7 @@ class Lane:
                                      (job.partial,se.canonical(job.reports),job.id,job.owner)); conn.commit()
                         last_checkpoint = time.monotonic()
             with job.lock:
-                if not job.cancelled.is_set():
+                if not job.canceled.is_set():
                     if fault or not normal_done:
                         raise ValueError('missing normal completion')
                     result = se.validate_result(job.partial,job.request)
@@ -309,7 +311,7 @@ class Lane:
             try:
                 # cancel() signals before committing its terminal row under this
                 # lock. Publishing earlier can update zero rows, then strand the
-                # cancelled answer at pending after the worker has completed.
+                # canceled answer at pending after the worker has completed.
                 # Transport cleanup stays outside: it may need a worker callback.
                 with job.lock:
                     updated = conn.execute("UPDATE evidence_answers SET cleanup_state=? WHERE id=? AND owner_runtime_id=? AND state IN ('succeeded','refused','failed','cancelled','interrupted')",
@@ -339,9 +341,9 @@ class Lane:
                 if job is None or job.answer_id != answer_id or saved['owner_runtime_id']!=self.runtime_id:
                     se.fail('This process does not own that active answer.', 'wrong_owner', 409)
                 with job.lock:
-                    job.cancelled.set()
+                    job.canceled.set()
                     se.finish(conn,answer_id,self.runtime_id,'cancelled',partial=job.partial,reports=job.reports,
-                              code='cancelled',message='Cancelled locally. Remote completion and billing remain unknown.')
+                              code='cancelled',message='Canceled locally. Remote completion and billing remain unknown.')
                 job.runtime.cancel(-job.id)
             return se.detail(conn,vault_id,project_id,answer_id)
         finally:

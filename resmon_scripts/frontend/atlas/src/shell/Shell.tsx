@@ -1,23 +1,29 @@
 import { useCallback, useEffect, useEffectEvent, useRef, useState, type MouseEvent } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { HOME, SECTIONS, SETTINGS } from '../routes';
+import { SETTINGS, sectionFor } from '../routes';
 import { bridge, isMac } from '../bridge';
 import { useAsk } from '../screens/ask/AskProvider';
+import { RunMonitor } from '../screens/runs/RunMonitor';
+import { useAppearance } from '../theme/appearance';
 import { startSearch, type SearchKind } from '../screens/searchStart';
 import { CommandPalette } from './CommandPalette';
 import { EngineNotice } from './EngineNotice';
+import { Fallback } from './Fallback';
+import { PageFailed } from './PageFailed';
 import { canGo } from './history';
 import { Icon } from './Icon';
 import { NewSearch } from './NewSearch';
+import { CollectionSwitcher } from '../collections/CollectionSwitcher';
 import { ShortcutsSheet } from './ShortcutsSheet';
 import { ShowShortcutsContext } from './shortcutsSheetContext';
+import { ScrollPlaces, StageScroll } from './stageScroll';
 import { SwipeNavigation } from './SwipeNavigation';
+import { pageName } from './topBar';
+import { useTopBar } from './useTopBar';
 import {
-  COMMAND_ENTER_CHORD, ariaKeys, blockingDialogOpen, commandEnterAction, isMenuCommand, isTyping, keysText, pressed, sectionIndex,
-  shortcut, shortcutFor, type ShortcutId,
+  COMMAND_ENTER_CHORD, ariaKeys, blockingDialogOpen, commandEnterAction, isMenuCommand, isTyping, keysText, pressed, sectionPath,
+  sectionShortcut, shortcut, shortcutFor, type ShortcutId,
 } from './shortcuts';
-
-const HOME_LABEL = SECTIONS.find((section) => section.path === HOME)?.label ?? 'Today';
 
 /**
  * A click on the bar leaves the focus where it was, as a toolbar does, so the
@@ -26,12 +32,19 @@ const HOME_LABEL = SECTIONS.find((section) => section.path === HOME)?.label ?? '
  */
 const keepFocus = (event: MouseEvent) => event.preventDefault();
 
-/** The frame every screen sits in: the top bar, the screen, the palette, and the keyboard's shortcuts. */
+/**
+ * The frame every screen sits in: the top bar, the screen, the palette, and
+ * the keyboard's shortcuts. The bar's sections are the ones the person did not
+ * hide, in their order (Settings › Top bar, one arrangement for every
+ * collection). Whatever is hidden, the collection the window shows stays
+ * beside the resmon name and Settings at the bar's right end.
+ */
 export function Shell() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const palette = useRef<HTMLDialogElement>(null);
   const sheet = useRef<HTMLDialogElement>(null);
+  const stage = useRef<HTMLElement>(null);
   const mac = isMac();
   const closePalette = useCallback(() => setPaletteOpen(false), []);
   const closeSheet = useCallback(() => setSheetOpen(false), []);
@@ -43,6 +56,10 @@ export function Shell() {
   const navigate = useNavigate();
   const location = useLocation();
   const { answering, requestFocus, select } = useAsk();
+  // Settings › Top bar can hide the run monitor; runs still notify, and the Runs tab still lists them.
+  const { stored: appearance } = useAppearance();
+  // The sections in the order the person chose, and only those they did not hide (Settings › Top bar).
+  const { arranged } = useTopBar();
 
   // The shell's own dialogs close before a command runs: closing one hands the
   // focus back to where it was, so closing it later would take back the caret
@@ -75,10 +92,9 @@ export function Shell() {
       return;
     }
     closeDialogs();
-    const section = sectionIndex(id);
+    const section = sectionPath(id, arranged.keyPaths);
     if (section !== null) {
-      const target = SECTIONS[section];
-      if (target) go(target.path);
+      go(section);
       return;
     }
     switch (id) {
@@ -96,6 +112,9 @@ export function Shell() {
         break;
       case 'new-sweep':
         newSearch('sweep');
+        break;
+      case 'new-window':
+        bridge()?.openWindow?.(null);
         break;
       case 'settings':
         go(SETTINGS.path);
@@ -150,19 +169,20 @@ export function Shell() {
   return (
     <div className={mac ? 'frame is-mac' : 'frame'}>
       <header className="bar">
-        <Link to={HOME} className="lockup" aria-label={`resmon, ${HOME_LABEL}`} onMouseDown={keepFocus}>
+        <Link to={arranged.lockup} className="lockup" aria-label={`resmon, ${pageName(arranged.lockup)}`} onMouseDown={keepFocus}>
           <b aria-hidden="true">res</b><span aria-hidden="true">earch </span>
           <b aria-hidden="true">mon</b><span aria-hidden="true">itor</span>
         </Link>
-        <nav className="tabs" aria-label="Sections">
+        <CollectionSwitcher />
+        <nav className="tabs" aria-label="Sections" hidden={arranged.shown.length === 0}>
           <ul>
-            {SECTIONS.map((section, index) => (
+            {arranged.shown.map(sectionFor).map((section) => (
               <li key={section.path}>
                 <NavLink
                   to={section.path}
                   onMouseDown={keepFocus}
-                  aria-keyshortcuts={[keys(`section-${index + 1}` as ShortcutId), section.path === '/ask' ? keys('ask') : '']
-                    .filter(Boolean).join(' ')}
+                  aria-keyshortcuts={[sectionShortcut(section.path, arranged.keyPaths), section.path === '/ask' ? 'ask' : null]
+                    .filter((id): id is ShortcutId => id !== null).map(keys).join(' ') || undefined}
                 >
                   {section.label}
                   {section.path === '/ask' && answering && <span className="tab-live" role="img" aria-label=", answering" />}
@@ -172,6 +192,7 @@ export function Shell() {
           </ul>
         </nav>
         <span className="spacer" />
+        {appearance.run_monitor && <RunMonitor />}
         <NewSearch mac={mac} onStart={newSearch} />
         <button
           type="button"
@@ -191,10 +212,16 @@ export function Shell() {
         </NavLink>
       </header>
       <EngineNotice />
-      <main className="stage">
-        <ShowShortcutsContext value={showSheet}>
-          <Outlet />
-        </ShowShortcutsContext>
+      <main className="stage" ref={stage}>
+        <ScrollPlaces>
+          {/* First, so a screen that opens at its own place does so after this has put the stage at its top. */}
+          <StageScroll stage={stage} />
+          <ShowShortcutsContext value={showSheet}>
+            <Fallback resetKey={`${location.pathname}?${location.search}`} fallback={(error) => <PageFailed error={error} />}>
+              <Outlet />
+            </Fallback>
+          </ShowShortcutsContext>
+        </ScrollPlaces>
       </main>
       <CommandPalette open={paletteOpen} onClose={closePalette} onRun={run} dialog={palette} mac={mac} />
       <ShortcutsSheet open={sheetOpen} onClose={closeSheet} dialog={sheet} mac={mac} />

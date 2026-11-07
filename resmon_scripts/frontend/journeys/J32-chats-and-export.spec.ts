@@ -19,7 +19,7 @@
  * **The runtime is the repository's own agent-CLI double**, as J13's is: it
  * speaks the real protocol over real HTTP against this app's backend, and what
  * it replaces is the model. What no double can see is a real CLI's own
- * behaviour, and this journey does not claim to.
+ * behavior, and this journey does not claim to.
  */
 import { expect, journey } from './driver';
 
@@ -70,7 +70,7 @@ journey.describe('J32 Chats and export', () => {
     console.log(`[J32] after a relaunch the Chats page lists ${JSON.stringify(afterwards)}`);
     expect(afterwards, 'the saved chats changed across a relaunch').toEqual(listed);
 
-    console.log('[J32] NOT VERIFIED: a real agent CLI\'s own behaviour. The runtime here is the '
+    console.log('[J32] NOT VERIFIED: a real agent CLI\'s own behavior. The runtime here is the '
       + 'repository\'s double; what it replaces is the model. A version change or a lapsed '
       + 'sign-in in the real command is invisible to this row.');
 

@@ -6,10 +6,11 @@ import logging
 import os
 import re
 import sqlite3
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import runtime_identity
+from . import runtime_identity, upgrade_copy
 from .config import DEFAULT_DB_PATH
 from .utils import compute_metadata_hash, month_from_name
 
@@ -18,6 +19,12 @@ from .utils import compute_metadata_hash, month_from_name
 # ---------------------------------------------------------------------------
 
 logger = logging.getLogger(__name__)
+#: What a start did, once, to data an earlier version stored: the recount of
+#: earlier runs' new papers and the one-time rewrites of stored values. The
+#: engine writes this logger's INFO lines to its output
+#: (``implementation_scripts.logger.UPGRADE_LOGGERS``); the rest of this
+#: module's INFO lines stay out of it.
+upgrade_logger = logging.getLogger(f"{__name__}.upgrade")
 
 
 def utc_now_iso() -> str:
@@ -293,7 +300,7 @@ CREATE INDEX IF NOT EXISTS idx_documents_first_seen
 --   error                the query raised; ``error_message`` holds the reason
 --   skipped_missing_key  the source needs a credential that is not configured,
 --                        so it was always going to return nothing
---   cancelled            the user cancelled while this source was in flight
+--   `cancelled`          the user canceled while this source was in flight
 --
 -- ``result_count`` is the raw count the source returned, before dedup. It is
 -- deliberately not the number of new papers: a source returning its usual 40
@@ -641,7 +648,20 @@ CREATE INDEX IF NOT EXISTS idx_reading_queue_status_saved
 # rather than as an answer, and ``execution_ai_models``, the models an agent
 # CLI reported for a run's summaries. 24 rebuilds ``assistant_session_choices``
 # so a conversation can be fixed to Codex, with Codex's own effort levels.
-SCHEMA_VERSION = 24
+# 25 rebuilds ``library_files`` so the Library keeps TeX (``text/x-tex``) and
+# adds ``library_removed``, the record a removed Library file is put back from.
+# 26 adds collections inside the one database: ``collections``, the membership
+# table ``collection_documents`` (a paper is stored once and can be in more
+# than one collection), and ``routines.collection_id``, where a watch's papers
+# land. The upgrade files every paper in the default collection and points
+# every watch at it. 27 is full text: ``document_open_access`` (where a source
+# says an open copy of a paper is, and under what license),
+# ``document_identifiers`` (a paper's arXiv id, PMCID and PMID),
+# ``execution_find_results`` (what each source said to Find a paper),
+# ``full_text_downloads`` (every PDF asked for, and what came of it),
+# ``routines.download_full_text`` (a watch's opt-in), and ``executions``
+# rebuilt so a run can be a ``find_paper``.
+SCHEMA_VERSION = 27
 _SCHEMA_VERSION_KEY = "schema_version"
 
 # ---------------------------------------------------------------------------
@@ -671,8 +691,19 @@ def get_connection(db_path: str | Path | None = None) -> sqlite3.Connection:
     return conn
 
 
-def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | None = None) -> None:
-    """Create all tables if they do not exist. Accepts an existing connection or a path."""
+def init_db(
+    db_path: str | Path | None = None,
+    *,
+    conn: sqlite3.Connection | None = None,
+    keep_upgrade_copy: bool = True,
+) -> None:
+    """Create all tables if they do not exist, and bring an older database to ``SCHEMA_VERSION``.
+
+    Accepts an existing connection or a path. Before the first step of an
+    upgrade, a copy of the database is kept beside it (``upgrade_copy``);
+    ``keep_upgrade_copy=False`` is for a database that has another copy of
+    itself already, such as one a restore has just put in place from a backup.
+    """
     if conn is None:
         conn = get_connection(db_path)
         own_conn = True
@@ -681,6 +712,14 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys=ON;")
         own_conn = False
+
+    # Before anything below changes the database, including the two early
+    # steps that follow.
+    began = time.time()
+    stored = _stored_schema_version(conn)
+    upgrade_marked = upgrade_copy.before_upgrade(
+        conn, stored=stored, target=SCHEMA_VERSION, keep=keep_upgrade_copy)
+    kept_copy = _copy_kept_this_start(conn, stored, keep=keep_upgrade_copy, since=began)
 
     # pub_sort must exist before _SCHEMA_SQL runs, because an older database
     # reaching this point already has a documents table without it.
@@ -730,14 +769,26 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
     _migrate_metadata_hash_index(conn)
     _migrate_answer_records(conn)
     _migrate_assistant_codex(conn)
+    _migrate_library_v25(conn)
+    # After the steps above: its tables reference ``documents``,
+    # ``executions`` and ``routines`` as those steps leave them.
+    _migrate_collections(conn)
+    # Last of the schema steps: the full-text tables reference ``documents``
+    # and ``executions``, and ``executions`` is rebuilt here once more, so a
+    # run can be a ``find_paper``.
+    _migrate_full_text(conn)
     _repair_doaj_month_names(conn)
     _repair_biorxiv_published_detail(conn)
+    # After every schema step, so it reads the tables in their final shape, and
+    # so on an upgrade it runs after the copy ``before_upgrade`` kept above.
+    _recount_run_new_papers(conn, stored=stored, kept_copy=kept_copy)
     # Commit before returning. Each thread holds its own connection (sharing
     # one sqlite3 connection across threads can segfault CPython), so schema
     # left inside an open transaction on this one is invisible to every other
     # -- an in-memory database shared through cache=shared then answers "no
     # such table: executions" on the next connection to touch it.
     conn.commit()
+    upgrade_copy.after_upgrade(conn, upgrade_marked)
 
     if own_conn:
         conn.close()
@@ -873,7 +924,7 @@ def index_document_facets(conn: sqlite3.Connection, document_id: int,
     which is the whole reason schema 13 exists — and because splitting it back
     apart is lossy for any name that contains a comma.
 
-    Without it the behaviour is exactly what it was: names only, from the
+    Without it the behavior is exactly what it was: names only, from the
     string. Every caller that does not know about authors-with-identifiers keeps
     working and keeps filling the name column.
     """
@@ -1086,7 +1137,7 @@ def sources_from_progress_events(events: list[dict]) -> list[dict]:
     ``repo_done`` with zero results or ``repo_error`` with an auth failure.
     Precedence resolves that to the most informative single answer:
 
-        cancelled > skipped_missing_key > error > ok
+        `cancelled` > skipped_missing_key > error > ok
 
     ``skipped_missing_key`` outranks ``error`` deliberately. When the key is
     absent, "no API key configured" is the cause and the 401 underneath it is
@@ -1425,7 +1476,12 @@ def _migrate_library(conn: sqlite3.Connection) -> None:
             if row is None:
                 conn.execute(ddl)
             row = conn.execute("SELECT sql FROM sqlite_master WHERE name=?", (name,)).fetchone()
-            if not row or " ".join((row[0] or "").split()) != " ".join(ddl.split()):
+            # Schema 25 rebuilds ``library_files`` in place; that shape is this
+            # one's successor, not a conflict with it.
+            accepted = {" ".join(ddl.split())}
+            if name == "library_files":
+                accepted.add(" ".join(_LIBRARY_FILES_V25_DDL.split()))
+            if not row or " ".join((row[0] or "").split()) not in accepted:
                 raise sqlite3.DatabaseError("Conflicting schema-16 object: " + name)
         conn.execute(
             "INSERT INTO app_settings(key,value) VALUES (?,?) "
@@ -1650,11 +1706,11 @@ def _migrate_executions_interrupted(conn: sqlite3.Connection) -> None:
     table -- other tables' foreign keys need it to exist before this point --
     and this replaces it on the first launch, on an empty table, at a cost of
     nothing. One authoritative DDL string means the upgrade path and the fresh
-    path cannot drift apart, which two hand-synchronised copies eventually do.
+    path cannot drift apart, which two hand-synchronized copies eventually do.
 
     Nothing about the *rows* changes. A row that was already ``failed`` with
     ``cancel_reason='daemon_restart'`` -- what every graceful shutdown before
-    this schema wrote -- stays exactly that. Relabelling it now would be
+    this schema wrote -- stays exactly that. Relabeling it now would be
     inventing an observation after the fact, which is the same mistake in the
     opposite direction.
     """
@@ -2237,6 +2293,535 @@ def _migrate_assistant_codex(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+# Schema 25. The Library keeps TeX, and a removed file can be put back.
+#
+# ``library_files.media_type`` is held by a CHECK that names the three kinds
+# schema 16 kept. A CHECK cannot be altered in place, so the table is rebuilt
+# with ``text/x-tex`` added, on fresh and upgraded databases alike, as schema 19
+# rebuilt ``executions``: under a temporary name, renamed into place, with
+# ``PRAGMA foreign_keys`` off around it. Three tables reference this one with
+# ``ON DELETE RESTRICT`` (``library_file_documents``, ``evidence_project_files``
+# and ``evidence_notes``); with foreign keys on, dropping the old table would be
+# refused, and the rebuild must not touch a child row. ``foreign_key_check`` is
+# run before the step is released, so a rebuild that orphaned one is undone.
+#
+# ``library_removed`` is new. Removing a file from the Library renames its
+# folder into the vault's ``removed/`` and moves its catalog row, and every row
+# that went with it (its paper links, project memberships and notes), into one
+# record here, as JSON. Undo and Restore read it back exactly; nothing is
+# derived or summarized. ``bytes_state`` says whether there were bytes to hold:
+# a file deleted outside resmon is removed as a record alone.
+_LIBRARY_FILES_V25_DDL = """CREATE TABLE "library_files" (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_id TEXT NOT NULL UNIQUE,
+    version_id TEXT NOT NULL UNIQUE,
+    vault_id TEXT NOT NULL REFERENCES library_vault(vault_id) ON DELETE RESTRICT,
+    sha256 TEXT NOT NULL CHECK (length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
+    byte_size INTEGER NOT NULL CHECK (byte_size > 0 AND byte_size <= 67108864),
+    media_type TEXT NOT NULL CHECK (media_type IN ('application/pdf', 'text/plain', 'text/markdown', 'text/x-tex')),
+    original_name TEXT NOT NULL,
+    relative_path TEXT NOT NULL UNIQUE,
+    created_at_utc TEXT NOT NULL,
+    UNIQUE(vault_id, sha256)
+)"""
+
+_LIBRARY_REMOVED_DDL = """CREATE TABLE library_removed (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_id TEXT NOT NULL UNIQUE,
+    version_id TEXT NOT NULL UNIQUE,
+    vault_id TEXT NOT NULL REFERENCES library_vault(vault_id) ON DELETE RESTRICT,
+    original_name TEXT NOT NULL,
+    media_type TEXT NOT NULL,
+    byte_size INTEGER NOT NULL CHECK (byte_size > 0),
+    sha256 TEXT NOT NULL CHECK (length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
+    bytes_state TEXT NOT NULL CHECK (bytes_state IN ('held', 'missing')),
+    record_json TEXT NOT NULL,
+    removed_at_utc TEXT NOT NULL
+)"""
+
+
+def _library_file_references(conn: sqlite3.Connection) -> set[tuple[str, int]]:
+    """The rows of the three referencing tables whose ``library_files`` parent is missing."""
+    return {(child, row[1]) for child in ("library_file_documents", "evidence_project_files", "evidence_notes")
+            for row in conn.execute(f"PRAGMA foreign_key_check({child})") if row[2] == "library_files"}
+
+
+def _migrate_library_v25(conn: sqlite3.Connection) -> None:
+    """Rebuild ``library_files`` with the schema-25 CHECK, and add ``library_removed``.
+
+    Already in that shape: only what is missing is made, and the marker moves.
+    In schema 16's shape: the rows are carried into the new table unchanged,
+    ids, sequence and all. Any other shape is a conflict -- ``_migrate_library``
+    has already refused it.
+    """
+    def shape(name: str) -> str:
+        row = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone()
+        return " ".join(((row[0] if row else "") or "").split())
+
+    target = " ".join(_LIBRARY_FILES_V25_DDL.split())
+    conn.commit()
+    had_foreign_keys = bool(conn.execute("PRAGMA foreign_keys").fetchone()[0])
+    conn.execute("PRAGMA foreign_keys=OFF")
+    try:
+        conn.execute("SAVEPOINT library_v25")
+        try:
+            if shape("library_files") != target:
+                if shape("library_files") != " ".join(_LIBRARY_DDL["library_files"].split()):
+                    raise sqlite3.DatabaseError("Conflicting schema-25 object: library_files")
+                # A reference that already dangled before (a backup can carry one)
+                # is not this step's to judge; one the rebuild made is refused.
+                dangling_before = _library_file_references(conn)
+                seq_row = conn.execute("SELECT seq FROM sqlite_sequence WHERE name='library_files'").fetchone()
+                previous_seq = int(seq_row[0]) if seq_row else None
+                carried = [(row[0], row[1]) for row in conn.execute(
+                    "SELECT name, sql FROM sqlite_master WHERE tbl_name='library_files' "
+                    "AND type IN ('index','trigger') AND sql IS NOT NULL").fetchall()]
+                conn.execute(_LIBRARY_FILES_V25_DDL.replace('"library_files"', "library_files_v25_new", 1))
+                columns = ", ".join(f'"{row[1]}"' for row in conn.execute("PRAGMA table_info(library_files)"))
+                conn.execute(f"INSERT INTO library_files_v25_new ({columns}) SELECT {columns} FROM library_files")
+                conn.execute("DROP TABLE library_files")
+                conn.execute("ALTER TABLE library_files_v25_new RENAME TO library_files")
+                for _name, sql in carried:
+                    conn.execute(sql)
+                # The mark is put back exactly, and so is its absence: copying no
+                # rows still makes a sequence row at 0, which the old table never had.
+                conn.execute("DELETE FROM sqlite_sequence WHERE name='library_files'")
+                if previous_seq is not None:
+                    conn.execute("INSERT INTO sqlite_sequence(name, seq) VALUES ('library_files', ?)", (previous_seq,))
+                if shape("library_files") != target:
+                    raise sqlite3.DatabaseError("Conflicting schema-25 object: library_files")
+                if _library_file_references(conn) - dangling_before:
+                    raise sqlite3.DatabaseError("The schema-25 rebuild would leave a Library reference without its file")
+            if shape("library_removed") == "":
+                conn.execute(_LIBRARY_REMOVED_DDL)
+            if shape("library_removed") != " ".join(_LIBRARY_REMOVED_DDL.split()):
+                raise sqlite3.DatabaseError("Conflicting schema-25 object: library_removed")
+            conn.execute(
+                "INSERT INTO app_settings(key,value) VALUES (?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value "
+                "WHERE CAST(app_settings.value AS INTEGER)<25",
+                (_SCHEMA_VERSION_KEY, "25"),
+            )
+            conn.execute("RELEASE library_v25")
+        except BaseException:
+            conn.execute("ROLLBACK TO library_v25")
+            conn.execute("RELEASE library_v25")
+            raise
+        conn.commit()
+    finally:
+        conn.execute("PRAGMA foreign_keys=" + ("ON" if had_foreign_keys else "OFF"))
+
+
+# Schema 26: collections inside the one database.
+#
+# A paper is stored once (``documents`` keeps its UNIQUE source and external id)
+# and is in one or more collections through ``collection_documents``, which says
+# when it arrived there and how: a run, a move, a copy, the upgrade that made
+# collections, or ``kept`` (left in no other collection when its own was
+# deleted, and so kept in the default one).
+#
+# Every paper is in at least one collection, and the database keeps that:
+# ``documents_file_in_default`` files a paper stored with no collection in the
+# default one, in the statement that stores it. A run that stores a paper for
+# another collection files it there in the same transaction, and only then
+# takes it out of the default one (``insert_document``); a collection deleted
+# while the run went leaves it in the default one. Each launch also keeps in
+# the default collection any paper found in none.
+#
+# ``revision`` counts every change of a collection's papers, kept by two
+# triggers, so a count or a ranking made of a collection is known to be stale
+# when a move or a copy changed it without changing ``documents``.
+#
+# The default collection is the row with id 1. It can be renamed and never
+# deleted, so "no collection named" always has somewhere to mean.
+DEFAULT_COLLECTION_ID = 1
+DEFAULT_COLLECTION_NAME = "Your collection"
+#: How a paper arrived in a collection, as ``collection_documents.added_by``
+#: holds it. The CHECK below enumerates the same words.
+COLLECTION_ARRIVALS = ("run", "move", "copy", "upgrade", "kept")
+
+_COLLECTIONS_TABLES = {
+    "collections": """CREATE TABLE collections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL COLLATE NOCASE UNIQUE CHECK (length(name) BETWEEN 1 AND 80),
+    revision INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)""",
+    "collection_documents": """CREATE TABLE collection_documents (
+    collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+    document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    added_at TEXT NOT NULL DEFAULT (datetime('now')),
+    added_by TEXT NOT NULL CHECK (added_by IN ('run', 'move', 'copy', 'upgrade', 'kept')),
+    execution_id INTEGER REFERENCES executions(id) ON DELETE SET NULL,
+    PRIMARY KEY (collection_id, document_id)
+)""",
+    # A paper's collections, for a move, a copy and "is it anywhere else".
+    "idx_collection_documents_document":
+        "CREATE INDEX idx_collection_documents_document ON collection_documents(document_id)",
+    # Today's list: a collection's arrivals, newest first, a page at a time.
+    "idx_collection_documents_added":
+        "CREATE INDEX idx_collection_documents_added "
+        "ON collection_documents(collection_id, added_at, document_id)",
+}
+
+# Made after the upgrade has filed every paper, so filing a hundred thousand
+# papers does not count a hundred thousand revisions.
+_COLLECTIONS_TRIGGERS = {
+    "collection_documents_revise_in": """CREATE TRIGGER collection_documents_revise_in
+AFTER INSERT ON collection_documents BEGIN
+    UPDATE collections SET revision = revision + 1 WHERE id = NEW.collection_id;
+END""",
+    "collection_documents_revise_out": """CREATE TRIGGER collection_documents_revise_out
+AFTER DELETE ON collection_documents BEGIN
+    UPDATE collections SET revision = revision + 1 WHERE id = OLD.collection_id;
+END""",
+    "documents_file_in_default": f"""CREATE TRIGGER documents_file_in_default
+AFTER INSERT ON documents BEGIN
+    INSERT OR IGNORE INTO collection_documents (collection_id, document_id, added_at, added_by)
+    VALUES ({DEFAULT_COLLECTION_ID}, NEW.id, NEW.first_seen_at, 'run');
+END""",
+}
+
+# Added with ALTER on every database, fresh or upgraded, so both carry the
+# same stored ``CREATE TABLE routines`` text.
+_ROUTINES_COLLECTION_COLUMN = (
+    "ALTER TABLE routines ADD COLUMN collection_id INTEGER "
+    "REFERENCES collections(id) ON DELETE SET NULL"
+)
+
+
+def _migrate_collections(conn: sqlite3.Connection) -> None:
+    """Create the collections, file every paper in the default one, and point every watch at it.
+
+    On a database without the tables (an upgrade from 25, or a fresh install)
+    the tables and the default collection are made, every paper is filed in it
+    as ``upgrade`` (arriving when resmon first collected it, so Today's "new
+    since you last looked" is what it was), every watch targets it, and then
+    the triggers are made. On a later launch the objects are checked and
+    nothing is written. An object already present in another shape is a
+    conflict, refused before anything is written.
+    """
+    def shape(name: str) -> str | None:
+        row = conn.execute("SELECT sql FROM sqlite_master WHERE name=?", (name,)).fetchone()
+        return " ".join((row[0] or "").split()) if row else None
+
+    conn.commit()
+    conn.execute("SAVEPOINT collections_v26")
+    try:
+        upgrading = shape("collection_documents") is None
+        for objects in (_COLLECTIONS_TABLES, _COLLECTIONS_TRIGGERS):
+            if objects is _COLLECTIONS_TRIGGERS and upgrading:
+                conn.execute(
+                    "INSERT OR IGNORE INTO collections (id, name) VALUES (?, ?)",
+                    (DEFAULT_COLLECTION_ID, DEFAULT_COLLECTION_NAME))
+                conn.execute(
+                    "INSERT OR IGNORE INTO collection_documents (collection_id, document_id, added_at, added_by) "
+                    "SELECT ?, id, first_seen_at, 'upgrade' FROM documents ORDER BY id",
+                    (DEFAULT_COLLECTION_ID,))
+            for name, ddl in objects.items():
+                if shape(name) is None:
+                    conn.execute(ddl)
+                if shape(name) != " ".join(ddl.split()):
+                    raise sqlite3.DatabaseError("Conflicting schema-26 object: " + name)
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(routines)")}
+        if "collection_id" not in columns:
+            conn.execute(_ROUTINES_COLLECTION_COLUMN)
+            conn.execute("UPDATE routines SET collection_id = ?", (DEFAULT_COLLECTION_ID,))
+        conn.execute(
+            "INSERT INTO app_settings(key,value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value "
+            "WHERE CAST(app_settings.value AS INTEGER)<26",
+            (_SCHEMA_VERSION_KEY, "26"),
+        )
+        # On every launch: a paper in no collection, which no path leaves but
+        # a write interrupted outside resmon could, is kept in the default one.
+        conn.execute(
+            "INSERT INTO collection_documents (collection_id, document_id, added_at, added_by) "
+            "SELECT ?, d.id, d.first_seen_at, 'kept' FROM documents d WHERE NOT EXISTS "
+            "(SELECT 1 FROM collection_documents cm WHERE cm.document_id = d.id)",
+            (DEFAULT_COLLECTION_ID,))
+        conn.execute("RELEASE collections_v26")
+    except BaseException:
+        conn.execute("ROLLBACK TO collections_v26")
+        conn.execute("RELEASE collections_v26")
+        raise
+    conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Schema 27: full text
+# ---------------------------------------------------------------------------
+#
+# ``document_open_access`` holds where a source says an open copy of a paper
+# is: a PDF address, a landing page, the license the source states for that
+# copy, which version it is, and the source that said so. A later run that
+# returns the same paper refreshes its rows (``seen_at`` moves, a license the
+# source now states is kept), so a paper stored before a source sent this
+# data gains it the next time that source returns it. ``license_basis`` says
+# where the license came from: the source's own record of this copy
+# (``record``), the host's published license for everything it publishes
+# (``host_policy``, PLOS), or the host's record of this paper read when the PDF
+# was asked for (``host_record``, arXiv).
+#
+# ``document_identifiers`` holds the identifiers a source sends that the
+# documents table has no column for: an arXiv id, a PMCID, or a PMID.
+#
+# ``execution_find_results`` is Find a paper's record: for each source a find
+# named, whether it found the paper, how the copy matched (by DOI, arXiv id,
+# PMID, exact title or close title), what differs from the reference copy, and
+# why a source was not asked.
+#
+# ``full_text_downloads`` is every PDF asked for, by a person or by a watch,
+# and what came of it: stored (with the file, the address it came from after
+# every redirect, its license and when), skipped (and why, before any request),
+# or failed (and why). A stored row is the file's origin record. Its
+# ``file_id`` has no foreign key on purpose: the record of where a file came
+# from outlives the file's removal from the Library.
+#
+# ``executions`` is rebuilt for the last time in this schema's life so its
+# ``execution_type`` CHECK admits ``find_paper``. The rebuild transforms the
+# table's stored DDL rather than restating it, so a fresh install and an
+# upgrade, which reach schema 26 with the same DDL, leave it the same.
+
+_EXECUTION_TYPES_V26 = "CHECK(execution_type IN ('deep_dive', 'deep_sweep', 'automated_sweep'))"
+_EXECUTION_TYPES_V27 = (
+    "CHECK(execution_type IN ('deep_dive', 'deep_sweep', 'automated_sweep', 'find_paper'))")
+
+#: Where an open copy's license was read (``document_open_access.license_basis``).
+LICENSE_BASES = ("record", "host_policy", "host_record")
+#: Which version of a paper an open copy is.
+COPY_VERSIONS = ("submitted", "accepted", "published")
+#: The identifiers ``document_identifiers`` holds.
+IDENTIFIER_SCHEMES = ("arxiv", "pmcid", "pmid")
+#: What Find a paper recorded for one source.
+FIND_OUTCOMES = ("found", "not_found", "not_asked", "did_not_answer")
+#: How a copy Find a paper kept matched the paper asked for.
+FIND_MATCHES = ("doi", "arxiv", "pmid", "exact_title", "close_title")
+#: Who asked for a PDF, and the states a request moves through.
+DOWNLOAD_REQUESTERS = ("person", "watch")
+DOWNLOAD_STATES = ("waiting", "downloading", "stored", "skipped", "failed")
+
+_FULL_TEXT_DDL = {
+    "document_open_access": """CREATE TABLE document_open_access (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    reported_by TEXT NOT NULL,
+    location TEXT NOT NULL,
+    pdf_url TEXT,
+    landing_url TEXT,
+    license TEXT,
+    license_basis TEXT CHECK (license_basis IS NULL OR license_basis IN ('record', 'host_policy', 'host_record')),
+    version TEXT CHECK (version IS NULL OR version IN ('submitted', 'accepted', 'published')),
+    host TEXT,
+    first_seen_at TEXT NOT NULL,
+    seen_at TEXT NOT NULL,
+    CHECK (pdf_url IS NOT NULL OR landing_url IS NOT NULL),
+    CHECK (license IS NULL OR license_basis IS NOT NULL),
+    UNIQUE (document_id, reported_by, location)
+)""",
+    "idx_document_open_access_document":
+        "CREATE INDEX idx_document_open_access_document ON document_open_access(document_id)",
+    "document_identifiers": """CREATE TABLE document_identifiers (
+    document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    scheme TEXT NOT NULL CHECK (scheme IN ('arxiv', 'pmcid', 'pmid')),
+    value TEXT NOT NULL,
+    reported_by TEXT NOT NULL,
+    seen_at TEXT NOT NULL,
+    PRIMARY KEY (document_id, scheme, value)
+)""",
+    "idx_document_identifiers_value":
+        "CREATE INDEX idx_document_identifiers_value ON document_identifiers(scheme, value)",
+    "execution_find_results": """CREATE TABLE execution_find_results (
+    execution_id INTEGER NOT NULL REFERENCES executions(id) ON DELETE CASCADE,
+    source TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    outcome TEXT NOT NULL CHECK (outcome IN ('found', 'not_found', 'not_asked', 'did_not_answer')),
+    matched_by TEXT CHECK (matched_by IS NULL OR matched_by IN ('doi', 'arxiv', 'pmid', 'exact_title', 'close_title')),
+    title_similarity REAL,
+    document_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+    candidates INTEGER,
+    differences TEXT,
+    detail TEXT,
+    CHECK ((outcome = 'found') = (matched_by IS NOT NULL)),
+    PRIMARY KEY (execution_id, source)
+)""",
+    "full_text_downloads": """CREATE TABLE full_text_downloads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    execution_id INTEGER REFERENCES executions(id) ON DELETE SET NULL,
+    requested_by TEXT NOT NULL CHECK (requested_by IN ('person', 'watch')),
+    state TEXT NOT NULL CHECK (state IN ('waiting', 'downloading', 'stored', 'skipped', 'failed')),
+    reason TEXT,
+    detail TEXT,
+    url TEXT,
+    final_url TEXT,
+    host TEXT,
+    license TEXT,
+    version TEXT,
+    reported_by TEXT,
+    file_id TEXT,
+    byte_size INTEGER,
+    requested_at_utc TEXT NOT NULL,
+    started_at_utc TEXT,
+    finished_at_utc TEXT,
+    claimed_by TEXT,
+    CHECK ((state IN ('waiting', 'downloading') AND finished_at_utc IS NULL)
+           OR (state IN ('stored', 'skipped', 'failed') AND finished_at_utc IS NOT NULL)),
+    CHECK (state != 'stored' OR (file_id IS NOT NULL AND final_url IS NOT NULL AND license IS NOT NULL)),
+    CHECK (state NOT IN ('skipped', 'failed') OR reason IS NOT NULL)
+)""",
+    "idx_full_text_downloads_document":
+        "CREATE INDEX idx_full_text_downloads_document ON full_text_downloads(document_id, id)",
+    "idx_full_text_downloads_state":
+        "CREATE INDEX idx_full_text_downloads_state ON full_text_downloads(state, id)",
+    "idx_full_text_downloads_execution":
+        "CREATE INDEX idx_full_text_downloads_execution ON full_text_downloads(execution_id) "
+        "WHERE execution_id IS NOT NULL",
+    "idx_full_text_downloads_requested":
+        "CREATE INDEX idx_full_text_downloads_requested ON full_text_downloads(requested_at_utc)",
+    # One request at a time for a paper: two asked at once (two windows, a
+    # watch run and a person) cannot both wait or both download.
+    "idx_full_text_downloads_one_pending":
+        "CREATE UNIQUE INDEX idx_full_text_downloads_one_pending ON full_text_downloads(document_id) "
+        "WHERE state IN ('waiting', 'downloading')",
+}
+
+# Added with ALTER on every database, fresh or upgraded, as schema 26's column
+# was, so both carry the same stored ``CREATE TABLE routines`` text.
+_ROUTINES_FULL_TEXT_COLUMN = (
+    "ALTER TABLE routines ADD COLUMN download_full_text INTEGER NOT NULL DEFAULT 0 "
+    "CHECK (download_full_text IN (0, 1))"
+)
+
+
+def _executions_type_check_admits_find(conn: sqlite3.Connection) -> bool:
+    """True when this database's ``executions`` table is already at schema 27."""
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='executions'"
+    ).fetchone()
+    return bool(row) and "'find_paper'" in (row[0] or "")
+
+
+#: How the rows go into the rebuilt table, every column of every row.
+_EXECUTIONS_V27_COPY = "INSERT INTO executions_v27_new ({columns}) SELECT {columns} FROM executions"
+
+
+def _execution_references(conn: sqlite3.Connection) -> set[tuple[str, int]]:
+    """The rows of every table that references ``executions`` whose run is missing."""
+    children = [name for (name,) in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetchall()
+        if any(fk[2] == "executions" for fk in conn.execute(f'PRAGMA foreign_key_list("{name}")'))]
+    return {(child, row[1]) for child in children
+            for row in conn.execute(f'PRAGMA foreign_key_check("{child}")') if row[2] == "executions"}
+
+
+def _rebuild_executions_for_find(conn: sqlite3.Connection) -> None:
+    """Rebuild ``executions`` with ``find_paper`` in its type CHECK.
+
+    The schema-19 procedure (see ``_migrate_executions_interrupted``): foreign
+    keys off around it, so dropping the old table cannot cascade into
+    ``execution_documents``; the new table built under a temporary name and
+    renamed into place; every index and trigger replayed; the AUTOINCREMENT
+    mark restored. The new DDL is the stored DDL with the one CHECK widened.
+    As schema 25's rebuild of ``library_files`` does, ``foreign_key_check`` is
+    run on every table that references ``executions`` before the step is
+    released, so a rebuild that left a run's record without its run is undone;
+    a reference that already dangled before (a backup can carry one) is kept
+    as it was.
+    """
+    stored = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='executions'"
+    ).fetchone()[0]
+    if stored.count(_EXECUTION_TYPES_V26) != 1:
+        raise sqlite3.DatabaseError("Conflicting schema-27 shape: executions")
+    new_ddl = stored.replace(_EXECUTION_TYPES_V26, _EXECUTION_TYPES_V27)
+    head = 'CREATE TABLE "executions" ('
+    if not new_ddl.startswith(head):
+        raise sqlite3.DatabaseError("Conflicting schema-27 shape: executions")
+    new_ddl = 'CREATE TABLE executions_v27_new (' + new_ddl[len(head):]
+
+    conn.commit()
+    had_foreign_keys = bool(conn.execute("PRAGMA foreign_keys").fetchone()[0])
+    conn.execute("PRAGMA foreign_keys=OFF")
+    try:
+        conn.execute("SAVEPOINT executions_v27")
+        try:
+            dangling_before = _execution_references(conn)
+            seq_row = conn.execute(
+                "SELECT seq FROM sqlite_sequence WHERE name='executions'").fetchone()
+            previous_seq = int(seq_row[0]) if seq_row else None
+            carried = [
+                (row[0], row[1]) for row in conn.execute(
+                    "SELECT name, sql FROM sqlite_master WHERE tbl_name='executions' "
+                    "AND type IN ('index','trigger') AND sql IS NOT NULL").fetchall()
+            ]
+            conn.execute(new_ddl)
+            columns = ", ".join(
+                f'"{row[1]}"' for row in conn.execute("PRAGMA table_info(executions)"))
+            conn.execute(_EXECUTIONS_V27_COPY.format(columns=columns))
+            conn.execute("DROP TABLE executions")
+            conn.execute("ALTER TABLE executions_v27_new RENAME TO executions")
+            for _name, sql in carried:
+                conn.execute(sql)
+            if previous_seq is not None:
+                conn.execute("DELETE FROM sqlite_sequence WHERE name='executions'")
+                conn.execute(
+                    "INSERT INTO sqlite_sequence(name, seq) VALUES ('executions', ?)",
+                    (previous_seq,))
+            if _execution_references(conn) - dangling_before:
+                raise sqlite3.DatabaseError(
+                    "The schema-27 rebuild of executions would leave a run's record without its run")
+            conn.execute("RELEASE executions_v27")
+        except BaseException:
+            conn.execute("ROLLBACK TO executions_v27")
+            conn.execute("RELEASE executions_v27")
+            raise
+        conn.commit()
+    finally:
+        conn.execute("PRAGMA foreign_keys=" + ("ON" if had_foreign_keys else "OFF"))
+
+
+def _migrate_full_text(conn: sqlite3.Connection) -> None:
+    """Make the schema-27 objects. Runs on fresh databases and on upgrades.
+
+    The ``executions`` rebuild first, outside any transaction because it turns
+    foreign keys off; then the tables, indexes and the routines column in one
+    savepoint, refused as a conflict when an object is already present in
+    another shape. Nothing is backfilled: no open-access location, identifier
+    or download was observed before this schema, and none is invented.
+    """
+    if not _executions_type_check_admits_find(conn):
+        _rebuild_executions_for_find(conn)
+
+    def shape(name: str) -> str | None:
+        row = conn.execute("SELECT sql FROM sqlite_master WHERE name=?", (name,)).fetchone()
+        return " ".join((row[0] or "").split()) if row else None
+
+    conn.commit()
+    conn.execute("SAVEPOINT full_text_v27")
+    try:
+        for name, ddl in _FULL_TEXT_DDL.items():
+            if shape(name) is None:
+                conn.execute(ddl)
+            if shape(name) != " ".join(ddl.split()):
+                raise sqlite3.DatabaseError("Conflicting schema-27 object: " + name)
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(routines)")}
+        if "download_full_text" not in columns:
+            conn.execute(_ROUTINES_FULL_TEXT_COLUMN)
+        conn.execute(
+            "INSERT INTO app_settings(key,value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value "
+            "WHERE CAST(app_settings.value AS INTEGER)<27",
+            (_SCHEMA_VERSION_KEY, "27"),
+        )
+        conn.execute("RELEASE full_text_v27")
+    except BaseException:
+        conn.execute("ROLLBACK TO full_text_v27")
+        conn.execute("RELEASE full_text_v27")
+        raise
+    conn.commit()
+
+
 # A DOAJ date stored with its month as a name: ``2025-January-01``,
 # ``2025-Sept.-01``. The day is optional, so ``2025-July`` is caught as well.
 _DOAJ_NAMED_MONTH = re.compile(r"^(\d{4})-([^-\d][^-]*)(?:-(\d{2}))?$")
@@ -2297,7 +2882,7 @@ def _repair_doaj_month_names(conn: sqlite3.Connection) -> int:
         )
         repaired += 1
     if repaired:
-        logger.info(
+        upgrade_logger.info(
             "Rewrote %d DOAJ publication date(s) stored with the month as a name; "
             "%d hash(es) recomputed, %d kept because they could not be reproduced",
             repaired, hashes, repaired - hashes)
@@ -2333,8 +2918,243 @@ def _repair_biorxiv_published_detail(conn: sqlite3.Connection) -> int:
         (BIORXIV_PUBLISHED_DETAIL, _BIORXIV_PUBLISHED_DETAIL_BEFORE),
     ).rowcount
     if rewritten:
-        logger.info("Rewrote the wording of %d bioRxiv published-article finding(s)", rewritten)
+        upgrade_logger.info("Rewrote the wording of %d bioRxiv published-article finding(s)", rewritten)
     return rewritten
+
+
+#: In ``app_settings`` once the new papers of earlier runs have been recounted.
+#: A settings reset keeps it (``KEPT_THROUGH_SETTINGS_RESET``): the runs survive
+#: a reset, and so does the record that they were recounted.
+RUN_NEW_PAPERS_RECOUNTED_KEY = "run_new_papers_recounted"
+
+#: The ``app_settings`` keys a settings reset leaves in place. They record facts
+#: about the database rather than choices: the schema it is at, and that the
+#: one-time recount has run.
+KEPT_THROUGH_SETTINGS_RESET = (_SCHEMA_VERSION_KEY, RUN_NEW_PAPERS_RECOUNTED_KEY)
+
+# SQL for ``sweep_engine._utc_clock``: a UTC time as ``YYYY-MM-DD HH:MM:SS``, so
+# SQLite's ``datetime('now')`` (``2026-11-05 10:00:00``), ``now_iso()``
+# (``2026-11-05T10:00:00Z``), and ``utc_now_iso()``
+# (``2026-11-05T10:00:00.123456+00:00``) compare as times, to the second.
+# ``test_repair_new_counts.py`` holds the two to the same answers.
+_UTC_CLOCK_SQL = "substr(rtrim(replace(COALESCE({}, ''), 'T', ' '), 'Z'), 1, 19)"
+
+
+def _copy_kept_this_start(
+    conn: sqlite3.Connection, stored: int | None, *, keep: bool, since: float,
+) -> Path | None:
+    """The copy ``upgrade_copy.before_upgrade`` has just kept before this start's upgrade, if it kept one.
+
+    Read straight after ``before_upgrade``. The unfinished-upgrade file names the
+    copy, including one an earlier start kept before an upgrade this start
+    finishes. Without that file (it could not be written), a copy under this
+    schema's name counts only if it was written since *since*, so a copy left by
+    an earlier upgrade from the same schema is never named as this one's.
+    """
+    db_file = upgrade_copy.database_file(conn)
+    if not keep or db_file is None or stored is None or stored >= SCHEMA_VERSION:
+        return None
+    try:
+        named = upgrade_copy.unfinished_marker(db_file).read_text(encoding="utf-8").strip()
+    except OSError:
+        named = ""
+    if named and db_file.with_name(named).is_file():
+        return db_file.with_name(named)
+    candidate = upgrade_copy.copy_path(db_file, stored)
+    try:
+        return candidate if candidate.stat().st_mtime >= since else None
+    except OSError:
+        return None
+
+
+#: How many runs whose recounted links disagree with their ``new_result_count``
+#: the recount names one per line; the rest are counted in one more line.
+_DISAGREEMENTS_LOGGED = 20
+
+
+def _recount_run_new_papers(
+    conn: sqlite3.Connection, *, stored: int | None, kept_copy: Path | None = None,
+) -> dict | None:
+    """Work out once, for every earlier run, which of its papers were new to it.
+
+    Before November 5, 2026, the sweep engine linked a paper to a run as new by
+    comparing ``documents.first_seen_at`` (SQLite's ``2026-11-05 10:00:00``) with
+    the run's ``start_time`` (``2026-11-05T10:00:00Z``) as text. The space sorts
+    before the ``T``, so a paper a run stored on the day it started (in UTC) read
+    as older than the run, and ``execution_documents.is_new`` was 0 for it. Only a
+    paper first stored on a later day (in UTC) than the run started was marked
+    new. ``execution_documents.is_new`` is read by the ``only_new`` filter of a
+    run's papers and references (``resmon export --run N --new-only``). The engine
+    compares the two times as times now (``sweep_engine._utc_clock``); this
+    corrects the links recorded before that, from the times stored with each paper
+    and run.
+
+    Both times are read as ``_UTC_CLOCK_SQL`` reads them, at one-second
+    resolution, and a run's window includes both ends.
+
+    * A link is new when its paper's ``first_seen_at`` falls within its run's
+      ``[start_time, end_time]`` and that run is the earliest-starting of the runs
+      that linked the paper and whose windows hold that time; between two that
+      started in the same second, the one recorded first. So a paper is new to
+      one run at most. Every other link of a run with a window is not new.
+    * A run with no ``end_time`` (one interrupted, or still open at the upgrade)
+      takes its ``last_seen_at_utc`` as its end. A run with neither is left as it
+      was and takes no part in deciding which run a paper was new to.
+    * ``new_result_count`` is not changed. It is ``dedup_stats["new"]``, counted as
+      the run stored its papers, which the comparison never touched. A run whose
+      recounted new links number differently from a ``new_result_count`` it
+      recorded (a run that stopped before writing its count, say, or two runs that
+      overlapped) is logged with both numbers, one line per run up to
+      ``_DISAGREEMENTS_LOGGED`` and then a count of the rest, so the difference is
+      visible without the count changing; a run with no count recorded is not
+      compared. A run with no linked papers (such as a watch that checks a
+      person's papers for retractions) is not touched.
+
+    Once per database: ``RUN_NEW_PAPERS_RECOUNTED_KEY`` records that it ran, and a
+    database ``init_db`` has just created gets the key with nothing to do. The
+    changes and the key are written in one transaction. If the recount fails,
+    that transaction is rolled back, the failure is logged, and the next start
+    tries again; the start goes on either way. No schema change, so no
+    ``SCHEMA_VERSION`` bump.
+
+    *stored* is the schema the database was at when this start began (``None``
+    for one with no tables), and *kept_copy* the copy kept before this start's
+    upgrade, which the log line names. Returns the counts the log line gives, or
+    ``None`` when nothing was recounted.
+    """
+    if conn.execute(
+        "SELECT 1 FROM app_settings WHERE key = ?", (RUN_NEW_PAPERS_RECOUNTED_KEY,)
+    ).fetchone():
+        return None
+    if stored is None:
+        conn.execute(
+            "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, '1')",
+            (RUN_NEW_PAPERS_RECOUNTED_KEY,),
+        )
+        return None
+    conn.commit()
+    conn.execute("BEGIN")
+    try:
+        counts, disagreements = _recount_run_new_papers_in_transaction(conn)
+        conn.execute(
+            "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, '1')",
+            (RUN_NEW_PAPERS_RECOUNTED_KEY,),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        upgrade_logger.exception(
+            "Could not recount the new papers of earlier runs. They are left as they were, "
+            "and the next start tries again.")
+        return None
+
+    for run_id, recorded, recount in disagreements[:_DISAGREEMENTS_LOGGED]:
+        upgrade_logger.info(
+            "Run %d: %d of its papers are new to it by the recount, and its new-paper count, "
+            "left as it was, is %d.", run_id, recount, recorded)
+    if len(disagreements) > _DISAGREEMENTS_LOGGED:
+        upgrade_logger.info(
+            "%d more run(s) whose new papers by the recount differ from their new-paper count.",
+            len(disagreements) - _DISAGREEMENTS_LOGGED)
+    if kept_copy is not None:
+        copy_words = f"The copy of the database kept before this start's upgrade is {kept_copy}."
+    elif stored >= SCHEMA_VERSION:
+        copy_words = (f"No copy of the database was kept this start: it was already at schema "
+                      f"{SCHEMA_VERSION}.")
+    else:
+        copy_words = "No copy of the database was kept before this start's upgrade."
+    upgrade_logger.info(
+        "Recounted which papers were new to earlier runs, once, from when each paper was first "
+        "stored: %d run(s) with links corrected; %d link(s) newly marked new, and %d no longer new; "
+        "%d run(s) with no end time left as they were; %d run(s) whose new papers by the recount "
+        "differ from their new-paper count, which was left as it was. %s",
+        counts["runs_corrected"], counts["marked_new"], counts["marked_not_new"],
+        counts["runs_without_end"], counts["count_disagrees"], copy_words)
+    return counts
+
+
+def _recount_run_new_papers_in_transaction(
+    conn: sqlite3.Connection,
+) -> tuple[dict, list[tuple[int, int, int]]]:
+    """The writes ``_recount_run_new_papers`` makes, inside the transaction it holds.
+
+    Returns the counts, and each run whose recounted new links number differently
+    from the ``new_result_count`` it recorded, as ``(run id, new_result_count,
+    recount)``.
+    """
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(executions)")}
+    ends = "NULLIF(end_time, '')"
+    if "last_seen_at_utc" in columns:
+        ends = f"COALESCE({ends}, NULLIF(last_seen_at_utc, ''))"
+    linked = "id IN (SELECT execution_id FROM execution_documents)"
+    runs_without_end = conn.execute(
+        f"SELECT COUNT(*) FROM executions WHERE {ends} IS NULL AND {linked}"
+    ).fetchone()[0]
+
+    # Each run that linked a paper and has an end, with its window; then each of
+    # its links, with whether the window holds the paper's first_seen_at.
+    conn.execute("DROP TABLE IF EXISTS temp.recount_run_window")
+    conn.execute("DROP TABLE IF EXISTS temp.recount_run_link")
+    conn.execute(
+        "CREATE TEMP TABLE recount_run_window ("
+        " execution_id INTEGER PRIMARY KEY, starts TEXT NOT NULL, ends TEXT NOT NULL)")
+    conn.execute(
+        "INSERT INTO recount_run_window (execution_id, starts, ends) "
+        f"SELECT id, {_UTC_CLOCK_SQL.format('start_time')}, {_UTC_CLOCK_SQL.format(ends)} "
+        f"FROM executions WHERE {ends} IS NOT NULL AND {linked}")
+    conn.execute(
+        "CREATE TEMP TABLE recount_run_link ("
+        " execution_id INTEGER NOT NULL, document_id INTEGER NOT NULL, was INTEGER NOT NULL,"
+        " starts TEXT NOT NULL, held INTEGER NOT NULL, now INTEGER NOT NULL DEFAULT 0,"
+        " PRIMARY KEY (execution_id, document_id))")
+    conn.execute(
+        "INSERT INTO recount_run_link (execution_id, document_id, was, starts, held) "
+        "SELECT ed.execution_id, ed.document_id, ed.is_new, w.starts, "
+        f"       {_UTC_CLOCK_SQL.format('d.first_seen_at')} BETWEEN w.starts AND w.ends "
+        "FROM execution_documents ed "
+        "JOIN recount_run_window w ON w.execution_id = ed.execution_id "
+        "JOIN documents d ON d.id = ed.document_id")
+    # Without it, finding the earlier run for each link reads every link.
+    conn.execute(
+        "CREATE INDEX temp.recount_run_link_paper "
+        "ON recount_run_link (document_id, held, starts, execution_id)")
+    conn.execute(
+        "UPDATE recount_run_link SET now = 1 "
+        "WHERE held AND NOT EXISTS ("
+        " SELECT 1 FROM recount_run_link AS earlier"
+        " WHERE earlier.document_id = recount_run_link.document_id AND earlier.held"
+        "   AND (earlier.starts < recount_run_link.starts"
+        "        OR (earlier.starts = recount_run_link.starts"
+        "            AND earlier.execution_id < recount_run_link.execution_id)))")
+
+    changed = [tuple(row) for row in conn.execute(
+        "SELECT now, execution_id, document_id FROM recount_run_link WHERE was IS NOT now")]
+    conn.executemany(
+        "UPDATE execution_documents SET is_new = ? WHERE execution_id = ? AND document_id = ?",
+        changed)
+    marked_new = sum(1 for now, _, _ in changed if now == 1)
+
+    runs_corrected = 0
+    disagreements: list[tuple[int, int, int]] = []
+    for run_id, recorded, recount, links_changed in conn.execute(
+        "SELECT e.id, e.new_result_count, SUM(r.now), SUM(r.was IS NOT r.now) "
+        "FROM recount_run_link r JOIN executions e ON e.id = r.execution_id "
+        "GROUP BY e.id ORDER BY e.id"
+    ).fetchall():
+        if recorded is not None and recorded != recount:
+            disagreements.append((run_id, recorded, recount))
+        if links_changed:
+            runs_corrected += 1
+
+    conn.execute("DROP TABLE temp.recount_run_link")
+    conn.execute("DROP TABLE temp.recount_run_window")
+    return {
+        "runs_corrected": runs_corrected,
+        "marked_new": marked_new,
+        "marked_not_new": len(changed) - marked_new,
+        "runs_without_end": runs_without_end,
+        "count_disagrees": len(disagreements),
+    }, disagreements
 
 
 def mark_missed_fires_ran_late(conn: sqlite3.Connection, routine_id: int) -> int:
@@ -2461,13 +3281,36 @@ def get_schema_version(conn: sqlite3.Connection) -> int:
     return int(row[0]) if row else 0
 
 
+def _stored_schema_version(conn: sqlite3.Connection) -> int | None:
+    """The schema a database records before ``init_db`` touches it: ``None`` with no tables at all.
+
+    A database with tables and no record (no ``app_settings``, or no
+    ``schema_version`` in it) is from before the record existed, and is 0.
+    """
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' LIMIT 1").fetchone() is None:
+        return None
+    try:
+        return get_schema_version(conn)
+    except (sqlite3.OperationalError, TypeError, ValueError):
+        return 0
+
+
 # ---------------------------------------------------------------------------
 # Documents CRUD
 # ---------------------------------------------------------------------------
 
 
-def insert_document(conn: sqlite3.Connection, doc: dict) -> int | None:
-    """INSERT OR IGNORE a document. Returns the row id or None if ignored."""
+def insert_document(conn: sqlite3.Connection, doc: dict, *,
+                    collection_id: int | None = None, how: str = "run",
+                    execution_id: int | None = None) -> int | None:
+    """INSERT OR IGNORE a document. Returns the row id or None if ignored.
+
+    A paper stored is filed in a collection in the same transaction, so it is
+    never in none: *collection_id* (the default collection when None), arriving
+    *how* (``COLLECTION_ARRIVALS``), by *execution_id* where a run stored it. A
+    paper already stored is left where it is; a run files it in its own
+    collection when it links it.
+    """
     sql = """\
         INSERT OR IGNORE INTO documents
             (source_repository, external_id, doi, title, authors, abstract,
@@ -2493,8 +3336,42 @@ def insert_document(conn: sqlite3.Connection, doc: dict) -> int | None:
         # comma-joined string that SQL has no clean way to parse.
         index_document_facets(conn, doc_id, doc.get("authors"), doc.get("categories"),
                               structured=doc.get("structured_authors"))
+        _file_stored_paper(conn, doc_id, collection_id, how, execution_id)
     conn.commit()
     return doc_id
+
+
+def _file_stored_paper(conn: sqlite3.Connection, doc_id: int, collection_id: int | None,
+                       how: str, execution_id: int | None) -> None:
+    """Put a paper just stored where it belongs, before the transaction that stored it ends.
+
+    ``documents_file_in_default`` has filed it in the default collection as a
+    run's. For another collection, the paper is filed there first, in a
+    statement that finds the collection or files nothing, and only once it is
+    there does the default's row go: a collection deleted while a run went
+    leaves the paper in the default one, never in none. In the default
+    collection the trigger's row stays, noted with the run and how it arrived.
+    """
+    target = DEFAULT_COLLECTION_ID if collection_id is None else int(collection_id)
+    if target != DEFAULT_COLLECTION_ID:
+        conn.execute(
+            "INSERT OR IGNORE INTO collection_documents "
+            "(collection_id, document_id, added_at, added_by, execution_id) "
+            "SELECT c.id, d.id, d.first_seen_at, ?, ? FROM documents d JOIN collections c ON c.id = ? "
+            "WHERE d.id = ?",
+            (how, execution_id, target, doc_id))
+        placed = conn.execute("SELECT 1 FROM collection_documents WHERE collection_id = ? AND document_id = ?",
+                              (target, doc_id)).fetchone()
+        if placed:
+            conn.execute("DELETE FROM collection_documents WHERE collection_id = ? AND document_id = ?",
+                         (DEFAULT_COLLECTION_ID, doc_id))
+            return
+        how = "run"
+    if how != "run" or execution_id is not None:
+        conn.execute(
+            "UPDATE collection_documents SET added_by = ?, execution_id = COALESCE(?, execution_id) "
+            "WHERE collection_id = ? AND document_id = ?",
+            (how, execution_id, DEFAULT_COLLECTION_ID, doc_id))
 
 
 def get_document_by_source(conn: sqlite3.Connection, source: str, external_id: str) -> dict | None:
@@ -2527,12 +3404,17 @@ def insert_execution(conn: sqlite3.Connection, exec_dict: dict) -> int:
     to the ``saved_configurations`` row it was launched from when the user
     picked a config in the ConfigLoader on the Deep Dive / Deep Sweep pages.
     ``None`` is the default for ad-hoc runs and routine fires.
+
+    ``request_id``, the ticket a window sent with its request, is written in the
+    same INSERT, so no reader ever sees the run without it. A second row with
+    the same ticket is refused by the partial UNIQUE index
+    (``sqlite3.IntegrityError``), and nothing is written.
     """
     sql = """\
         INSERT INTO executions
             (execution_type, routine_id, saved_configuration_id, parameters, start_time, status,
-             owner_pid, owner_runtime_id, last_seen_at_utc, restarted_from)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             owner_pid, owner_runtime_id, last_seen_at_utc, restarted_from, request_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
     cursor = conn.execute(sql, (
         exec_dict["execution_type"],
@@ -2545,6 +3427,7 @@ def insert_execution(conn: sqlite3.Connection, exec_dict: dict) -> int:
         exec_dict.get("owner_runtime_id") or runtime_identity.current_runtime_id(),
         exec_dict.get("last_seen_at_utc") or utc_now_iso(),
         exec_dict.get("restarted_from"),
+        exec_dict.get("request_id") or None,
     ))
     conn.commit()
     return cursor.lastrowid
@@ -2682,12 +3565,71 @@ def link_execution_document(
     conn.commit()
 
 
+def _executions_filter(
+    execution_type: str | None,
+    routine_id: int | None,
+    *,
+    execution_types: list[str] | None = None,
+    statuses: list[str] | None = None,
+    text: str | None = None,
+) -> tuple[str, list]:
+    """The joins and WHERE clause shared by the run log's page and its count.
+
+    ``text`` matches, without regard to case, the run's stored parameters (its
+    query, its terms and its sources' ids), its watch's name, its saved
+    search's name, and its number. Parameters are stored as JSON with every
+    character past ASCII escaped (``\\u00e9``), so the words are looked for
+    both as typed and as stored.
+    """
+    joins = (
+        "LEFT JOIN saved_configurations "
+        "  ON saved_configurations.id = executions.saved_configuration_id "
+    )
+    where: list[str] = []
+    params: list = []
+    types = [t for t in ([execution_type] if execution_type else []) + list(execution_types or []) if t]
+    if types:
+        where.append(f"executions.execution_type IN ({', '.join('?' * len(types))})")
+        params.extend(types)
+    if routine_id is not None:
+        where.append("executions.routine_id = ?")
+        params.append(int(routine_id))
+    if statuses:
+        where.append(f"executions.status IN ({', '.join('?' * len(statuses))})")
+        params.extend(statuses)
+    words = (text or "").strip()
+    if words:
+        joins += "LEFT JOIN routines ON routines.id = executions.routine_id "
+
+        def like(value: str) -> str:
+            return "%" + value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+        escaped = json.dumps(words)[1:-1]
+        clauses = [
+            "executions.parameters LIKE ? ESCAPE '\\'",
+            "executions.parameters LIKE ? ESCAPE '\\'",
+            "routines.name LIKE ? ESCAPE '\\'",
+            "saved_configurations.name LIKE ? ESCAPE '\\'",
+        ]
+        params.extend([like(words), like(escaped), like(words), like(words)])
+        if words.isdigit():
+            clauses.append("executions.id = ?")
+            params.append(int(words))
+        where.append(f"({' OR '.join(clauses)})")
+    return joins + (f"WHERE {' AND '.join(where)} " if where else ""), params
+
+
 def get_executions(
     conn: sqlite3.Connection,
     limit: int = 50,
     offset: int = 0,
     execution_type: str | None = None,
     routine_id: int | None = None,
+    *,
+    execution_types: list[str] | None = None,
+    statuses: list[str] | None = None,
+    text: str | None = None,
+    without_events: bool = False,
 ) -> list[dict]:
     """Paginated execution history, optionally filtered by type and routine.
 
@@ -2695,33 +3637,59 @@ def get_executions(
     ``saved_configuration_name`` field (NULL when the execution is not
     linked to a saved config). The JOIN happens at read time so renames
     of the underlying config row are reflected without any backfill.
+
+    ``execution_types`` and ``statuses`` narrow it to any of those, and
+    ``text`` as ``_executions_filter`` says. ``without_events`` leaves the
+    stored ``progress_events`` unread (NULL): a long sweep's run its every
+    heartbeat, and a list of runs has no use for it.
     """
-    where: list[str] = []
-    params: list = []
-    if execution_type:
-        where.append("executions.execution_type = ?")
-        params.append(execution_type)
-    if routine_id is not None:
-        where.append("executions.routine_id = ?")
-        params.append(int(routine_id))
+    joins, params = _executions_filter(
+        execution_type, routine_id,
+        execution_types=execution_types, statuses=statuses, text=text,
+    )
+    if without_events:
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(executions)").fetchall()]
+        selected = ", ".join(
+            "NULL AS progress_events" if name == "progress_events" else f"executions.{name}"
+            for name in columns
+        )
+    else:
+        selected = "executions.*"
     rows = conn.execute(
-        "SELECT executions.*, saved_configurations.name AS saved_configuration_name "
+        f"SELECT {selected}, saved_configurations.name AS saved_configuration_name "
         "FROM executions "
-        "LEFT JOIN saved_configurations "
-        "  ON saved_configurations.id = executions.saved_configuration_id "
-        + (f"WHERE {' AND '.join(where)} " if where else "")
-        + "ORDER BY executions.start_time DESC LIMIT ? OFFSET ?",
+        + joins
+        + "ORDER BY executions.start_time DESC, executions.id DESC LIMIT ? OFFSET ?",
         (*params, limit, offset),
     ).fetchall()
     return [dict(r) for r in rows]
 
 
-def get_routine_document_ids(
-    conn: sqlite3.Connection, routine_id: int, limit: int = 2000,
-) -> tuple[list[int], int]:
-    """The papers a routine's runs collected, newest run first, each once.
+def count_executions(
+    conn: sqlite3.Connection,
+    execution_type: str | None = None,
+    routine_id: int | None = None,
+    *,
+    execution_types: list[str] | None = None,
+    statuses: list[str] | None = None,
+    text: str | None = None,
+) -> int:
+    """How many runs ``get_executions`` would page through with the same filters."""
+    joins, params = _executions_filter(
+        execution_type, routine_id,
+        execution_types=execution_types, statuses=statuses, text=text,
+    )
+    return int(conn.execute(f"SELECT COUNT(*) FROM executions {joins}", params).fetchone()[0])
 
-    Returns ``(ids up to limit, total)``. ``executions.routine_id`` carries no
+
+def get_routine_document_ids(
+    conn: sqlite3.Connection, routine_id: int, limit: int | None = None,
+    collection_id: int | None = None,
+) -> tuple[list[int], int]:
+    """The papers a routine's runs collected, newest run first, each once;
+    with ``collection_id``, only those that collection holds.
+
+    Returns ``(ids, total)``: every id, or the first *limit* of them. ``executions.routine_id`` carries no
     index, and that is deliberate here rather than an oversight: the table
     holds one row per run, which is thousands at most, and an index would be
     a schema step for a scan this small.
@@ -2731,11 +3699,15 @@ def get_routine_document_ids(
         "FROM execution_documents "
         "JOIN executions ON executions.id = execution_documents.execution_id "
         "WHERE executions.routine_id = ? "
-        "GROUP BY execution_documents.document_id "
+        + ("" if collection_id is None else
+           "AND EXISTS (SELECT 1 FROM collection_documents cm WHERE cm.collection_id = ? "
+           "AND cm.document_id = execution_documents.document_id) ")
+        + "GROUP BY execution_documents.document_id "
         "ORDER BY latest DESC, id DESC",
-        (int(routine_id),),
+        (int(routine_id),) if collection_id is None else (int(routine_id), int(collection_id)),
     ).fetchall()
-    return [int(r["id"]) for r in rows[:limit]], len(rows)
+    ids = [int(r["id"]) for r in rows]
+    return (ids if limit is None else ids[:limit]), len(rows)
 
 
 def get_execution_by_id(conn: sqlite3.Connection, exec_id: int) -> dict | None:
@@ -2773,8 +3745,8 @@ def insert_routine(conn: sqlite3.Connection, routine_dict: dict) -> int:
         INSERT INTO routines
             (name, schedule_cron, parameters, intent, is_active, email_enabled,
              email_ai_summary_enabled, ai_enabled, ai_settings, storage_settings,
-             notify_on_complete, execution_location)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             notify_on_complete, execution_location, collection_id, download_full_text)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
     loc = routine_dict.get("execution_location", "local")
     if loc != "local":
@@ -2795,6 +3767,10 @@ def insert_routine(conn: sqlite3.Connection, routine_dict: dict) -> int:
         routine_dict.get("storage_settings"),
         routine_dict.get("notify_on_complete", 0),
         loc,
+        # Where the watch's papers land; the default collection unless named.
+        routine_dict.get("collection_id") or DEFAULT_COLLECTION_ID,
+        # Whether the watch gets its new papers' open-access PDFs (schema 27).
+        1 if routine_dict.get("download_full_text") else 0,
     ))
     conn.commit()
     return cursor.lastrowid
@@ -2806,7 +3782,7 @@ def update_routine(conn: sqlite3.Connection, routine_id: int, updates: dict) -> 
         "name", "schedule_cron", "parameters", "intent", "is_active", "email_enabled",
         "email_ai_summary_enabled", "ai_enabled", "ai_settings",
         "storage_settings", "last_executed_at", "notify_on_complete",
-        "execution_location",
+        "execution_location", "collection_id", "download_full_text",
     }
     filtered = {k: v for k, v in updates.items() if k in allowed}
     if not filtered:

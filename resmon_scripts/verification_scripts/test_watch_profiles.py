@@ -74,7 +74,7 @@ def test_a_profile_with_no_identifier_is_accepted_rather_than_refused(conn):
 
 
 # ---------------------------------------------------------------------------
-# Validation — what is refused, and what is merely normalised
+# Validation — what is refused, and what is merely normalized
 # ---------------------------------------------------------------------------
 
 def test_an_orcid_is_stored_bare_however_it_was_typed(conn):
@@ -276,7 +276,7 @@ def test_deleting_a_profile_takes_its_matches_and_leaves_the_corpus(conn):
     assert conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 1
 
 
-def test_a_match_needs_a_basis_the_schema_recognises(conn):
+def test_a_match_needs_a_basis_the_schema_recognizes(conn):
     """No match without a basis, enforced by the table rather than by care."""
     profile = wp.create_profile(conn, {"display_name": "Jane Doe"})
     conn.execute(

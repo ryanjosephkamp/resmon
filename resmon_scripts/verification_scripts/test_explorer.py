@@ -252,19 +252,130 @@ def test_matching_ids_respects_filters_and_order(conn):
     assert ids == [c, a], "newest publication first"
 
 
-def test_matching_ids_is_bounded(conn):
+def test_matching_ids_stops_only_where_asked(conn):
     for i in range(10):
         _doc(conn, ext=str(i))
     assert len(explorer.matching_ids(conn, limit=3)) == 3
+    assert len(explorer.matching_ids(conn)) == 10
 
 
-def test_total_is_capped_rather_than_counted_without_limit(conn):
-    for i in range(5):
-        _doc(conn, ext=str(i))
-    r = explorer.search(conn)
-    assert r["total"] == 5
-    assert r["total_is_capped"] is False
-    assert r["count_cap"] == explorer.COUNT_CAP
+# ---------------------------------------------------------------------------
+# Counting: exact, within a time budget
+# ---------------------------------------------------------------------------
+
+def _many(conn, n: int, *, start: int = 0, pub: str = "2026-01-15") -> None:
+    """*n* papers about diffusion models, written at once (the triggers keep the text index)."""
+    conn.executemany(
+        "INSERT INTO documents (source_repository, external_id, title, abstract, publication_date, metadata_hash) "
+        "VALUES ('arxiv', ?, ?, 'An abstract about diffusion models.', ?, ?)",
+        [(f"many-{i}", f"Diffusion paper {i}", pub, f"many-{i}") for i in range(start, start + n)],
+    )
+    conn.commit()
+
+
+def test_a_collection_past_ten_thousand_is_counted_exactly(conn):
+    """The count stopped at 10,000 and said "10,000+"; every match is counted now."""
+    _many(conn, 10_050)
+    whole = explorer.search(conn)
+    assert (whole["total"], whole["total_is_exact"]) == (10_050, True)
+    words = explorer.search(conn, query="diffusion")
+    assert (words["total"], words["total_is_exact"]) == (10_050, True)
+    assert words["count_budget_ms"] == int(explorer.COUNT_BUDGET_S * 1000)
+    assert "total_is_capped" not in words and "count_cap" not in words
+
+
+def test_a_count_that_runs_out_of_time_says_so_with_what_it_counted(conn, monkeypatch):
+    """Past the budget the count stops, says it stopped, and keeps the number it reached."""
+    _many(conn, 10_050)
+    monkeypatch.setattr(explorer, "COUNT_BUDGET_S", -1.0)  # already out of time
+    stopped = explorer.search(conn, query="diffusion")
+    assert stopped["total_is_exact"] is False
+    assert 0 <= stopped["total"] < 10_050, "a stopped count is a floor, never the whole"
+    assert len(stopped["results"]) == 50 and stopped["has_more"], "the page itself is unaffected"
+    # The clock is put back for the next query on this connection.
+    monkeypatch.setattr(explorer, "COUNT_BUDGET_S", 30.0)
+    again = explorer.search(conn, query="diffusion")
+    assert (again["total"], again["total_is_exact"]) == (10_050, True)
+
+
+def test_the_whole_collection_is_counted_by_the_table_and_never_runs_out(conn, monkeypatch):
+    _many(conn, 20)
+    monkeypatch.setattr(explorer, "COUNT_BUDGET_S", -1.0)
+    whole = explorer.search(conn)
+    assert (whole["total"], whole["total_is_exact"]) == (20, True)
+
+
+def test_a_later_page_reuses_the_first_pages_count_until_the_collection_changes(tmp_path, monkeypatch):
+    c = sqlite3.connect(str(tmp_path / "corpus.db"))
+    c.row_factory = sqlite3.Row
+    init_db(conn=c)
+    _many(c, 120)
+    counted: list[str] = []
+    real = explorer.count_where
+
+    def counting(conn, where, params, **kwargs):
+        counted.append(where)
+        return real(conn, where, params, **kwargs)
+
+    monkeypatch.setattr(explorer, "count_where", counting)
+    first = explorer.search(c, query="diffusion")
+    second = explorer.search(c, query="diffusion", cursor=first["next_cursor"])
+    assert len(counted) == 1, "the second page reused the first page's count"
+    assert second["total"] == first["total"] == 120
+    _many(c, 1, start=500)
+    third = explorer.search(c, query="diffusion", cursor=second["next_cursor"])
+    assert len(counted) == 2 and third["total"] == 121, "a paper added since is a new count"
+    explorer.search(c, query="diffusion")
+    assert len(counted) == 3, "a first page always counts afresh"
+    c.close()
+
+
+# ---------------------------------------------------------------------------
+# Jumping to a date
+# ---------------------------------------------------------------------------
+
+def test_a_jump_starts_at_the_day_and_counts_what_came_before(conn):
+    dates = ["2026-05-02", "2026-04-30", "2026-04-02", "2026-04", "2026-03-31", "2025-12-01", None]
+    ids = [_doc(conn, ext=str(n), pub=d) for n, d in enumerate(dates)]
+
+    page = explorer.search(conn, start_date="2026-04-30", limit=2)
+    assert [r["id"] for r in page["results"]] == [ids[1], ids[2]], "on or before the day, newest first"
+    assert page["start_date"] == "2026-04-30"
+    assert (page["newer_count"], page["newer_count_is_exact"]) == (1, True)
+    assert (page["total"], page["total_is_exact"]) == (7, True), "the count is still every match"
+
+    rest = explorer.search(conn, cursor=page["next_cursor"], start_date="2026-04-30", limit=10)
+    assert [r["id"] for r in rest["results"]] == ids[3:], "a month-only date, then older, then undated"
+    assert "newer_count" not in rest, "a cursor says where the list is; the jump is not repeated"
+
+    month = explorer.search(conn, start_date="2026-04")
+    assert month["results"][0]["id"] == ids[3] and month["newer_count"] == 3
+    assert explorer.search(conn, start_date="2027")["newer_count"] == 0
+
+    with pytest.raises(ValueError):
+        explorer.search(conn, start_date="April 2026")
+
+
+def test_a_jump_keeps_the_filters(conn):
+    a = _doc(conn, source="arxiv", ext="a", pub="2026-02-01")
+    _doc(conn, source="pubmed", ext="b", pub="2026-01-20")
+    c = _doc(conn, source="arxiv", ext="c", pub="2026-01-10")
+    page = explorer.search(conn, sources=["arxiv"], start_date="2026-01-31")
+    assert [r["id"] for r in page["results"]] == [c]
+    assert page["newer_count"] == 1 and page["total"] == 2
+    assert a not in [r["id"] for r in page["results"]]
+
+
+# ---------------------------------------------------------------------------
+# Export, read a batch at a time
+# ---------------------------------------------------------------------------
+
+def test_every_match_is_read_for_an_export_in_batches(conn):
+    _many(conn, 1_205)
+    assert explorer.count_matching(conn, query="diffusion") == 1_205
+    seen = list(explorer.iter_matching(conn, query="diffusion", batch=100))
+    assert len(seen) == 1_205 and len({d["id"] for d in seen}) == 1_205
+    assert [d["id"] for d in seen] == explorer.matching_ids(conn, query="diffusion"), "the newest first"
 
 
 # ---------------------------------------------------------------------------
@@ -310,6 +421,56 @@ def test_the_export_holds_what_the_search_counts_and_the_renderer_can_read_how_m
 
     page = http.post("/api/explorer/search", json=filters)
     assert page.json()["total"] == 2, "the count beside the export is the search's"
+
+
+def test_an_export_holds_every_match_however_many_and_says_how_many_first(client):
+    """It stopped at the newest 10,000, built whole in memory. Now: all of them, streamed."""
+    resmon_mod, http = client
+    conn = resmon_mod._get_db()
+    _many(conn, 10_005)
+    for fmt, records in (("csv", lambda text: len(text.rstrip("\r\n").split("\r\n")) - 1),
+                         ("ris", lambda text: text.count("ER  - ")),
+                         ("bibtex", lambda text: text.count("\n@")+ (1 if text.startswith("@") else 0))):
+        response = http.post("/api/explorer/export", json={"format": fmt})
+        assert response.status_code == 200, response.text
+        assert response.headers["X-Resmon-Document-Count"] == "10005"
+        assert records(response.text) == 10_005, fmt
+
+
+def test_the_collection_export_reads_papers_in_batches_not_by_one_selection(client, monkeypatch):
+    """The export walks one query; it never builds the whole selection of documents first."""
+    resmon_mod, http = client
+    conn = resmon_mod._get_db()
+    _many(conn, 30)
+
+    def whole_selection(*_args, **_kwargs):
+        raise AssertionError("the collection's export must not load every document at once")
+
+    monkeypatch.setattr(resmon_mod, "get_documents_by_ids", whole_selection)
+    response = http.post("/api/explorer/export", json={"format": "json"})
+    assert response.status_code == 200 and len(response.json()) == 30
+
+
+def test_an_unknown_export_format_is_refused_before_anything_is_sent(client):
+    _resmon_mod, http = client
+    response = http.post("/api/explorer/export", json={"format": "endnote"})
+    assert response.status_code == 400
+    assert "Unknown export format" in response.text
+
+
+def test_the_export_count_and_its_papers_come_from_one_snapshot(client):
+    """A paper stored while the file is being written is in neither the header nor the file."""
+    resmon_mod, http = client
+    conn = resmon_mod._get_db()
+    _many(conn, 1_500)
+    with http.stream("POST", "/api/explorer/export", json={"format": "csv"}) as response:
+        said = int(response.headers["X-Resmon-Document-Count"])
+        pieces = response.iter_bytes()
+        first = next(pieces)
+        _many(conn, 5, start=9_000)  # a run storing papers mid-export
+        text = (first + b"".join(pieces)).decode("utf-8")
+    assert said == 1_500
+    assert len(text.rstrip("\r\n").split("\r\n")) - 1 == said
 
 
 # ---------------------------------------------------------------------------

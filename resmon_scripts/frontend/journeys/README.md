@@ -85,7 +85,7 @@ other half of that check and it is in the pull request.
 
 | File | What it is |
 |---|---|
-| `register.ts` | The denominator: all 49 rows of the register, their slice and their status, and `ROUTE_ROWS` — which rows carry each screen the app has. Nothing else in the suite is allowed to disagree with it. |
+| `register.ts` | The denominator: all 51 rows of the register, including J50 (Find a paper) and J51 (Collections), their slice and their status, and `ROUTE_ROWS` — which rows carry each screen the app has. Nothing else in the suite is allowed to disagree with it. |
 | `register.spec.ts` | The guards. Every built row has exactly one spec and every spec has a row; every screen in `atlas/src/screenPaths.ts` names a carried row; a pending row names its slice and a dropped row names its decision; no spec reaches the renderer; no driver waits for a duration or reads before it waits; the Atlas driver borrows from the screenless driver only what `drivers/borrowed.ts` lists, with its reasons. |
 | `driver.ts` | The seam — the `JourneyDriver` interface, in the user's words, plus the `journey` test object. |
 | `drivers/candidate.ts` | The Atlas interface: `drivers/atlas.ts` for what Atlas has, the screenless driver's members that `drivers/borrowed.ts` lists, and a skip with its reason for everything else. |
@@ -161,7 +161,7 @@ app.
 **A journey observes; it does not fix.** Where the app and the register
 disagree, the spec asserts what is true and prints a `NOT VERIFIED` line naming
 what it could not establish. J19 is the worked example: the register says a
-cancelled run keeps a partial report, and a sweep cancelled during the query
+canceled run keeps a partial report, and a sweep canceled during the query
 stage keeps a read-time coverage account and no report document.
 
 ## Rows whose journey is a gate, not a screen

@@ -9,6 +9,7 @@
 import { useMutation, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { engine, engineSentence } from '../../api/client';
 import { invalidateFor } from '../today/freshness';
+import { HISTORY_KEY, type HistoryPage } from './history';
 import { RUNS_KEY, type DeleteOutcome, type RunRow } from './model';
 
 /** Ask the engine to delete each run, in order, and say what came of each. */
@@ -47,10 +48,16 @@ export function useDeleteRuns() {
       await client.cancelQueries({ queryKey: RUNS_KEY });
       await client.cancelQueries({ queryKey: ['routine-runs'] });
       const without = (rows: RunRow[] | undefined) => rows?.filter((row) => !removed.has(row.id));
-      // The run log reads its runs a page at a time; a watch's runs are one list.
-      client.setQueryData<InfiniteData<RunRow[]>>(RUNS_KEY, (data) => data && {
-        ...data, pages: data.pages.map((page) => without(page) ?? []),
+      const lessPage = (page: HistoryPage): HistoryPage => {
+        const runs = without(page.runs) ?? [];
+        const gone = page.runs.length - runs.length;
+        return { runs, total: page.total === null ? null : Math.max(0, page.total - gone) };
+      };
+      // The Runs tab reads its runs a page at a time, Ask the sources its latest few, and a watch its runs as one list.
+      client.setQueriesData<InfiniteData<HistoryPage>>({ queryKey: HISTORY_KEY }, (data) => data && {
+        ...data, pages: data.pages.map(lessPage),
       });
+      client.setQueriesData<HistoryPage>({ queryKey: [...RUNS_KEY, 'latest'] }, (data) => data && lessPage(data));
       client.setQueriesData<RunRow[]>({ queryKey: ['routine-runs'] }, without);
       void client.invalidateQueries({ queryKey: RUNS_KEY });
       void client.invalidateQueries({ queryKey: ['routine-runs'] });

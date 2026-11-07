@@ -94,7 +94,7 @@ def _v(*values: float) -> bytes:
 # ---------------------------------------------------------------------------
 
 
-def test_a_stated_intent_is_used_and_labelled_as_stated(conn):
+def test_a_stated_intent_is_used_and_labeled_as_stated(conn):
     routine = _routine(conn, "r", keywords="graph neural networks",
                        intent="methods for irregular time series in astronomy")
     text, source = coverage_audit.intent_for(routine)
@@ -102,7 +102,7 @@ def test_a_stated_intent_is_used_and_labelled_as_stated(conn):
     assert source == "stated"
 
 
-def test_without_one_the_keywords_are_used_and_labelled_as_keywords(conn):
+def test_without_one_the_keywords_are_used_and_labeled_as_keywords(conn):
     """The distinction is load-bearing, not cosmetic.
 
     Comparing a routine's keywords against results those keywords produced is
@@ -434,7 +434,7 @@ def test_a_floor_is_worded_as_at_least(conn, seeded):
 
     (``summary_line`` runs ``capitalize()`` over the joined clauses, so the
     sentence opens "At least"; the comparison is case-insensitive rather than
-    pinning a capitalisation this test does not care about.)
+    pinning a capitalization this test does not care about.)
     """
     audit = coverage_audit.audit_routine(
         conn, seeded["routine"], MODEL, _v(1.0, 0.0, 0.0, 0.0))

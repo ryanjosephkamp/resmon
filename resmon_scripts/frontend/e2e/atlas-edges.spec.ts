@@ -23,6 +23,7 @@ import * as path from 'path';
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
 import { execFileSync } from 'child_process';
 import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 async function engine<T>(win: Page, route: string, method = 'GET', body?: unknown): Promise<{ status: number; body: T }> {
   return win.evaluate(async ([r, m, b]) => {
@@ -125,7 +126,21 @@ test('Settings and Today: first run, sources and keys, backup and restore, the d
     const owed = catalog.filter((e) => e.attribution_requirement === 'required' && e.attribution);
     await expect(win.locator('[data-sources="credits"] li')).toHaveCount(owed.length);
 
-    // — Backup: a chosen folder, a bundle, a check, a staged restore, cancelled ----------
+    // — Sources: a contact address for Crossref and OpenAlex, none until set, and taken back --
+    const contactSection = win.locator('[data-sources="contact"]');
+    const contact = win.getByLabel('Your email address');
+    await expect(contact).toHaveValue('');
+    expect((await engine<{ contact_email: string | null }>(win, '/api/settings/sources')).body.contact_email).toBeNull();
+    await contact.fill('ada@example.org');
+    await contactSection.getByRole('button', { name: 'Save' }).click();
+    await expect(win.locator('[data-sources="contact-said"]')).toHaveText('Saved. Crossref and OpenAlex are sent ada@example.org.');
+    expect((await engine<{ contact_email: string | null }>(win, '/api/settings/sources')).body.contact_email).toBe('ada@example.org');
+    await contactSection.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-edges-contact.png') });
+    await contactSection.getByRole('button', { name: 'Remove' }).click();
+    await expect(win.locator('[data-sources="contact-said"]')).toHaveText('Removed. No address is sent.');
+    expect((await engine<{ contact_email: string | null }>(win, '/api/settings/sources')).body.contact_email).toBeNull();
+
+    // — Backup: a chosen folder, a bundle, a check, a staged restore, canceled ----------
     await app.evaluate(({ dialog }, chosen) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [chosen] });
     }, backups);
@@ -287,7 +302,7 @@ test('a resmon that had the upload to Google Drive on is told once, on Backup, t
     expect(problems, 'the renderer threw').toEqual([]);
   } finally {
     await app.close().catch(() => {});
-    fs.rmSync(root, { recursive: true, force: true });
+    removeStateDir(root);
   }
 });
 
@@ -399,6 +414,6 @@ test('a staged restore restarts resmon from Backup, the next start shows what it
     expect(fs.existsSync(last.last_restore.undo_copy!)).toBe(false);
   } finally {
     await app.close().catch(() => {});
-    fs.rmSync(root, { recursive: true, force: true });
+    removeStateDir(root);
   }
 });

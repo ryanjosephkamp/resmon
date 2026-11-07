@@ -13,6 +13,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import { launchEnv, registerStateDir, FRONTEND_ROOT, SCREENSHOT_DIR } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -63,7 +64,7 @@ const pageAccent = (win: Page) => win.evaluate(() => document.documentElement.st
 async function shoot(win: Page, name: string) {
   // After every running animation (the palette's entrance, a theme's frame)
   // has finished, so the picture is of a state and not of a transition.
-  await win.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
+  await win.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))));
   fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
   await win.screenshot({ path: path.join(SCREENSHOT_DIR, name) });
 }
@@ -85,7 +86,7 @@ test('a theme and an accent chosen in Settings come back on the next launch', as
         await hex.press('Enter');
         await expect.poll(() => pageAccent(win)).toBe('#3d8aff');
         // Chosen one after the other, quickly: both have to be stored.
-        await expect.poll(() => storedAppearance(win)).toEqual({ theme: 'dark', accent: '#3d8aff' });
+        await expect.poll(() => storedAppearance(win)).toEqual({ theme: 'dark', accent: '#3d8aff', run_monitor: true });
         await expect(win.locator('.theme-card[data-selected]')).toHaveText(/The night chart/);
         await expect(win.getByText('Drawn exactly as chosen.')).toHaveCount(1);
         await shoot(win, 'atlas-settings-dark.png');
@@ -114,7 +115,7 @@ test('a theme and an accent chosen in Settings come back on the next launch', as
         await field.press('Enter');
         await expect(win.getByRole('dialog')).toBeHidden();
         await expect.poll(() => pageTheme(win)).toBe('light');
-        await expect.poll(() => storedAppearance(win)).toEqual({ theme: 'light', accent: '#3d8aff' });
+        await expect.poll(() => storedAppearance(win)).toEqual({ theme: 'light', accent: '#3d8aff', run_monitor: true });
 
         await win.getByRole('link', { name: 'Settings', exact: true }).click();
         await expect(win.locator('.theme-card[data-selected]')).toHaveText(/The printed atlas/);
@@ -141,6 +142,6 @@ test('a theme and an accent chosen in Settings come back on the next launch', as
       }
     }
   } finally {
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });

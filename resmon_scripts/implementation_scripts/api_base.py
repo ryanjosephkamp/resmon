@@ -10,6 +10,7 @@ import threading
 import time
 import functools
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Mapping, Optional
@@ -53,6 +54,29 @@ def _profile_query_name(profile) -> str:
             return str(names[0].get("value") or "").strip()
         return str(profile.get("display_name") or "").strip()
     return str(profile or "").strip()
+
+
+def _lookup_capability(slug: str):
+    """The catalog's ``paper_lookup`` for *slug*, or None."""
+    if not slug:
+        return None
+    from .repo_catalog import PAPER_LOOKUP  # noqa: PLC0415
+
+    return PAPER_LOOKUP.get(slug)
+
+
+def lookup_value(value: str) -> str:
+    """A DOI, id or title made safe to put inside a quoted field: quotes and backslashes become spaces."""
+    return re.sub(r'\s+', " ", re.sub(r'["\\]', " ", str(value or ""))).strip()
+
+
+class LookupUnsupported(RuntimeError):
+    """This source cannot be asked for one paper by that kind of identifier.
+
+    An ordinary outcome: Find a paper asks a source only by a kind its
+    ``paper_lookup`` capability names, and records every other source as not
+    asked, with the reason.
+    """
 
 
 class EntityUnsupported(RuntimeError):
@@ -170,6 +194,13 @@ class NormalizedResult:
     publication_date: str | None
     url: str
     categories: list[str] = field(default_factory=list)
+    # Where this source says an open copy of the paper is
+    # (``open_access.OpenAccessLocation``), and the identifiers it sends that
+    # ``documents`` has no column for, as ``(scheme, value)``: ``arxiv``,
+    # ``pmcid``, ``pmid``. Empty for a source that says nothing, which is most
+    # of them; empty is "the source did not say", never "there is none".
+    open_access: list = field(default_factory=list)
+    identifiers: list = field(default_factory=list)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "authors", as_authors(self.authors))
@@ -264,6 +295,36 @@ class BaseAPIClient(ABC):
         query = capability.author_syntax.format(name=name)
         note_author_query("query", query)
         return self.search(query, date_from, date_to, max_results, **kwargs)
+
+    def lookup(self, kind: str, value: str, max_results: int = 5) -> list[NormalizedResult]:
+        """Ask this source for one paper: by ``doi``, ``arxiv`` id, ``pmid`` or ``title``.
+
+        **The default asks through ``search()``** with the field syntax the
+        catalog's ``paper_lookup`` capability records for *kind*
+        (``repo_catalog.PAPER_LOOKUP``), as ``search_entity`` does for a
+        person, and raises ``LookupUnsupported`` where it records none. A
+        client whose source looks a paper up through its own endpoint (a
+        ``/works/{doi}``) overrides this.
+
+        What comes back is a list of candidates. Which of them, if any, is the
+        paper asked for is decided locally (``paper_find.best_match``): a
+        source's title search ranks by relevance, and a DOI field can match a
+        record that only cites it.
+        """
+        capability = _lookup_capability(self._own_slug())
+        syntax = capability.syntax_for(kind) if capability is not None else ""
+        if not syntax:
+            raise LookupUnsupported(f"{self.get_name()} cannot be asked for a paper by {kind}.")
+        return self.search(syntax.format(value=lookup_value(value)), max_results=max_results)
+
+    def _own_slug(self) -> str:
+        """This client's slug: its own class's registration, never a parent's (medRxiv is bioRxiv's)."""
+        from .api_registry import _REGISTRY  # noqa: PLC0415
+
+        for slug, cls in _REGISTRY.items():
+            if type(self) is cls:
+                return slug
+        return getattr(self, "_slug", "") or self._catalog_slug()
 
     def _catalog_slug(self) -> str:
         """This client's catalog slug, from the registry rather than a constant.
@@ -406,6 +467,7 @@ class RateLimiter:
 
     def acquire(self, *, deadline: float | None = None) -> None:
         """Wait for admission, optionally within an operation's monotonic budget."""
+        outcome: "SearchOutcome | None" = None
         if deadline is None:
             self._lock.acquire()
         elif not self._lock.acquire(timeout=_remaining(deadline)):
@@ -428,8 +490,14 @@ class RateLimiter:
                     return
                 if deadline is not None and wait >= _remaining(deadline):
                     raise RequestDeadlineExceeded("The source rate-limiter wait expired")
+                # Said for the run's heartbeat: the source's own pace, or a
+                # cooldown it asked for with Retry-After.
+                outcome = search_outcome()
+                outcome.waiting = ("cooldown" if cooldown_wait > interval_wait else "pace", now + wait)
                 self._condition.wait(timeout=wait)
         finally:
+            if outcome is not None:
+                outcome.waiting = None
             self._lock.release()
 
 
@@ -663,6 +731,28 @@ class SearchOutcome:
     # The start a client gave a search the run gave none; see
     # ``note_default_start``.
     default_start: dict | None = None
+    # What the search is doing right now, for the run's heartbeat, and never
+    # part of the record (``snapshot`` leaves both out). ``retries`` counts the
+    # times this search asked again after a failed attempt, by ``safe_request``'s
+    # ladder or a client's own. ``waiting`` is what it is waiting for and until
+    # when, as ``(kind, monotonic deadline)``: ``pace`` (the source's rate
+    # limit), ``cooldown`` (a Retry-After the source sent), or ``retry`` (the
+    # pause before asking again). One tuple, assigned whole, because the
+    # heartbeat reads it from another thread.
+    retries: int = 0
+    waiting: tuple[str, float] | None = None
+    # Whether nobody is waiting on this search: it belongs to a watch's
+    # scheduled run, not to one a person started. Set by the engine before the
+    # search, from the run's own config, and read by a client whose patience
+    # with a busy source depends on it (arXiv's 429 and 503 ladder). Not part
+    # of the record.
+    unattended: bool = False
+    # Set by the engine when the run this search belongs to is canceled. The
+    # run stops reading the search at once, but the search's thread runs on
+    # until its client returns; a client in a long wait (arXiv's, up to five
+    # minutes at a time for a watch's scheduled run) ends the wait on this and
+    # asks the source nothing more. Not part of the record.
+    stop: threading.Event = field(default_factory=threading.Event)
 
     def reset(self) -> None:
         self.attempts = 0
@@ -682,6 +772,25 @@ class SearchOutcome:
         self.queries_sent_omitted = 0
         self.read = None
         self.default_start = None
+        self.retries = 0
+        self.waiting = None
+        self.unattended = False
+        self.stop = threading.Event()
+
+    def live(self) -> dict:
+        """What the search has done so far, as the run's heartbeat says it.
+
+        ``requests`` is the attempts sent, ``retries`` the times it asked again
+        after a failed one, and ``waiting`` (only while it waits) the kind of
+        wait and the seconds left. Read from the run's thread while the search
+        runs on its own, so each field is read once.
+        """
+        out: dict = {"requests": self.attempts, "retries": self.retries}
+        waiting = self.waiting
+        if waiting is not None:
+            kind, until = waiting
+            out["waiting"] = {"kind": kind, "seconds": round(max(0.0, until - time.monotonic()), 1)}
+        return out
 
     # -- written by safe_request ------------------------------------------
 
@@ -741,6 +850,24 @@ class SearchOutcome:
         if not already_in_history:
             self._remember_failure(self.last_detail)
 
+    def note_not_found(self) -> None:
+        """The call that just finished was a 404 for one record asked for by its identifier: an answer.
+
+        A lookup endpoint (Crossref's ``/works/{doi}``) says "no such record"
+        with HTTP 404, which ``safe_request`` recorded as a failure. For that
+        request it is the source answering that it holds nothing by that
+        identifier, so the failure is taken back and the search reads as
+        answered and empty. Only a client asking for one record calls this, and
+        only for a 404.
+        """
+        if self.last_call_failed and self.last_status == 404:
+            self.failures = max(0, self.failures - 1)
+            self.last_call_failed = False
+            self.last_status = None
+            self.last_detail = None
+            if self.failure_history and self.failure_history[-1] == "http_404":
+                self.failure_history.pop()
+
     def note_retried_failure(self, status_or_exc) -> None:
         """Record an attempt that failed and is about to be retried.
 
@@ -748,6 +875,7 @@ class SearchOutcome:
         their existing contract: a retry that later succeeds is still a
         successful invocation. Only the history records that it happened.
         """
+        self.retries += 1
         self._remember_failure(_failure_detail(status_or_exc)[1])
 
     def _remember_failure(self, detail: str) -> None:
@@ -839,6 +967,21 @@ def reset_search_outcome() -> None:
     search_outcome().reset()
 
 
+@contextmanager
+def waiting(kind: str, seconds: float):
+    """Say, for the run's heartbeat, that this search is waiting and for how long.
+
+    ``kind`` is ``pace``, ``cooldown`` or ``retry`` (see
+    ``SearchOutcome.waiting``). Cleared when the wait ends, however it ends.
+    """
+    outcome = search_outcome()
+    outcome.waiting = (kind, time.monotonic() + max(0.0, float(seconds)))
+    try:
+        yield
+    finally:
+        outcome.waiting = None
+
+
 def note_entity_unsupported(why: str = "no_author_query") -> None:
     """This source was not asked about a person, and it says which kind of not.
 
@@ -852,6 +995,11 @@ def note_entity_unsupported(why: str = "no_author_query") -> None:
     surface with no per-caller edit.
     """
     search_outcome().note_unanswerable_entity(why)
+
+
+def note_not_found() -> None:
+    """A 404 for one record asked for by its identifier is the source's answer (``SearchOutcome.note_not_found``)."""
+    search_outcome().note_not_found()
 
 
 def note_author_query(kind: str, value: str) -> None:
@@ -893,6 +1041,29 @@ def sent_params(*keys: str, url: str | None = None):
             if isinstance(source.get(key), (str, int, float)) and str(source[key]) != ""
         ]
         return " & ".join(parts) or None
+    return describe
+
+
+def path_after(prefix: str):
+    """A ``describe_request`` for a lookup that carries its identifier in the path: ``path /works/10.1/x``."""
+    def describe(request_url: str, params: Mapping | None, body: Mapping | None) -> str | None:
+        base = request_url.split("?", 1)[0]
+        if not base.startswith(prefix.rstrip("/") + "/"):
+            return None
+        from urllib.parse import unquote, urlsplit  # noqa: PLC0415
+
+        return "path " + unquote(urlsplit(base).path)
+    return describe
+
+
+def either(*describers):
+    """The first of several ``describe_request`` functions that names the request."""
+    def describe(request_url: str, params: Mapping | None, body: Mapping | None) -> str | None:
+        for describer in describers:
+            text = describer(request_url, params, body)
+            if text:
+                return text
+        return None
     return describe
 
 
@@ -955,6 +1126,16 @@ def note_retry_wait(seconds: float) -> None:
     """
     if seconds > 0:
         search_outcome().waited_seconds += float(seconds)
+
+
+def note_retry() -> None:
+    """Count a retry by a client's own ladder, when it decides to ask again.
+
+    For the run's heartbeat only ("3 requests, 1 retry"); the record is
+    unchanged. Counted before the wait, as ``safe_request`` counts its own, so
+    the heartbeat during the wait already says the retry is coming.
+    """
+    search_outcome().retries += 1
 
 
 def note_parse_failure(why: str = "parse_error") -> None:
@@ -1147,7 +1328,8 @@ def safe_request(
         # an HTTP attempt for time spent waiting between requests.
         if deadline is not None:
             wait = min(wait, max(0.0, deadline - time.monotonic()))
-        time.sleep(wait)
+        with waiting("retry", wait):
+            time.sleep(wait)
 
     for attempt in range(max_retries + 1):
         try:

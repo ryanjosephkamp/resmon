@@ -1,14 +1,14 @@
-# Assistant choices (v1, schema 15)
+# Assistant choices (schema 15)
 
 Choices bind a future conversation to the existing Claude CLI or API-key assistant
 adapter. They do not identify an account, executable build, resolved alias, price or
 provider-verified effective configuration. No catalog request or live probe runs for
-this feature. Tool inventory, system instructions, permission payloads and destructive
-endpoint exclusions are unchanged.
+this feature. Choices do not change the tool inventory, system instructions, permission
+payloads or destructive endpoint exclusions.
 
 ## Status and requests
 
-`GET /api/assistant/status` retains its fields and adds `composer_choices` version 1:
+`GET /api/assistant/status` carries `composer_choices` (descriptor version 1):
 `default_request`, nullable `default_error`, `connections`, `claude_aliases`,
 `claude_efforts` and `limitations`. Each connection includes runtime/provider/label,
 implemented/available, reason and effort support; offered APIs include their existing
@@ -53,7 +53,7 @@ passed directly to the worker; it does not reconstruct them from global defaults
 A reader disconnect keeps the claim until that worker finishes and requests cancellation.
 There is no durable worker recovery or cross-process runtime coordination mechanism.
 
-Legacy sessions remain unbound/readable/exportable after upgrade. Their first send
+Sessions with no recorded binding stay unbound, readable and exportable. Their first send
 requires `legacy_adoption: {confirmed:true, choices:<complete object>}`. Missing or
 unconfirmed adoption returns 409 `legacy_adoption_required`. A different runtime kind
 returns 409 `runtime_change_requires_new_conversation`. API confirmation states that
@@ -62,7 +62,7 @@ prior provider unknown. Prior tool data/system messages are not replayed. CLI
 confirmation states that earlier messages remain local and are not sent: it allocates
 a fresh native session and never resumes the historical unverified ID. Binding, new
 native coordination identity, user row and requested snapshot commit together. A later
-adoption returns 409 `already_bound`; history and legacy session.model are preserved.
+adoption returns 409 `already_bound`; history and the session's stored model are preserved.
 
 ## Durable request and report evidence
 

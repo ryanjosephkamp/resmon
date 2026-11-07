@@ -80,42 +80,18 @@ journey.describe('J40 Delivery: where a report goes, and whether it got there', 
     expect(entries, 'the feed carries no entry for the run that just delivered').toHaveLength(1);
     expect(atom.text, 'the feed does not name the routine it belongs to').toContain(ROUTINE);
 
-    // The scrub, and a disagreement with the register that this row records
-    // rather than resolves.
-    //
-    // What is true: the feed's human-readable text — its title, subtitle,
-    // summary and entry titles, everything a reader displays — carries no
-    // local path at all. Asserted against the delivery folder, the feed folder
-    // and every directory above them up to the temporary root.
-    //
-    // What is also true: the entry carries one `file://` link, and it is the
-    // absolute path of the bundle the folder channel wrote. That is deliberate
-    // (`_folder_bundle_link`) and it is only ever emitted when the directory
-    // really exists, so it is not a guess. But the register's invariant reads
-    // "the address scrub removes every path and address from what leaves the
-    // machine", and a feed file is written into a folder precisely so that a
-    // reader or a static site can point at it. The spec asserts the true
-    // reading and prints the disagreement.
+    // The entire feed, including its links, keeps absolute local paths out
+    // of the document a person may copy or sync to another machine.
     const secrets = [folder.destination, feed.destination, ...localPathsOf(atom.path)];
-    const displayed = atom.text.replace(/href="[^"]*"/g, 'href="…"');
     for (const secret of secrets) {
-      expect(
-        displayed,
-        `the feed's displayed text names a local path: ${secret}`,
-      ).not.toContain(secret);
+      expect(atom.text, `the feed names an absolute local path: ${secret}`).not.toContain(secret);
     }
-    const links = [...atom.text.matchAll(/href="(file:[^"]*)"/g)].map((m) => m[1]);
+    expect(atom.text).not.toContain('file://');
+    const links = [...atom.text.matchAll(/href="([^"]*)"/g)].map((m) => m[1]);
+    expect(links).toHaveLength(1);
+    expect(links[0]).not.toMatch(/^(?:[a-z][a-z0-9+.-]*:|[\\/])/i);
     console.log(`[J40] feed.xml: ${atom.text.length} bytes, 1 entry, `
-      + `${secrets.length} of ${secrets.length} local paths absent from the displayed text; `
-      + `${links.length} file:// link(s) present.`);
-    if (links.length > 0) {
-      console.log(
-        '[J40] NOT VERIFIED: the register says the address scrub keeps every local path out of '
-        + 'what leaves the machine. The feed\'s alternate link is the absolute path of the '
-        + 'folder channel\'s bundle, and a feed is written to be pointed at. Recorded, not '
-        + 'changed — the register and the app disagree.',
-      );
-    }
+      + `${secrets.length} of ${secrets.length} absolute local paths absent; 1 relative bundle link.`);
 
     // The held one. Review mode means a person decides, and Skip is a decision
     // the record keeps — not a row that quietly disappears.

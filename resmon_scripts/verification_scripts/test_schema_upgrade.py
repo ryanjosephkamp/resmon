@@ -151,7 +151,16 @@ def choices_rows(c, widths=None):
                                   # missed-fire table is: nothing to seed from.
                                   'routine_delivery_targets', 'deliveries',
                                   # Schema 23's two, empty for the same reason.
-                                  'assistant_turn_failures', 'execution_ai_models')]
+                                  'assistant_turn_failures', 'execution_ai_models',
+                                  # Schema 25's removed-file record, empty too.
+                                  'library_removed',
+                                  # Schema 26's collections: the default one,
+                                  # holding every paper, which the collections'
+                                  # own tests compare.
+                                  'collections', 'collection_documents',
+                                  # Schema 27's full-text tables, empty.
+                                  'document_open_access', 'document_identifiers',
+                                  'execution_find_results', 'full_text_downloads')]
     result = {}
     for name in tables:
         columns = [r[1] for r in c.execute('PRAGMA table_info("' + name + '")')]
@@ -160,6 +169,9 @@ def choices_rows(c, widths=None):
         order = ', '.join('"' + col + '"' for col in columns)
         result[name] = sorted([tuple(r) for r in c.execute(
             'SELECT ' + order + ' FROM "' + name + '"')], key=repr)
+    # The default collection's AUTOINCREMENT mark is schema 26's, as its table is.
+    if 'sqlite_sequence' in result:
+        result['sqlite_sequence'] = [r for r in result['sqlite_sequence'] if r[0] != 'collections']
     return result
 
 
@@ -171,6 +183,7 @@ def choices_rows(c, widths=None):
 # rather than tolerated, and compared for equality at every use below.
 from verification_scripts.test_cumulative_upgrade import (  # noqa: E402
     _MARKERS_A_LAUNCH_MAY_ADD as BACKFILL_MARKERS,
+    _as_recounted,
 )
 
 
@@ -193,7 +206,11 @@ def choices_objects(c):
 def test_choices_upgrade_preserves_every_baseline_row_and_fts(tmp_path):
     from implementation_scripts import database
     c = choices_legacy(tmp_path / 'legacy.db')
-    before = choices_rows(c)
+    # Any launch also recounts the runs' new papers once; the rows are compared
+    # with the database as that recount leaves it.
+    recounted = _as_recounted(c)
+    before = choices_rows(recounted)
+    recounted.close()
     widths = choices_widths(c)
     old_objects = choices_objects(c)
     fts = [tuple(r) for r in c.execute("SELECT rowid FROM documents_fts WHERE documents_fts MATCH 'diffusion'")]
@@ -210,7 +227,7 @@ def test_choices_upgrade_preserves_every_baseline_row_and_fts(tmp_path):
     after['app_settings'] = [(k, '14' if k == 'schema_version' else v) for k, v in after['app_settings']]
     assert minus_markers(after) == before
     assert [tuple(r) for r in c.execute("SELECT rowid FROM documents_fts WHERE documents_fts MATCH 'diffusion'")] == fts
-    assert set(choices_objects(c)) - set(old_objects) == set(database._ASSISTANT_CHOICES_DDL) | set(database._LIBRARY_DDL) | set(database._EVIDENCE_DDL) | {"evidence_answers", "idx_evidence_answers_project_order"} | set(database._JOBS_V20_DDL) | set(database._DELIVERY_V21_DDL) | {"idx_documents_metadata_hash"} | set(database._ANSWER_RECORDS_V23_DDL)
+    assert set(choices_objects(c)) - set(old_objects) == set(database._ASSISTANT_CHOICES_DDL) | set(database._LIBRARY_DDL) | set(database._EVIDENCE_DDL) | {"evidence_answers", "idx_evidence_answers_project_order"} | set(database._JOBS_V20_DDL) | set(database._DELIVERY_V21_DDL) | {"idx_documents_metadata_hash"} | set(database._ANSWER_RECORDS_V23_DDL) | {"library_removed"} | set(database._COLLECTIONS_TABLES) | set(database._COLLECTIONS_TRIGGERS) | set(database._FULL_TEXT_DDL)
     for name, ddl in old_objects.items():
         if name == 'executions':
             # The one object schema 19 rebuilds on purpose. Asserted on rather
@@ -218,7 +235,16 @@ def test_choices_upgrade_preserves_every_baseline_row_and_fts(tmp_path):
             # and keep every column it had.
             rebuilt = choices_objects(c)[name]
             assert "'interrupted'" in rebuilt
+            # And schema 27 rebuilds it once more, with ``find_paper``.
+            assert "'find_paper'" in rebuilt
             assert set(widths[name]) <= {x[1] for x in c.execute('PRAGMA table_info("executions")')}
+            continue
+        if name == 'routines':
+            # Schema 26 adds ``collection_id`` at the end, schema 27
+            # ``download_full_text`` after it, and nothing else.
+            assert ' '.join(choices_objects(c)[name].split()) == ' '.join(ddl.rstrip().rstrip(')').split()) + \
+                ' , collection_id INTEGER REFERENCES collections(id) ON DELETE SET NULL,' + \
+                ' download_full_text INTEGER NOT NULL DEFAULT 0 CHECK (download_full_text IN (0, 1)))'
             continue
         assert choices_objects(c)[name] == ddl
     for name in ('assistant_session_choices', 'assistant_turn_choices'):
@@ -253,6 +279,11 @@ def test_choices_blocking_objects_roll_back_partial_upgrade(tmp_path, blocker):
         database.init_db(conn=c)
     assert database.get_schema_version(c) == 14
     assert choices_objects(c) == before
+    # The copy taken before the first step is beside it, and so is the file
+    # that says the upgrade is unfinished, so the start that finishes it keeps
+    # that copy.
+    assert (tmp_path / 'blocked-before-schema-14.db').is_file()
+    assert (tmp_path / 'blocked.db-upgrade-unfinished').read_text() == 'blocked-before-schema-14.db'
     # The markers are excluded, not forgiven: they were written and committed
     # by an earlier step that succeeded, so putting them back is not what the
     # blocked step's rollback is for.
@@ -320,7 +351,7 @@ def test_schema_24_keeps_every_binding_and_admits_codex(tmp_path):
     before = [tuple(r) for r in c.execute('SELECT * FROM assistant_session_choices ORDER BY session_id')]
     columns = [tuple(r) for r in c.execute('PRAGMA table_info(assistant_session_choices)')]
     database.init_db(conn=c)
-    assert database.get_schema_version(c) == 24
+    assert database.get_schema_version(c) == 27
     assert [tuple(r) for r in c.execute('SELECT * FROM assistant_session_choices ORDER BY session_id')] == before
     assert [tuple(r) for r in c.execute('PRAGMA table_info(assistant_session_choices)')] == columns
     assert c.execute('PRAGMA foreign_key_check').fetchall() == []

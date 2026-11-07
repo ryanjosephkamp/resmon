@@ -342,6 +342,20 @@ def test_one_paper_is_a_map_of_one(db):
     assert len(answer["regions"]) == 1
 
 
+def test_papers_whose_words_differ_only_by_a_number_are_drawn_in_two_dimensions(db):
+    """Their words leave one dimension to place them in, and the regions are still laid out on the plate."""
+    for n in range(180):
+        insert_document(db, {"source_repository": "arxiv", "external_id": f"same-{n}",
+                             "title": f"Tidal heating of close binaries, paper {n:04d}",
+                             "abstract": "We study tides in close binaries. " * 4, "metadata_hash": f"same-{n}"})
+    db.commit()
+    answer = _ready(db)
+    assert answer["state"] == "ready", answer.get("error")
+    assert len(answer["regions"]) >= 1
+    assert all(isinstance(r["x"], float) and isinstance(r["y"], float) for r in answer["regions"])
+    assert sorted(answer["points"]["id"]) == list(range(1, 181))
+
+
 def test_the_fit_is_kept_beside_the_database_and_reused(db):
     _corpus(db, per_topic=30)
     first = _ready(db)
@@ -427,7 +441,9 @@ def test_the_fit_runs_in_a_child_process(db, monkeypatch):
 
 def test_a_child_that_cannot_fit_says_why_and_leaves_no_file(db, monkeypatch, tmp_path):
     _corpus(db, per_topic=20)
-    monkeypatch.setattr(cm, "_database_of", lambda _path: tmp_path / "no-such-folder" / "resmon.db")
+    fit_in_child = cm._fit_in_child
+    monkeypatch.setattr(cm, "_fit_in_child", lambda _database, path, model, collection: fit_in_child(
+        tmp_path / "no-such-folder" / "resmon.db", path, model, collection))
     cm.snapshot(db, None, lambda: db)
     cm.wait(db)
     path = cm.cache_path(db)
@@ -486,7 +502,7 @@ def test_a_fit_that_ends_after_an_erase_stores_nothing(db, monkeypatch):
     _corpus(db, per_topic=20)
     path = cm.cache_path(db)
 
-    def finished_after_an_erase(where, model):
+    def finished_after_an_erase(_database, where, model, _collection):
         written = where.with_name(where.name + cm._CHILD_SUFFIX)
         cm.save(cm.fit_corpus(db, model), written)
         cm.forget(db)  # the corpus is erased just before the fit's result is stored

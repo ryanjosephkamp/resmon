@@ -1,188 +1,82 @@
 ---
-title: "The assistant and MCP"
-summary: "The in-app assistant, the tools it is given, and driving resmon from an external AI harness over MCP."
-order: 5
-readmeLines:
-  - "224-398"
+title: "Ask and the MCP server"
+summary: "The assistant, what it can and cannot do, and driving resmon from another program over MCP."
+order: 10
 ---
-### The assistant
+**Ask** is an assistant for questions about your own monitoring: what a watch found, why a paper is in your collection, which sources failed last night. It answers from resmon itself, through the same tools an outside program can use over MCP. Anything that would change something waits for you.
 
-Every page has a **✦ Ask** button in the corner. It opens a panel that can do what you
-could do in the interface — set up and adjust routines, run a sweep, find papers in the
-corpus you already have, read what a run found and why, export references, change
-settings — by being asked in words.
+## Conversations
 
-It runs the **`claude` command you already installed and signed into**, so it draws on
-your existing plan rather than a metered key, and resmon never sees your credential. If
-the command is not there, or is not signed in, the panel says so and says where to fix
-it; it does not quietly disappear.
+The rail on the left of **Ask** lists your conversations, newest first, with **Older conversations** below. **Filter by title** narrows the list. **New conversation** (⇧⌘N) starts a fresh one. Every conversation is kept, so closing resmon and coming back opens it where you left off.
 
-The panel has an opaque reading surface and a visible message field. When available, opening it puts
-keyboard focus in the composer; closing it returns focus to Ask. Enter sends, Shift+Enter
-adds a line, and Stop remains below the scrolling conversation. Earlier conversations
-reopen from the header; Allow and Deny stay explicit on each permission card.
+The message box at the bottom takes your question. Enter sends it, Shift+Enter adds a line, and ⌘/ (Ctrl+/) puts the cursor in the box from any screen. **Stop** ends an answer in progress. One answer runs at a time in a window, and leaving Ask does not stop it. A conversation answers one message at a time wherever it is open: open in another window while it answers, it says so, holds **Send**, and shows the answer when it ends.
 
-Choose **Connection**, **Model** and, for Claude Code, **Effort** before sending.
-Choices are fixed for that conversation; **Change choices · new empty conversation**
-starts with no copied messages or native session. Global Settings remain defaults for
-future chats, and changing them cannot retarget an existing conversation or active turn.
-Claude suggestions are aliases, not an account-verified compatibility list. Blank CLI
-model/effort omits that flag and leaves the native default unknown. API effort is not
-supported by the current adapter. The Ollama assistant adapter is unavailable.
-Readiness describes local prerequisites; authentication and model acceptance are checked
-only when you send. A refusal does not switch to another model or connection.
+### Choosing a connection
 
-Older chats have unknown historical choices. Their first continuation asks for explicit
-confirmation: an API conversation sends saved user/assistant text to the chosen future
-provider, whose predecessor is unknown; Claude starts a fresh native session without
-sending the earlier local messages. Those messages remain readable and exportable.
-Changing runtime kind starts an empty conversation. Requested choices and literal model
-reports are shown separately in Ask, Chats and exports; reports do not prove execution,
-effective effort, completion or billing. See the [choices contract](docs/api-contract/assistant-choices.md).
+Before you send the first message of a new conversation, three choices appear: the **Connection**, the **Model**, and the **Effort**. They are fixed when the first message is sent, and they stay with that conversation whatever the defaults do afterward. Changing them in **Settings › AI** changes only conversations you start later.
 
-**Chats** in the sidebar finds saved conversations beyond the Ask history drawer.
-Browse newest-created pages or filter saved titles; Refresh includes new chats.
-Select a transcript, then **Continue in Ask** to open that same local conversation
-without sending anything. While Ask answers, other chats remain readable/exportable;
-finish or stop the active answer before continuing another chat.
+- **Connection** is **Claude Code** (the `claude` command), **Codex** (the `codex` command), or an API key for a provider you have stored a key for. A connection that is not set up is marked "needs setting up", and the box says why and links to **Settings › AI**.
+- **Model** is sent as you type it. The Claude names offered are aliases the command accepts, not a list of what your account can use, and Codex's are what its own catalog lists once you press **Load models**. Left blank, the command's default is used, and resmon says it does not know which that is.
+- **Effort** applies to the two commands. An API key connection has no effort setting, and the form says so.
 
-**Export Markdown** and **Export JSON** explicitly download the selected persisted
-transcript. These are point-in-time copies, possibly incomplete: live fragments and
-pending approval cards are excluded, historical completion is unknown, and recorded
-metadata may be absent. Recorded cost does not establish billed cost. Includes saved
-messages and tool data; review before sharing. Each format refuses output above 8 MiB
-without truncation. Reading/exporting saved chats does not require an available CLI.
-See the [conversation read/export contract](docs/api-contract/assistant-conversations.md).
+For the two commands, resmon runs the command you installed and signed into. It never sees your sign-in. The panel checks whether the command is signed in and, if it is not, offers **Sign in**, which opens the command's own login. See [AI settings](/resmon/guide/ai-summarization/).
 
-Four things about it are structural rather than promised:
+Each answer shows what was requested and what the runtime reported, as two separate claims. A report of the model that answered is not proof of what ran, of the effort used, of completion, or of billing. For an API key, the answer reports tokens, not money, because a provider reports tokens and resmon does not keep anyone's price list.
 
-- **Everything it tells you came from a tool call it made.** It has no other source. When
-  a tool returns nothing, "nothing was returned" is the answer, with the recorded reason
-  or a statement that none was recorded — the same distinction the rest of resmon draws.
-- **Anything that changes something waits for you.** A write is shown as a card with the
-  exact call on it and does not run until you press Allow. That is enforced outside the
-  model: the assistant is given the read tools and no others, and every other call goes
-  through a permission tool resmon serves and the model cannot invoke.
-- **It cannot reach a credential.** No tool returns an API key, and no tool can name one.
-  Delete, erase, factory reset, credential writes, service install and cloud linking are
-  absent from its tools entirely; asked for one, it tells you to do it in the app.
-- **A turn has a spending ceiling** the CLI enforces on itself, set from measuring ten
-  canonical requests. A runaway answer is stopped and says so rather than quietly costing
-  a usage window.
+### What it can do, and what waits for you
 
-Paper text — titles, abstracts, anything fetched from the internet — is data it reports
-on, never an instruction it follows. Its own rules arrive above the conversation on the
-CLI's system channel rather than beside the text, and a test asserts that at the boundary
-the command is actually built.
+Everything the assistant tells you comes from a tool call it made. It has no other source. When a tool returns nothing, "nothing was returned" is the answer, with the recorded reason or a statement that none was recorded. Paper text, such as titles and abstracts, is data it reports on and never an instruction it follows.
 
-Conversations are kept, so closing resmon and coming back opens them where you left off.
-If the CLI itself has lost a conversation — you cleared its history, or restored resmon's
-database onto another machine — the next thing you send is answered in a fresh session and
-the panel says so in place; your earlier messages stay on screen, and the assistant can no
-longer see them.
+The tools are the 26 below. Nineteen read: health, listing your collections, searching a collection (by words or by meaning), finding similar papers, listing sources, watches, and runs, reading a run and its results and its search record, explaining why a paper matched, a paper's retractions and updates, analytics, the Watchdog's findings, exporting references, and reading people and their matches. Seven change something: `run_sweep`, `create_routine`, `create_watch_profile`, `run_routine`, `activate_routine`, `deactivate_routine`, and `update_settings`. The assistant and the HTTP API call a watch a *routine*.
 
-Codex is offered for the assistant **read-only**. `codex exec` has no way for you to approve
-a command before it runs, so a Codex conversation gets only resmon's read tools: it can read
-your watches, runs, papers, sources, and settings, and cannot create, run, or change
-anything. Its shell, the web, the browser, and its other tools are switched off, it runs in a
-read-only sandbox in an empty folder, and resmon stops a turn the moment Codex reaches for
-any tool but resmon's. Changes are made in resmon itself, or in Ask on Claude Code, where
-each one waits for your approval. Codex also writes paper summaries, with no tools at all.
+Ask works in the collection of the window you ask from. A search, a summary of analytics, or a person's matches reads that collection unless you name another, and a sweep it starts puts its papers there. Each answer names the collection it read. From a program outside resmon, a tool that names no collection reads the default one.
 
-**No CLI? Use a key instead.** Under Settings → AI → Assistant you can run the assistant on
-an API key of your own — Anthropic, OpenAI, Google, xAI, Together, DeepSeek, Alibaba, or a
-custom OpenAI-compatible endpoint. It is the same panel, the same tools, the same
-confirmation card, and the same rules on the same system channel; resmon runs the tool loop
-itself rather than handing it to a CLI. Three things differ, and resmon says all three:
+When the assistant wants to use one of the seven, a card appears with the exact call, and **Allow** and **Deny** buttons. Nothing runs until you answer, and the card cannot be dismissed without an answer, because the assistant is waiting on it. This is enforced outside the model: on Claude Code the read tools are pre-approved by name and every other call goes through a permission tool that resmon serves and the model cannot invoke, and on an API key resmon runs the tool loop itself and pauses at the same card.
 
-- **It reports tokens, not money.** A provider API reports token counts and resmon does not
-  maintain anyone's price list, so a turn shows what it consumed and not what it cost. A
-  computed figure would be a number nobody measured.
-- **A turn stops after eight tool steps or 100,000 tokens.** The CLI enforces a dollar
-  ceiling on itself; here the ceiling is on the two things resmon can actually count. Both
-  numbers are twice the largest of the ten requests measured for v2.0.0.
-- **It remembers what was said, not what the tools returned.** A provider API keeps no
-  session, so resmon replays the conversation — your messages and its replies. The raw tool
-  output behind an earlier answer is not sent again, so a long conversation does not re-send
-  a corpus and text from a paper does not follow you from turn to turn.
+**Codex gets the read tools only.** `codex exec` has no way to hold a call for your approval, so a Codex conversation cannot create, run, or change anything. Its shell and web search are switched off, it runs in a read-only sandbox, and resmon stops a turn the moment Codex runs a command, changes a file, or calls a tool from any other server. Make changes in resmon itself, or in Ask on Claude Code or an API key.
 
-Whether each provider supports tool calling at all is recorded with the evidence that
-established it, and a provider resmon could not establish an answer for says so rather than
-guessing — the same three states the embedding lane uses.
+Some things are not tools at all. There is no delete, no erase, no factory reset, no credential tool, and no service install. Asked for one, the assistant tells you to do it in the app. No tool returns an API key or can name one.
 
-### Driving resmon from your AI harness (MCP)
+A turn has a ceiling so a loop cannot run away. On Claude Code the command enforces a dollar limit of $0.75 on itself. On an API key a turn stops after 8 tool steps or 100,000 tokens. Both are stops for runaways, not quotas.
 
-resmon ships an **MCP server**, so a harness you already work in — Claude Code, Codex, or
-anything else speaking the Model Context Protocol — can read and control resmon without you
-leaving it. The full tool surface is specified in
-[`docs/api-contract/mcp.md`](docs/api-contract/mcp.md).
+An API key connection also does not remember tool output. A provider keeps no session, so resmon replays your messages and the assistant's replies, not the raw results of earlier tool calls. That keeps a long conversation from re-sending your collection, and keeps text from a paper from following you from turn to turn.
 
-```bash
-python3 resmon_scripts/mcp_server.py
+### Saved conversations
+
+A conversation's header offers **Export Markdown**, **Export JSON**, and **Delete**. An export holds the saved messages only: a point-in-time copy, which can be incomplete (live fragments and pending cards are not in it), and which does not establish whether the conversation completed. It is refused above 8 MiB instead of being truncated, and it includes tool data, so review it before sharing. Reading and exporting saved conversations needs no available command. See the [conversation read and export contract](docs/api-contract/assistant-conversations.md).
+
+## The MCP server
+
+resmon ships an MCP server, so a program you already work in can read and control resmon. The server speaks MCP over standard input and output, with the 26 tools above, and the full surface is specified in [`docs/api-contract/mcp.md`](docs/api-contract/mcp.md).
+
+It is a client of the running resmon, reaching it over `127.0.0.1`, and it never opens the database. **resmon must be running.** When it is not, every tool returns one structured error rather than an empty result, because a program told "you have no papers" because the app is closed would repeat that to you as fact.
+
+The server needs Python with the packages in `requirements.txt`. From a clone, that is the virtual environment's interpreter. The installed app carries its own: on macOS, inside the app, the interpreter is `resmon.app/Contents/Resources/backend/python/bin/python3` and the server is `resmon.app/Contents/Resources/backend/resmon_scripts/mcp_server.py`.
+
+**Naming the resmon to talk to is required.** The server tries `RESMON_PORT` first, then the port file a running resmon writes. It has no default-port candidate and does not read the service's lock file. To keep it on one instance, make the environment port and `RESMON_PORT_FILE` name that same instance: an unanswered environment port does not prevent trying the file's port. **Health › This engine** and **Settings › In the background** show the address the window is using. A typical entry for a program that reads an `mcpServers` list is:
+
+```json
+{
+  "mcpServers": {
+    "resmon": {
+      "command": "/full/path/to/resmon/.venv/bin/python",
+      "args": ["/full/path/to/resmon/resmon_scripts/mcp_server.py"],
+      "env": { "RESMON_PORT": "8742" }
+    }
+  }
+}
 ```
 
-It speaks MCP over stdio and is a **client of the running resmon backend**, reaching it over
-`127.0.0.1`. It never opens the database directly: the backend owns its connections and its
-scheduler, and going through the API means the tool surface cannot drift from what the app
-itself does. **resmon must be running.** If it is not, every tool returns one clear error
-rather than an empty result — a harness told "you have no papers" because the app is closed
-would repeat that to you as fact.
+Replace `8742` with the port the window shows. The backend asks every caller for its local API token, and the server reads it from the owner-only file `api-token-<port>` in resmon's state directory, so nothing needs configuring for an installed app. For an instance with its own state directory, set `RESMON_STATE_DIR` for the server too. See [`docs/local-api-security.md`](docs/local-api-security.md).
 
-To register it with Claude Code:
+**Every tool says whether it needs a person.** `tools/list` carries `requires_confirmation` on all 26: true on the seven that change something, false on the nineteen reads. A program that does not enforce it is running writes the contract says a person approves first; the server itself applies no gate.
 
-```bash
-claude mcp add resmon -- python3 /full/path/to/resmon_scripts/mcp_server.py
-```
+- **Nothing destructive is exposed.** No delete, no erase, no factory reset, and no tool that reads or writes an API key.
+- **A watch created through a tool is created inactive.** Putting something on the schedule on your machine is not a side effect a tool call gets to have, so turning one on is its own confirmed tool.
+- **`update_settings` can change only 20 settings.** They are an allowlist, in six groups (AI, assistant, email, embeddings, storage, and notifications); every other setting is refused by name. A tool may change what resmon says (which model, which ceilings, what is retained, what is notified), and may not change where resmon sends things, what it runs, where it writes, what it is told, or whether you are told how a result was produced. A key named like `api_key`, `token`, `secret`, or `password` is refused before any request is built.
 
-Twenty-five tools cover search (keyword and semantic), similar papers, sources, routines,
-executions, match transparency, paper lifecycle, analytics, the watchdog and reference
-export, plus seven that change something: `run_sweep`, `create_routine`,
-`create_watch_profile`, `run_routine`, `activate_routine`, `deactivate_routine` and
-`update_settings`.
-`create_routine` takes an optional `intent` — the sentence the coverage audit compares
-against — and `get_routine` returns that audit's summary alongside the configuration.
+`health` and `get_execution` also accept an optional `expected_runtime_id`. Read the runtime id from **Health › This engine** (or from `health`'s `identity.runtime_id`), pass it in, and a mismatch refuses the read. That confirms the program is talking to the process you meant, which a port number alone does not. It does not authenticate a hostile local service.
 
-**Every tool says whether it needs a person.** `tools/list` carries
-`requires_confirmation` on all twenty-five — `true` on the seven above, `false` on the
-eighteen reads — so a harness knows which calls to put in front of you before running
-them, rather than inferring that an unmarked tool is safe.
+## The command line
 
-**Nothing destructive is exposed** — no delete, no erase, no factory reset, and no tool
-that reads or writes an API key. A routine created through a tool is created
-**inactive**; putting something on a schedule on your machine is not a side effect a
-tool call gets to have, which is why turning one on is its own confirmed tool.
-`update_settings` can change seven groups of preferences and **cannot name a credential**:
-a key called anything like `api_key`, `token`, `secret` or `password` is refused before a
-request is even built, because resmon's keys live in your system keychain and are not
-settings.
-
-Finding the right resmon matters more than it sounds: the server checks `RESMON_PORT`, then
-the port file the backend writes beside its database, and nothing else. A port that was named
-and is not answering is reported as unavailable rather than widened — otherwise a harness can
-silently attach to a different resmon installation and answer truthfully about the wrong
-corpus. When neither names a port the server refuses in the same way, saying which two things
-name one and that it did not guess; it used to fall back to resmon's default port, which on a
-machine running resmon's background service meant answering about that service's corpus.
-
-**The backend asks every caller for its local API token** (2.2), and the MCP server reads it
-from the owner-only file the backend writes beside its daemon lock, `api-token-<port>` in
-resmon's state directory. Nothing needs configuring for the installed app. For a development
-instance with its own state directory, set `RESMON_STATE_DIR` for the MCP server too — and
-`RESMON_PORT` or `RESMON_PORT_FILE` as well, because the port file follows the database
-rather than the state directory, so naming one does not name the other. A named port whose
-token cannot be found is reported as unavailable, naming that instance. See
-[`docs/local-api-security.md`](docs/local-api-security.md).
-
-**If you run the MCP server from a separate checkout, update it in the same sitting as the
-app.** A pre-2.2 MCP server sends no `Authorization` header, and no route is exempt — not
-even `/api/health` — so every call it makes to a 2.2 backend is refused with
-`401 token_missing`.
-
-### Running a routine on demand
-
-`POST /api/routines/{id}/run` runs a saved routine immediately, outside its schedule. It is a
-thin wrapper over the same dispatcher the scheduler uses, so a manual run and a scheduled fire
-cannot drift apart, and the run is recorded against the routine like any other.
-
-An **inactive** routine does run, and the response says so. `is_active` controls whether the
-scheduler fires a routine on its own; it is not a statement that the routine may never run.
+The `resmon` command is a second way in, with no model involved. It prints what resmon recorded, in the app's words, and never opens the database. See [Install and launch](/resmon/guide/install/).

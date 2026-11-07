@@ -130,7 +130,7 @@ def _clean_names(raw: Any) -> list[dict]:
 
 
 def _clean_identifiers(raw: Any) -> dict:
-    """Identifiers, each normalised and each carrying its citation.
+    """Identifiers, each normalized and each carrying its citation.
 
     An ORCID is stored **bare and upper-cased** by ``api_base.bare_orcid``, for
     the same reason the corpus stores it that way: the profile's id and the
@@ -180,7 +180,7 @@ def _clean_strings(raw: Any) -> list[str]:
 
 
 def validate_profile(profile: dict) -> dict:
-    """Normalise a profile and refuse one that cannot be stored.
+    """Normalize a profile and refuse one that cannot be stored.
 
     Refuses only what makes a profile meaningless — no kind, no name. It does
     **not** refuse a profile with no identifier, because a researcher watching
@@ -324,7 +324,7 @@ def matched_document_ids(conn: sqlite3.Connection, profile_id: int) -> list[int]
     """The corpus ids this profile has matched, oldest match first.
 
     The ``retractions`` mode's input set. Ordered by ``first_seen_at`` so a
-    bounded check walks the profile's back catalogue rather than re-reading the
+    bounded check walks the profile's back catalog rather than re-reading the
     papers that arrived this morning.
     """
     rows = conn.execute(
@@ -383,8 +383,8 @@ def validate_entity_parameters(conn: sqlite3.Connection, entity: Any) -> dict:
     profile = get_profile(conn, profile_id)
     if profile is None:
         raise ProfileError(
-            f"There is no watch profile with id {profile_id}. Create the "
-            f"profile first, then point the routine at it.")
+            f"There is no person with id {profile_id}. Add them under People "
+            f"first, then point the watch at them.")
 
     mode = str(entity.get("mode") or "").strip()
     if not mode:

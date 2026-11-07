@@ -3,8 +3,11 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
 import { useAppearance } from '../../theme/appearance';
-import { Tip } from '../Today';
-import { MAP_KEY } from '../today/freshness';
+import { Tip, paperTip } from '../Today';
+import { tipWords } from '../../charts/ChartTip';
+import { mapKey, readMap } from '../today/freshness';
+import { useCollection, useCollectionWords } from '../../collections/current';
+import { number } from '../today/format';
 import { epochDay, gridCell, watchShape, type Sky } from '../today/model';
 import { Plate, type PlateHandle, type PlateHover, type PlateLook } from '../today/Plate';
 import { collectionSky } from './collectionSky';
@@ -24,6 +27,8 @@ export interface SkyFacts {
   ready: boolean;
   /** How the map placed papers: by their embeddings or by shared wording. */
   basis: 'embeddings' | 'words' | null;
+  /** How many papers in the whole collection the map leaves off, by the reason the map gives; `null` until it is read. */
+  unplaced?: { no_text: number; not_embedded: number } | null;
 }
 
 /** A paper chosen on the map, and where it sits there: its grid cell and its region's name. */
@@ -122,9 +127,11 @@ export const PaperSky = forwardRef<PaperSkyHandle, Props>(function PaperSky(prop
   } = props;
   const navigate = useNavigate();
   const { shown, theme } = useAppearance();
+  const { id: collection } = useCollection();
+  const place = useCollectionWords();
   const map = useQuery({
-    queryKey: MAP_KEY,
-    queryFn: () => answer(engine().GET('/api/map')),
+    queryKey: mapKey(collection),
+    queryFn: () => readMap(collection),
     // A map being fitted is asked for again until it is drawn, as on Today:
     // otherwise a page opened during the fit says it is drawing until left.
     refetchInterval: (query) => {
@@ -194,6 +201,7 @@ export const PaperSky = forwardRef<PaperSkyHandle, Props>(function PaperSky(prop
     total: marked.length + (focus !== null && !marked.includes(focus) ? 1 : 0),
     ready: !!ready,
     basis: map.data?.basis ?? null,
+    unplaced: ready ? ready.unplaced : null,
   };
   const said = caption(facts);
   return (
@@ -212,6 +220,7 @@ export const PaperSky = forwardRef<PaperSkyHandle, Props>(function PaperSky(prop
             onSelect={onSelect}
             onOpen={onChoose ? undefined : open}
             onHover={setHover}
+            onKeyed={setHover}
             paletteKey={`${theme}:${shown.accent ?? ''}`}
             label={`${said} ${onChoose ? 'Choose a paper to open it beside the map.' : 'Choose a paper to open its page.'}`}
             onAway={() => undefined}
@@ -221,23 +230,63 @@ export const PaperSky = forwardRef<PaperSkyHandle, Props>(function PaperSky(prop
           >
             {hover && (
               <Tip hover={hover} brief={brief.data ?? undefined} now={now} sourceName={sourceName}
-                cell={gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds)} />
+                cell={gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds)}
+                opens={opensWords(hover.via ?? 'pointer', !!onChoose, hovered === focus || (!!onChoose && hovered === chosen))} />
             )}
           </Plate>
         ) : (
           <div className="sky-empty">
             {map.isPending || (map.data?.state === 'ready' && !current) ? 'Reading the map.'
-              : map.data?.state === 'fitting' ? 'Drawing the map of your collection.'
-                : 'The collection map has no papers placed yet.'}
+              : map.data?.state === 'fitting' ? `Drawing the map of ${place.name}.`
+                : place.named ? `The map of ${place.name} has no papers placed yet.` : 'The collection map has no papers placed yet.'}
           </div>
         )}
       </div>
+      {/* The paper the keyboard chose, said as its tip says it: the map itself is one picture to a screen reader. */}
+      <p className="sr-only" aria-live="polite" data-map-said="">
+        {hover?.via === 'keyboard' && sky ? tipWords(paperTip({
+          brief: brief.data ?? undefined, now, sourceName, cell: gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds),
+          opens: opensWords('keyboard', !!onChoose, hovered === focus),
+        })) : ''}
+      </p>
       <figcaption>{said}</figcaption>
     </figure>
   );
 });
 
+/**
+ * What choosing a paper does on a map, for its tip: opens it beside the map,
+ * or opens its page (from the keyboard, Enter does, once it is chosen). The
+ * page's own paper, and a paper already open beside the map, open nothing
+ * more, and their tips say nothing of it.
+ */
+export function opensWords(via: 'pointer' | 'keyboard', beside: boolean, isOpen: boolean): string | undefined {
+  if (isOpen) return undefined;
+  if (beside) return via === 'keyboard' ? undefined : 'Opens it beside the map';
+  return via === 'keyboard' ? 'Enter opens its page' : 'Opens its page';
+}
+
 /** "placed by shared wording" or "placed by meaning", for a caption. */
+/**
+ * Why `off` marked papers are not on the map, from the reasons the map gives
+ * for the whole collection. A paper is left off when its title and abstract
+ * hold too little text to place (on the words basis, too few words shared with
+ * the rest), and, on a map drawn from an embedding model, a paper that model
+ * has not read yet is still to be placed. The map counts each reason for the
+ * collection, not per paper, so where both apply the sentence names both.
+ */
+export function leftOffWords(off: number, facts: Pick<SkyFacts, 'basis' | 'unplaced'>): string {
+  const left = `${number(off)} ${off === 1 ? 'is' : 'are'} left off the map`;
+  const unplaced = facts.unplaced;
+  const waiting = facts.basis === 'embeddings' && (unplaced?.not_embedded ?? 0) > 0;
+  const tooLittle = facts.basis === 'words'
+    ? `${off === 1 ? 'its title and abstract share' : 'their titles and abstracts share'} too few words with the rest to place ${off === 1 ? 'it' : 'them'}`
+    : `${off === 1 ? 'its title and abstract hold' : 'their titles and abstracts hold'} too little text to place ${off === 1 ? 'it' : 'them'}`;
+  if (!waiting) return `${left}: ${tooLittle}.`;
+  if ((unplaced?.no_text ?? 0) === 0) return `${number(off)} ${off === 1 ? 'is' : 'are'} not placed yet: your embedding model has not read ${off === 1 ? 'it' : 'them'}.`;
+  return `${number(off)} ${off === 1 ? 'is' : 'are'} off the map: your embedding model has not read ${off === 1 ? 'it' : 'some of them'} yet, or ${tooLittle}.`;
+}
+
 export function basisWords(basis: SkyFacts['basis']): string {
   if (basis === 'embeddings') return 'placed by meaning';
   if (basis === 'words') return 'placed by shared wording';

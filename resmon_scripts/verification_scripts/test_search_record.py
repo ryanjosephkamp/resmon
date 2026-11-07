@@ -1,6 +1,6 @@
 """The reproducible search record: the numbers, and what they do not mean.
 
-A methods section built on a mislabelled figure is worse than no record at all,
+A methods section built on a mislabeled figure is worse than no record at all,
 because a reviewer will publish it. So most of this suite is about labeling
 rather than arithmetic.
 
@@ -8,7 +8,7 @@ Three things resmon must never let the record imply:
 
 1. That it *removed* cross-source duplicates. It flags them and keeps both.
 2. That "already held from an earlier run" belongs in a PRISMA flow diagram. It
-   is an artefact of monitoring over time and has no box.
+   is an artifact of monitoring over time and has no box.
 3. That a figure it never measured was measured and came out zero.
 """
 
@@ -494,11 +494,11 @@ def test_an_unknown_execution_404s():
         "/api/executions/424242/search-record").status_code == 404
 
 
-def test_a_cancelled_run_explains_its_absences_by_the_cancellation(conn):
-    """A run cancelled while querying has no deduplication figures and no zero
+def test_a_canceled_run_explains_its_absences_by_the_cancellation(conn):
+    """A run canceled while querying has no deduplication figures and no zero
     reason for the source it was querying, and both absences have one cause.
-    The record must not say resmon "did not record why" the cancelled source
-    returned nothing, beside that source's own note saying it was cancelled."""
+    The record must not say resmon "did not record why" the canceled source
+    returned nothing, beside that source's own note saying it was canceled."""
     exec_id = _run(conn, sources={"biorxiv": {"status": "cancelled"}})
     update_execution_status(conn, exec_id, "cancelled", end_time="2026-07-01T09:00:08Z")
     record = search_record.build(conn, exec_id)
@@ -506,11 +506,13 @@ def test_a_cancelled_run_explains_its_absences_by_the_cancellation(conn):
     cross = record["deduplication"]["cross_source_duplicates"]
     assert cross["recorded"] is False
     assert cross["not_recorded_reason"] == (
-        "The run was cancelled before deduplication, so this figure was never "
+        "The run was canceled before deduplication, so this figure was never "
         "computed. Not recorded is not zero.")
     assert not any("did not record why" in c for c in record["caveats"])
     markdown = search_record.to_markdown(record)
-    assert "cancelled while this source was being queried" in markdown
+    assert record["search"]["status"] == "cancelled"
+    assert "| Status | canceled |" in markdown
+    assert "canceled while this source was being queried" in markdown
     assert "predates the version" not in markdown
 
 
@@ -528,7 +530,7 @@ def test_a_source_that_did_not_answer_is_said_to_have_nothing_to_count(conn):
                             zero_detail=json.dumps({"detail": "http_503", "status": 503, "attempts": 2}))
     caveats = search_record.build(conn, exec_id)["caveats"]
     assert (
-        "1 of the 2 recorded sources did not answer, so there is nothing to count (CrossRef). "
+        "1 of the 2 recorded sources did not answer, so there is nothing to count (Crossref). "
         "Its note below says why. It did not contribute to this search."
     ) in caveats
     assert not any("nothing to find (crossref)" in c for c in caveats)
@@ -537,14 +539,14 @@ def test_a_source_that_did_not_answer_is_said_to_have_nothing_to_count(conn):
                             zero_detail=json.dumps({"detail": "parse_error"}))
     caveats = search_record.build(conn, exec_id)["caveats"]
     assert (
-        "2 of the 3 recorded sources did not answer, so there is nothing to count (CrossRef, DOAJ). "
+        "2 of the 3 recorded sources did not answer, so there is nothing to count (Crossref, DOAJ). "
         "Their notes below say why. They did not contribute to this search."
     ) in caveats
 
 
-def test_a_cancelled_run_s_coverage_says_it_was_cancelled_not_that_the_source_failed(conn):
+def test_a_canceled_run_s_coverage_says_it_was_canceled_not_that_the_source_failed(conn):
     exec_id = _run(conn, sources={"hal": {"status": "cancelled"}})
     update_execution_status(conn, exec_id, "cancelled", end_time="2026-07-01T09:00:08Z")
     summary = search_record.build(conn, exec_id)["coverage"]["summary"]
     assert summary == (
-        "1 selected source: 0 answered, 1 recorded non-answer (cancelled before it answered), 0 unknown.")
+        "1 selected source: 0 answered, 1 recorded non-answer (canceled before it answered), 0 unknown.")

@@ -1,12 +1,12 @@
-"""The whole walk at once: a schema-13 database upgraded to schema 24.
+"""The whole walk at once: a schema-13 database upgraded to schema 27.
 
 Every schema step since 13 has its own upgrade test, and each one starts from a
 fixture of the step immediately before it -- 13 -> 14, 14 -> 15, 15 -> 16,
-16 -> 17, 17 -> 18, 18 -> 19, 19 -> 20, 20 -> 21, 21 -> 22, 22 -> 23, 23 -> 24. Eleven
-steps, green one at a time, and none of them is the journey a user takes. A
-user whose database is at schema 13 launches a newer resmon once and their
-database crosses **all eleven** steps in one `init_db` call, with the rows
-resmon wrote at schema 13 still in it.
+16 -> 17, 17 -> 18, 18 -> 19, 19 -> 20, 20 -> 21, 21 -> 22, 22 -> 23, 23 -> 24,
+24 -> 25, 25 -> 26, 26 -> 27. Fourteen steps, green one at a time, and none of
+them is the journey a user takes. A user whose database is at schema 13 launches a
+newer resmon once and their database crosses **all fourteen** steps in one
+`init_db` call, with the rows resmon wrote at schema 13 still in it.
 
 That is what this file tests, and the fixture it starts from is not hand-written:
 `fixtures/schema-13/corpus.sql` is a dump of a database resmon's own `init_db`
@@ -20,7 +20,8 @@ What each test establishes is written on it. The short version:
   * the walk runs at all, on a file-backed database, in one call (P2)
   * the upgraded schema is object-for-object the fresh install's (P3)
   * every row the schema-13 database held is still there, unaltered, with its
-    keys and its AUTOINCREMENT high-water marks (P4)
+    keys and its AUTOINCREMENT high-water marks (P4), except the rewrites named
+    in `_INTENDED` and the one-time recount of runs' new papers (`_as_recounted`)
   * integrity, foreign keys and the FTS index survive it (P5)
   * the CHECK constraints work on the **upgraded** database, not just a fresh
     one -- a rebuilt table can lose a constraint and look identical in a row
@@ -30,12 +31,12 @@ What each test establishes is written on it. The short version:
     `test_cumulative_upgrade_boundary`-style style below)
   * every committed fixture is walked by today's code. Where the schema a
     fixture was written at is still the one this code ships, that walk must
-    change nothing at all; where steps have been added past it -- 13 -> 24,
-    18 -> 24 and 21 -> 24 today -- the walk is what a database at that schema
+    change nothing at all; where steps have been added past it -- 13 -> 27,
+    18 -> 27, 21 -> 27, 25 -> 27 and 26 -> 27 today -- the walk is what a database at that schema
     takes on its next launch, and every row of it has to come out the other
     side (P9).
 
-`FIXTURES` near the bottom is the list that last case is parametrised over. A
+`FIXTURES` near the bottom is the list that last case is parametrized over. A
 schema that ships adds one row to it and one directory under `fixtures/`; it
 does not add a test, and it never touches a fixture committed before it.
 
@@ -99,7 +100,7 @@ FIXTURE = Path(__file__).parent / "fixtures/schema-13/corpus.sql"
 
 # The schema the fixture was written at, and the schema it must reach.
 FIXTURE_SCHEMA_VERSION = 13
-TARGET_SCHEMA_VERSION = 24
+TARGET_SCHEMA_VERSION = 27
 
 
 # ---------------------------------------------------------------------------
@@ -151,12 +152,15 @@ def walked(tmp_path_factory):
     conn.commit()
     assert database.get_schema_version(conn) == FIXTURE_SCHEMA_VERSION
     before = _snapshot(conn)
+    recounted = _as_recounted(conn)
+    expected = _snapshot(recounted)
+    recounted.close()
     conn.close()
 
     database.init_db(str(path))            # the user's upgrade, in one call
 
     conn = _open(path)
-    yield {"path": path, "conn": conn, "before": before, "state": state}
+    yield {"path": path, "conn": conn, "before": before, "recounted": expected, "state": state}
     conn.close()
 
 
@@ -210,7 +214,7 @@ def _snapshot(conn: sqlite3.Connection) -> dict:
     return {"tables": tables, "rows": rows, "sequences": sequences}
 
 
-def _normalise(sql: str) -> str:
+def _normalize(sql: str) -> str:
     """Collapse whitespace so indentation differences are not schema differences."""
     return " ".join((sql or "").split())
 
@@ -224,7 +228,7 @@ def _objects(conn: sqlite3.Connection) -> dict[str, tuple[str, str, str]]:
     difference that is not one.
     """
     return {
-        r["name"]: (r["type"], r["tbl_name"], _normalise(r["sql"]))
+        r["name"]: (r["type"], r["tbl_name"], _normalize(r["sql"]))
         for r in conn.execute(
             "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE sql IS NOT NULL")
         if r["name"] not in SHADOW
@@ -236,7 +240,7 @@ def _objects(conn: sqlite3.Connection) -> dict[str, tuple[str, str, str]]:
 # ---------------------------------------------------------------------------
 
 
-def test_one_init_db_takes_a_database_from_13_to_24(walked):
+def test_one_init_db_takes_a_database_from_13_to_27(walked):
     """The upgrade a first launch performs on a schema-13 database, in one call, on a file."""
     conn = walked["conn"]
     assert database.get_schema_version(conn) == TARGET_SCHEMA_VERSION
@@ -381,13 +385,23 @@ def test_every_row_in_the_schema_13_database_survives_the_walk_unaltered(walked)
     Two values are rewritten on purpose; both are in `_INTENDED` by name, and
     both must actually be observed or this test fails -- a documented rewrite
     that silently stopped happening is as much a regression as one that
-    silently started.
+    silently started. The one-time recount of runs' new papers rewrites one
+    column more (`_RECOUNTED`); the rows are compared with the fixture as
+    `_as_recounted` says the recount leaves it, and the recount must change
+    that column on this fixture, so a recount that stopped running fails here.
     """
     before, raw_after = walked["before"], _snapshot(walked["conn"])
     assert _settings_added(before, raw_after) == _MARKERS_A_LAUNCH_MAY_ADD, (
         "the walk added app_settings keys this file does not name: "
         f"{sorted(_settings_added(before, raw_after) - _MARKERS_A_LAUNCH_MAY_ADD)}")
     after = _without_markers(raw_after)
+    recounted = walked["recounted"]
+    assert {(table, column) for table, column in _RECOUNTED
+            for old, new in zip(before["rows"][table], recounted["rows"][table])
+            if old[column] != new[column]} == set(_RECOUNTED), (
+        "the recount's rule changes nothing on this fixture, so this walk cannot "
+        "show that the recount ran")
+    before = recounted
     observed: set = set()
     tables = before["tables"]
     # Schema 13 has 22 tables of its own; `documents_fts` is the twenty-second
@@ -603,7 +617,24 @@ def _template(table: str, column: str, value) -> dict:
             "file_id": "f", "version_id": "v", "vault_id": "vault", "sha256": _SHA,
             "byte_size": 1, "media_type": "text/plain", "original_name": "a.txt",
             "relative_path": "a.txt", "created_at_utc": "2026-03-01T00:00:00Z"},
+        "library_removed": {
+            "file_id": "f", "version_id": "v", "vault_id": "vault", "original_name": "a.txt",
+            "media_type": "text/plain", "byte_size": 1, "sha256": _SHA, "bytes_state": "held",
+            "record_json": "{}", "removed_at_utc": "2026-03-01T00:00:00Z"},
         "reading_queue": {"document_id": 1, "status": "to_read", "read_at": None},
+        # Schema 26. A paper no collection holds, so the probe meets the CHECK
+        # and not the primary key the walked fixture's own rows occupy.
+        "collection_documents": {"collection_id": 1, "document_id": 999_999, "added_by": "run"},
+        # Schema 27. Foreign keys are off for these probes, as above.
+        "document_identifiers": {
+            "document_id": 999_999, "scheme": "arxiv", "value": "2401.99999",
+            "reported_by": "probe", "seen_at": "2026-11-05 00:00:00"},
+        "execution_find_results": {
+            "execution_id": 999_999, "source": "probe", "position": 0,
+            "outcome": "not_found", "matched_by": None},
+        "full_text_downloads": {
+            "document_id": 1, "requested_by": "person", "state": "waiting",
+            "requested_at_utc": "2026-11-05T00:00:00+00:00", "finished_at_utc": None},
         "routines": {
             "name": "probe", "schedule_cron": "0 0 * * *", "parameters": "{}",
             "execution_location": "local"},
@@ -620,12 +651,21 @@ def _template(table: str, column: str, value) -> dict:
     row = dict(rows[table])
     row[column] = value
     # Two tables' compound CHECKs tie another column to the one under test.
-    # Honouring them keeps this test about the value set and not about them.
+    # Honoring them keeps this test about the value set and not about them.
     if table == "evidence_answers" and column == "state":
         row["finished_at_utc"] = (
             None if value in ("admitted", "running") else "2026-03-01T01:00:00Z")
     if table == "reading_queue" and column == "status":
         row["read_at"] = "2026-03-01T01:00:00Z" if value == "read" else None
+    if table == "execution_find_results" and column == "outcome":
+        row["matched_by"] = "doi" if value == "found" else None
+    if table == "full_text_downloads" and column == "state":
+        finished = value in ("stored", "skipped", "failed")
+        row["finished_at_utc"] = "2026-11-05T00:01:00+00:00" if finished else None
+        row["reason"] = "probe" if value in ("skipped", "failed") else None
+        if value == "stored":
+            row.update({"file_id": "f", "final_url": "https://example.org/a.pdf",
+                        "license": "cc-by"})
     if table == "evidence_notes" and column == "kind" and value == "passage":
         row.update({"page_number": 1, "extraction_contract": "pdf/v1",
                     "page_text_sha256": _SHA, "start_codepoint": 0,
@@ -732,7 +772,66 @@ def test_every_enumerated_check_value_accepts_and_rejects_on_the_upgraded_databa
 #: The two older markers -- ``execution_sources_backfilled`` and
 #: ``dedup_columns_backfilled`` -- are not here because every committed fixture
 #: already carries them; a key leaves this set once a fixture carries it.
-_MARKERS_A_LAUNCH_MAY_ADD = {"document_facets_backfilled"}
+#: ``run_new_papers_recounted`` records the one-time recount of runs' new papers
+#: (``database._recount_run_new_papers``, and ``_as_recounted`` below).
+_MARKERS_A_LAUNCH_MAY_ADD = {"document_facets_backfilled", database.RUN_NEW_PAPERS_RECOUNTED_KEY}
+
+#: The columns the one-time recount of runs' new papers rewrites, as (table, column).
+_RECOUNTED = (("execution_documents", "is_new"),)
+
+
+def _as_recounted(conn: sqlite3.Connection) -> sqlite3.Connection:
+    """An in-memory copy of *conn*'s database, as the one-time recount of runs' new papers leaves it.
+
+    A database without ``run_new_papers_recounted`` -- every committed fixture --
+    has its runs' new papers recounted on its next launch
+    (``database._recount_run_new_papers``), which rewrites the column in
+    `_RECOUNTED`. The rule is restated here in Python, apart from that SQL, so a
+    comparison against this copy checks the values the recount wrote rather than
+    merely letting the columns change. Times are read to the second as
+    ``sweep_engine._utc_clock`` reads them, and a run's window includes both ends:
+
+    * a link is new when its paper's ``first_seen_at`` falls within its run's
+      ``[start_time, end_time or last_seen_at_utc]`` and no run that started
+      earlier (or in the same second and was recorded first) linked the paper
+      with a window that holds that time; every other link of such a run is not;
+    * ``new_result_count`` is never changed;
+    * a run with no end and no heartbeat, and a link to a paper that is gone,
+      are left as they were.
+
+    The caller closes the copy.
+    """
+    copy = sqlite3.connect(":memory:")
+    copy.row_factory = sqlite3.Row
+    conn.backup(copy)
+
+    def clock(stamp: object) -> str:
+        return str(stamp or "").replace("T", " ").rstrip("Z")[:19]
+
+    runs = {r["id"]: dict(r) for r in copy.execute("SELECT * FROM executions")}
+    first_seen = {r["id"]: clock(r["first_seen_at"]) for r in copy.execute("SELECT id, first_seen_at FROM documents")}
+    window = {}
+    for run_id, run in runs.items():
+        end = run.get("end_time") or run.get("last_seen_at_utc")
+        if end:
+            window[run_id] = (clock(run["start_time"]), clock(end))
+    links = [(r["execution_id"], r["document_id"]) for r in copy.execute(
+        "SELECT execution_id, document_id FROM execution_documents")
+        if r["execution_id"] in window and r["document_id"] in first_seen]
+
+    def holds(run_id: int, doc_id: int) -> bool:
+        return window[run_id][0] <= first_seen[doc_id] <= window[run_id][1]
+
+    is_new = {}
+    for run_id, doc_id in links:
+        holding = [r for r, d in links if d == doc_id and holds(r, d)]
+        is_new[(run_id, doc_id)] = int(
+            holds(run_id, doc_id) and min(holding, key=lambda r: (window[r][0], r)) == run_id)
+    copy.executemany(
+        "UPDATE execution_documents SET is_new = ? WHERE execution_id = ? AND document_id = ?",
+        [(value, run_id, doc_id) for (run_id, doc_id), value in is_new.items()])
+    copy.commit()
+    return copy
 
 
 def _settings_added(before: dict, after: dict) -> set:
@@ -949,6 +1048,9 @@ FIXTURES = [
     _Fixture(13, tables=21, rows=116),
     _Fixture(18, tables=31, rows=171),
     _Fixture(21, tables=34, rows=191),
+    _Fixture(25, tables=37, rows=194),
+    _Fixture(26, tables=39, rows=217),
+    _Fixture(27, tables=43, rows=240),
 ]
 IDS = [f.name for f in FIXTURES]
 
@@ -1024,19 +1126,26 @@ def test_one_init_db_over_each_fixture_keeps_every_row(
         release, tmp_path_factory):
     """The walk a database at *each* committed schema takes on its next launch.
 
-    Parametrised over every row of `FIXTURES`, not only the newest: adding a
+    Parametrized over every row of `FIXTURES`, not only the newest: adding a
     newer fixture would otherwise move `NEWEST` and silently drop the 18 -> 21
     walk, which is the only walk in this file that crosses the `executions`
     rebuild with a fixture's rows in it.
 
     While a fixture is at the schema this code still ships, its walk is
     a no-op and the whole fingerprint has to come back identical. Where a step
-    has been added past it -- 13 -> 24, 18 -> 24 and 21 -> 24 today -- the
-    fingerprint legitimately changes: `executions` is rebuilt with a wider
-    `status` CHECK and six new columns, five tables and an index arrive, and the
-    schema marker moves.
+    has been added past it -- 13 -> 27, 18 -> 27, 21 -> 27, 25 -> 27 and
+    26 -> 27 today -- the fingerprint legitimately changes: `executions` is
+    rebuilt with a wider `status` CHECK and six new columns, and again with
+    `find_paper` in its type CHECK, `library_files` with TeX in its CHECK,
+    six tables and an index arrive, schema 26's two collection tables arrive
+    with their indexes and triggers, `routines` gains `collection_id` and
+    `download_full_text`, every paper is filed in the default collection,
+    schema 27's four full-text tables arrive, and the schema marker moves.
     What must not change is the data: every row of every application table the
     fixture holds, column for column, and every AUTOINCREMENT high-water mark.
+    The one exception on every fixture is the one-time recount of runs' new
+    papers, and the rows are compared with the fixture as `_as_recounted` says
+    the recount leaves it.
 
     That second half is the assertion that matters for a table rebuild. A
     rebuild is the one migration shape that can lose a column's values, drop a
@@ -1056,8 +1165,10 @@ def test_one_init_db_over_each_fixture_keeps_every_row(
     conn.executescript(release.corpus.read_text(encoding="utf-8"))
     conn.commit()
     assert database.get_schema_version(conn) == release.schema_version
-    before_print = _fingerprint(conn, ignore_markers=True)
-    before = _snapshot(conn)
+    recounted = _as_recounted(conn)
+    before_print = _fingerprint(recounted, ignore_markers=True)
+    before = _snapshot(recounted)
+    recounted.close()
     before_objects = _objects(conn)
     tables = len(_app_tables(conn))
     rows = sum(len(before["rows"][t]) for t in before["tables"])
@@ -1081,10 +1192,11 @@ def test_one_init_db_over_each_fixture_keeps_every_row(
             f"{sorted(added - _MARKERS_A_LAUNCH_MAY_ADD)}")
 
         if release.schema_version == database.SCHEMA_VERSION:
-            # A fixture already at today's schema has one thing left for a
+            # A fixture already at today's schema has two things left for a
             # launch to do: record the backfills this build has introduced
-            # since that fixture was written. Everything else -- every object, every row,
-            # every sequence -- comes back identical.
+            # since that fixture was written, and recount its runs' new papers.
+            # Everything else -- every object, every row, every sequence --
+            # comes back identical.
             assert added == _MARKERS_A_LAUNCH_MAY_ADD, (
                 f"the {release.name} fixture did not gain the one-shot markers "
                 f"this build writes: {sorted(_MARKERS_A_LAUNCH_MAY_ADD - added)}")

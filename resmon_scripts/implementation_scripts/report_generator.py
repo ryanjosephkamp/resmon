@@ -103,7 +103,7 @@ def generate_report(documents: list[dict], metadata: dict) -> str:
     total = metadata.get("total", len(documents))
     new = metadata.get("new", total)
 
-    # A cancelled run's report must never read like a finished one: its title,
+    # A canceled run's report must never read like a finished one: its title,
     # its count line and a note before the papers all say it stopped early,
     # and what it holds is only what was collected before the cancel.
     cancellation = metadata.get("cancellation")
@@ -111,11 +111,11 @@ def generate_report(documents: list[dict], metadata: dict) -> str:
         cancellation = None
 
     watch_profile = metadata.get("watch_profile")
-    lines.append("# resmon Literature Report (cancelled)" if cancellation
+    lines.append("# resmon Literature Report (canceled)" if cancellation
                  else "# resmon Literature Report")
     lines.append(f"**Generated:** {generated_at}  ")
     if cancellation:
-        lines.append("**Status:** Cancelled before the run finished  ")
+        lines.append("**Status:** Canceled before the run finished  ")
     if repos_display is not None:
         lines.append(f"**Sources:** {repos_display}  ")
     if isinstance(watch_profile, str) and watch_profile.strip():
@@ -157,7 +157,7 @@ def generate_report(documents: list[dict], metadata: dict) -> str:
 
     if cancellation:
         lines.append("")
-        lines.append(f"> **This run was cancelled.** {_CANCELLED_AT.get(cancellation.get('stage'), '')}"
+        lines.append(f"> **This run was canceled.** {_CANCELED_AT.get(cancellation.get('stage'), '')}"
                      "This report holds only what resmon had collected by then, so it is "
                      "not a complete search of these sources or this window.")
 
@@ -271,7 +271,7 @@ def generate_report(documents: list[dict], metadata: dict) -> str:
     if not isinstance(zero_notes, list):
         zero_notes = []
     # A finished report lists the papers each answering source returned, so it
-    # names only the sources that came back with nothing. A cancelled one also
+    # names only the sources that came back with nothing. A canceled one also
     # says which sources answered, because the rest were interrupted or never
     # asked and the reader needs the whole account of where the run stood.
     answered = (cancellation or {}).get("answered") or []
@@ -336,13 +336,13 @@ _NOTE_GROUPS = (
      "This run has no answer from these sources to count, so it says nothing "
      "about what they hold."),
     ("interrupted", "## Sources the cancellation interrupted", None),
-    ("not_reached", "## Sources not asked before the run was cancelled", None),
+    ("not_reached", "## Sources not asked before the run was canceled", None),
     ("unknown", "## Sources whose outcome was not recorded", None),
 )
 
-# What a cancelled report says about the point the run reached. The engine
+# What a canceled report says about the point the run reached. The engine
 # names the stage; each sentence is true only of that stage.
-_CANCELLED_AT = {
+_CANCELED_AT = {
     "querying": ("It stopped while resmon was still asking the sources, and "
                  "nothing collected was added to your collection. "),
     "collected": ("Every source had finished, and it stopped before anything "
@@ -351,6 +351,8 @@ _CANCELLED_AT = {
     "summarizing": ("The papers below were added to your collection, and it "
                     "stopped while they were being summarized: a paper with no "
                     "summary was not summarized. "),
+    "reporting": ("The papers below were added to your collection, and it "
+                  "stopped just before the run was recorded as finished. "),
 }
 
 
@@ -361,7 +363,7 @@ def _note_group(note: dict) -> str:
     if note.get("partial"):
         return "partial"
     reason = note.get("reason")
-    # Written only by a cancelled run, for a search still in flight and for a
+    # Written only by a canceled run, for a search still in flight and for a
     # source the run never reached.
     if reason == "cancelled":
         return "interrupted"
@@ -488,8 +490,8 @@ def generate_watch_report(profile: dict, findings: dict, check: dict) -> str:
     return "\n".join(lines)
 
 
-def generate_cancelled_watch_report(profile: dict, matched_documents: int) -> str:
-    """The report a ``retractions`` watch run leaves when it is cancelled.
+def generate_canceled_watch_report(profile: dict, matched_documents: int) -> str:
+    """The report a ``retractions`` watch run leaves when it is canceled.
 
     The run's one cancellation point comes before any paper is checked, so
     there is nothing to list. The report says so, because an empty findings
@@ -497,13 +499,13 @@ def generate_cancelled_watch_report(profile: dict, matched_documents: int) -> st
     """
     name = profile.get("display_name") or "this profile"
     lines = [
-        f"# Watch report — {name} (cancelled)",
+        f"# Watch report — {name} (canceled)",
         f"**Generated:** {now_iso()}  ",
-        "**Status:** Cancelled before the run finished  ",
+        "**Status:** Canceled before the run finished  ",
         "**Watching for:** retractions and other lifecycle events  ",
         f"**Papers matched to this profile:** {matched_documents}",
         "",
-        "> **This run was cancelled before it checked any paper.** Nothing was "
+        "> **This run was canceled before it checked any paper.** Nothing was "
         "checked and nothing was recorded, so this report says nothing about "
         "retractions or any other event.",
         "",

@@ -5,7 +5,7 @@ When Electron spawns the bundled backend, ``PROJECT_ROOT`` resolves to
 on every update, and under Gatekeeper's app translocation the path may not be
 writable at all. Electron main therefore passes ``RESMON_DB_PATH`` and
 ``RESMON_REPORTS_DIR`` pointing at the per-user state directory, and
-``config.py`` must honour both.
+``config.py`` must honor both.
 
 The overrides are read at import time, so each case runs in a fresh
 interpreter rather than reloading modules under the test runner's feet.

@@ -72,8 +72,11 @@ export const creditLabel = (s: Source) =>
       ? 'Requested by the source'
       : '';
 
-/** "arXiv, PubMed, OpenAlex, CrossRef" and the count of the rest. */
+/** "arXiv, PubMed, OpenAlex, Crossref" and the count of the rest. */
 export function namedAndRest(names: string[]): { named: string; rest: number } {
   const picked = names.filter((n) => SOURCES.some((s) => s.name === n));
   return { named: picked.join(', '), rest: SOURCE_COUNT - picked.length };
 }
+
+/** A source as the catalog names it, from its slug: "arxiv" -> "arXiv". */
+export const sourceName = (slug: string) => SOURCES.find((s) => s.slug === slug)?.name ?? slug;

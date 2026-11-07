@@ -18,7 +18,7 @@ const sideways = (dx: number, n: number, dy = 0) => Array.from({ length: n }, ()
 const last = (steps: Step[]): Step => steps[steps.length - 1] as Step;
 const went = (steps: Step[]) => steps.map((s) => s.go).filter((g): g is Direction => g !== null);
 
-describe('a two-finger swipe goes back or forward once it has travelled far enough', () => {
+describe('a two-finger swipe goes back or forward once it has traveled far enough', () => {
   test('fingers moving right scroll toward the start, and that is back', () => {
     const steps = run(sideways(-20, 10));
     expect(went(steps)).toEqual(['back']);

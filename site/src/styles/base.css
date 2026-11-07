@@ -56,8 +56,12 @@ body > main {
 }
 
 ::selection {
-  background: var(--color-action);
-  color: var(--color-action-text);
+  background: var(--color-accent-surface);
+  color: var(--color-text);
+}
+
+body {
+  caret-color: var(--color-accent-mark);
 }
 
 /* ---- Links ------------------------------------------------------------- */
@@ -95,7 +99,7 @@ h4,
 h5,
 h6 {
   line-height: var(--leading-tight);
-  font-weight: var(--weight-bold);
+  font-weight: var(--weight-semibold);
   letter-spacing: var(--tracking-tight);
   margin: var(--space-7) 0 var(--space-3);
   text-wrap: balance;
@@ -109,7 +113,8 @@ h6 {
 
 h1 {
   font-size: var(--text-3xl);
-  font-weight: var(--weight-heavy);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-display);
 }
 h2 {
   font-size: var(--text-xl);
@@ -161,7 +166,12 @@ blockquote {
 
 strong,
 b {
-  font-weight: var(--weight-bold);
+  font-weight: var(--weight-semibold);
+}
+
+em,
+i {
+  font-style: italic;
 }
 
 /* ---- Code and numbers -------------------------------------------------- */
@@ -170,7 +180,7 @@ code,
 kbd,
 samp {
   font-family: var(--font-mono);
-  font-size: var(--text-sm);
+  font-size: var(--text-code);
 }
 
 :not(pre) > code {
@@ -206,14 +216,23 @@ pre code {
  * block, which is the one thing worse than no highlighting.
  */
 @media (prefers-color-scheme: dark) {
-  .astro-code,
-  .astro-code span {
+  :root:not([data-theme='light']) .astro-code,
+  :root:not([data-theme='light']) .astro-code span {
     color: var(--shiki-dark) !important;
     background-color: var(--shiki-dark-bg) !important;
     font-style: var(--shiki-dark-font-style) !important;
     font-weight: var(--shiki-dark-font-weight) !important;
     text-decoration: var(--shiki-dark-text-decoration) !important;
   }
+}
+
+:root[data-theme='dark'] .astro-code,
+:root[data-theme='dark'] .astro-code span {
+  color: var(--shiki-dark) !important;
+  background-color: var(--shiki-dark-bg) !important;
+  font-style: var(--shiki-dark-font-style) !important;
+  font-weight: var(--shiki-dark-font-weight) !important;
+  text-decoration: var(--shiki-dark-text-decoration) !important;
 }
 
 /* ---- Tables ------------------------------------------------------------ */
@@ -241,8 +260,9 @@ pre code {
 }
 
 .prose th {
-  border-bottom: var(--border-width-heavy) solid var(--color-rule-heavy);
-  font-weight: var(--weight-bold);
+  border-bottom: var(--border-width) solid var(--color-border-strong);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-muted);
   white-space: nowrap;
 }
 
@@ -270,8 +290,8 @@ video {
 }
 
 .prose h2 {
-  padding-top: var(--space-3);
-  border-top: var(--border-width-heavy) solid var(--color-rule-heavy);
+  padding-top: var(--space-4);
+  border-top: var(--border-width) solid var(--color-border);
 }
 
 /* The document head already ends in that rule; a section that opens the page
@@ -304,16 +324,18 @@ video {
   padding: var(--space-3) var(--space-5);
   background: var(--color-action);
   color: var(--color-action-text);
-  font-weight: var(--weight-bold);
+  font-weight: var(--weight-semibold);
   font-size: var(--text-md);
   text-decoration: none;
-  border-radius: var(--radius-sm);
-  transition: background var(--duration-fast) var(--ease);
+  border-radius: var(--radius-md);
+  transition:
+    background var(--duration-fast) var(--ease),
+    color var(--duration-fast) var(--ease);
 }
 
 .action:hover {
   background: var(--color-action-hover);
-  color: var(--color-action-text);
+  color: var(--color-action-hover-text);
 }
 
 /* ---- Utility ----------------------------------------------------------- */

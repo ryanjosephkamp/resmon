@@ -189,8 +189,8 @@ def state_for(outcome: dict) -> str:
         return "could_not_be_asked"
     if status == "error":
         return "failed"
-    # A non-answer this projection has no rule for. It fails towards "resmon
-    # does not know" rather than towards a verdict, and the mapping test above
+    # A non-answer this projection has no rule for. It fails toward "resmon
+    # does not know" rather than toward a verdict, and the mapping test above
     # is what stops this branch from being reachable in practice.
     return "not_recorded"
 
@@ -221,6 +221,7 @@ def _run_label(row: dict, routine_names: dict[int, str]) -> str:
         "deep_dive": "Deep Dive",
         "deep_sweep": "Deep Sweep",
         "automated_sweep": "Watch",
+        "find_paper": "Find a paper",
     }.get(str(row.get("execution_type")), str(row.get("execution_type") or "Run"))
     routine = routine_names.get(row.get("routine_id")) if row.get("routine_id") else None
     return f"{kind} — {routine}" if routine else kind
@@ -295,7 +296,7 @@ def _latest_known_state(cells: list[dict]) -> str | None:
     is skipped rather than returned: a string of blank columns at the
     right-hand edge is the absence of a fact, and reading it as the source's
     current condition would be the inference this whole module refuses. A
-    row that *exists* and classifies to ``not_recorded`` -- a cancelled query,
+    row that *exists* and classifies to ``not_recorded`` -- a canceled query,
     a zero with no reason on file -- is skipped for the same reason, because
     what resmon recorded there is that it does not know.
     """
@@ -479,7 +480,7 @@ def _verdict(sources: list[dict], run_count: int,
             # the code below would be announced as a source that had *stopped
             # answering* -- which is how a wall comes to blame a source for a
             # keystroke the user made. ``failed`` is not allowed to do that to
-            # a cancelled run and the headline is not allowed to do it to a
+            # a canceled run and the headline is not allowed to do it to a
             # deselected source; it is the same rule one level up, in the
             # sentence that is read first.
             unobserved.append(source["name"])
@@ -786,7 +787,7 @@ def build(conn: sqlite3.Connection, limit: int = DEFAULT_RUNS) -> dict:
         "Answered in part is resmon stopping, at its own time budget or the run's "
         "cap, not the source failing. The cell's note says which part of the "
         "window was read; the rest was not read and is counted neither way.",
-        "A cancelled run reads as not recorded for every source it was still "
+        "A canceled run reads as not recorded for every source it was still "
         "querying: resmon observed its own cancellation, not an answer.",
         "Not asked and not recorded are different marks. The first is a choice "
         "saved on the run; the second is a gap in what resmon observed.",

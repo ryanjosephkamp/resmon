@@ -1,13 +1,13 @@
 """The assistant's constitution, and the one function that loads it.
 
 Separate from ``prompt_templates.load_constitution`` on purpose. That document
-governs *summarising a paper*; this one governs *acting inside the app*, and
+governs *summarizing a paper*; this one governs *acting inside the app*, and
 they say opposite things about tools — the summary lanes run with tools off and
 the assistant cannot function without them. One file loading both would be one
 edit away from sending the wrong rules to the wrong model.
 
 **Transmission is the whole reason this module has tests.** A check that the
-document *exists* — loads, memoises, under 16 KB — is not a check that it
+document *exists* — loads, memoizes, under 16 KB — is not a check that it
 *arrives*: a lane that tells the model to follow an attached constitution with
 nothing attached makes the agent CLI, unable to go looking, fabricate a file
 search and return its invented results as a paper's summary. So the tests that
@@ -37,7 +37,7 @@ _CACHE: Optional[str] = None
 
 
 def load_assistant_constitution() -> str:
-    """Return the assistant constitution's text, memoised at module scope."""
+    """Return the assistant constitution's text, memoized at module scope."""
     global _CACHE
     if _CACHE is not None:
         return _CACHE

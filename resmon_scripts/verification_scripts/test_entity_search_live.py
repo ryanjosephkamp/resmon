@@ -104,7 +104,6 @@ _ASK_ABOUT: dict[str, str] = {
     # app already names, working exactly as designed — so this case skips
     # with a reason rather than asserting on somebody else's licensing.
     "ndl_search": "夏目漱石",
-    "nist_rmm": "Smith",
     "openaire": "Ludo Waltman",
     "openalex": "Jennifer Doudna",
     "openlibrary": "Ursula Le Guin",

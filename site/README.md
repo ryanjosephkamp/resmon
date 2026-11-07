@@ -7,7 +7,7 @@ An [Astro](https://astro.build) site, built to static HTML and committed into
 ```bash
 npm install                 # first time only
 npm run build               # astro build, then copy into ../docs
-npm run verify              # check the result against the captured live site
+npm run verify              # check the built output in ../docs
 npm run preview             # serve ../docs the way GitHub Pages serves it
 npm run dev                 # Astro's dev server, for iterating
 node scripts/check-tokens.mjs   # fail on any design value written outside tokens.css
@@ -18,59 +18,44 @@ node scripts/check-tokens.mjs   # fail on any design value written outside token
 whatever you changed here — the published site is the committed output, not a build step on a
 runner.
 
-## The constraint everything here is shaped by
+## What `npm run verify` checks
 
-**Installed copies of resmon 2.3 and earlier fetch this site's feed.** Their About resmon → Blog tab
-does a public `GET` of `https://ryanjosephkamp.github.io/resmon/feed.xml` every time a user
-opens **About resmon → Blog**, parses it with `DOMParser`, and builds the post list from it. It
-also loads the site's pages into an Electron `<webview>` that is locked to that origin.
+It reads `../docs/`, the directory GitHub Pages serves, and fails on any of these:
 
-So three things are fixed, and `scripts/verify-output.mjs` asserts all three against
-`capture/`, which holds the live site exactly as it was served before any of this existed:
+- `.nojekyll` is missing, or Jekyll scaffolding is in the output.
+- A page ships a `<script>` tag.
+- An internal link, a link written inside a document, or an image points at something the site
+  does not serve, at a raw source file, or at a GitHub `blob` page.
+- A source document (a guide page, a reference document, an API contract page) has no published
+  page, or its page carries less of its text than the source holds.
+- A page does not have exactly one `<h1>`.
 
-1. **`/feed.xml` is Atom, at that path.** Not a redirect — the app parses the bytes. Not RSS:
-   the app collects `<entry>` elements, and an RSS feed's `<item>` elements would parse
-   cleanly into an empty post list. The captured feed carried 10 entries because
-   `jekyll-feed`'s default said so and nobody had overridden it; this one carries all 27,
-   because the Blog tab has no pagination and a post outside the feed is a post the owner
-   cannot open from inside the app. The verifier asserts both halves of that: every post in
-   `docs/_posts` has an entry, **and** the captured 10 are still the first 10, in order, in
-   every field the app reads.
-2. **All 27 post permalinks resolve** at `/:year/:month/:day/:slug/`, with the day taken from
-   the front-matter date in UTC. `src/lib/posts.ts` explains why that is not the file name's
-   date for three of the 27.
-3. **The five fields the app reads from each entry are unchanged** — `id`, `title`, `link`,
-   `published` and the 240-character `summary`. The verifier runs the component's own
-   `parseAtomFeed`, copied into it, over the old feed and the new one and diffs them.
-
-`capture/` is not regenerable. It was taken before `docs/` was rebuilt, and a capture taken
-afterwards would assert nothing.
+CI also runs `node scripts/check-tokens.mjs`, and rebuilds the site to check that `../docs/` is
+what these sources build.
 
 ## Layout
 
 ```
 site/
 ├── astro.config.mjs          site + base + trailingSlash: the three that fix the URLs
-├── capture/                  the live Jekyll site, as evidence
 ├── public/                   copied verbatim into the output (.nojekyll, favicon, media/)
 ├── scripts/
 │   ├── sync-docs.mjs         copy dist/ into ../docs, preserving the sources there
-│   ├── verify-output.mjs     the acceptance check against capture/
+│   ├── verify-output.mjs     the checks on the built output in ../docs
 │   ├── check-tokens.mjs      no design values outside tokens.css
 │   ├── serve-docs.mjs        serve ../docs as GitHub Pages would
-│   ├── export_sources.py     write src/data/sources.json from the app's source catalog
-│   └── split-readme.mjs      the one-shot README split, kept as its audit trail
+│   └── export_sources.py     write src/data/sources.json from the app's source catalog
 └── src/
-    ├── content.config.ts     four collections, three of them reading ../docs in place
-    ├── content/guide/        the only content that lives here: the README, split up
+    ├── content.config.ts     three collections, two of them reading ../docs in place
+    ├── content/guide/        the guide, one page per topic: the only content that lives here
     ├── data/                 sources.json (from the catalog) and run-record.json (a real run)
     ├── layouts/ components/  the page and document shells, the source listing's parts, the run record
-    ├── lib/                  dates and permalinks, Markdown, URLs, document heads
-    ├── pages/                routes, including feed.xml.ts
+    ├── lib/                  Markdown, URLs, the source catalog, document heads
+    ├── pages/                routes
     └── styles/               tokens.css, then base.css built only from those tokens
 ```
 
-**Most of the content is not in this directory.** The posts, the reference documents and the
+**Most of the reference content is not in this directory.** The reference documents and the
 API contract are read from `../docs/` where they already live, because the README and a Python
 test both point at those paths. One copy, no drift. `src/content.config.ts` has the
 reasoning per collection.
@@ -105,8 +90,7 @@ Content pages ship no client JavaScript — the verifier asserts that too.
 | Package | Why |
 |---|---|
 | `astro` | The static site generator: routing, layouts, content collections, the build. |
-| `@astrojs/markdown-remark` | Astro's own Markdown processor, depended on explicitly so `src/lib/markdown.ts` can render the post pages and the feed's `<content>` through one processor instead of two that could drift. |
-| `@xmldom/xmldom` *(dev)* | A `DOMParser` for Node, so `verify-output.mjs` can run the app's own feed parser rather than an approximation of it. Not shipped. |
+| `@astrojs/markdown-remark` | Astro's own Markdown processor, depended on explicitly so `src/lib/markdown.ts` can render every page through one processor. |
 | `@fontsource/atkinson-hyperlegible-next`, `@fontsource/atkinson-hyperlegible-mono` *(dev)* | The site's two typefaces (SIL Open Font License), bundled into the build so pages fetch fonts from this site rather than a font CDN. |
 
 Nothing is added to the application's runtime: this directory is a build-time tool and the

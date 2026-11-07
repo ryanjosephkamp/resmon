@@ -10,8 +10,9 @@
  */
 
 export type ShortcutId =
+  | 'new-window'
   | 'palette' | 'shortcuts' | 'ask' | 'new-conversation' | 'new-dive' | 'new-sweep'
-  | 'section-1' | 'section-2' | 'section-3' | 'section-4' | 'section-5' | 'section-6'
+  | 'section-1' | 'section-2' | 'section-3' | 'section-4' | 'section-5' | 'section-6' | 'section-7'
   | 'settings' | 'back' | 'forward';
 
 /** The commands the app menu sends the renderer (`resmon:command`), by the same ids. */
@@ -43,7 +44,9 @@ const cmd = (key: string, shift = false): Chord => ({ key, command: true, shift 
 export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'palette', chord: cmd('k') },
   { id: 'shortcuts', chord: { key: '?' } },
-  { id: 'new-conversation', chord: cmd('n') },
+  // ⌘N is New Window, as in every Mac app; a new conversation takes Shift with it.
+  { id: 'new-window', chord: cmd('n') },
+  { id: 'new-conversation', chord: cmd('n', true) },
   { id: 'new-dive', chord: cmd('d') },
   { id: 'new-sweep', chord: cmd('d', true) },
   { id: 'ask', chord: cmd('/') },
@@ -53,6 +56,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'section-4', chord: cmd('4') },
   { id: 'section-5', chord: cmd('5') },
   { id: 'section-6', chord: cmd('6') },
+  { id: 'section-7', chord: cmd('7') },
   { id: 'settings', chord: cmd(',') },
   // The History menu's alternates: ⌘← and ⌘→ on macOS, Alt+← and Alt+→ elsewhere (`installApplicationMenu`).
   { id: 'back', chord: cmd('['), also: { mac: cmd('ArrowLeft'), other: { key: 'ArrowLeft', alt: true } } },
@@ -65,10 +69,21 @@ export function shortcut(id: ShortcutId): Shortcut {
   return found;
 }
 
-/** The section a ⌘1 to ⌘6 shortcut opens, counted from 0 in the top bar's order; null for any other. */
-export function sectionIndex(id: ShortcutId): number | null {
+/**
+ * The section a ⌘1 to ⌘7 shortcut opens, by its address; null for any other
+ * shortcut. `keys` is the sections' addresses in the order the keys take
+ * them: the top bar's, as the person arranged it, the shown sections first
+ * from the left and the hidden ones after (`topBar.ts`, `Arranged.keys`).
+ */
+export function sectionPath(id: ShortcutId, keys: readonly string[]): string | null {
   const match = /^section-(\d)$/.exec(id);
-  return match ? Number(match[1]) - 1 : null;
+  return match ? keys[Number(match[1]) - 1] ?? null : null;
+}
+
+/** The shortcut that opens a section, by its address; null for a section with none. */
+export function sectionShortcut(path: string, keys: readonly string[]): ShortcutId | null {
+  const at = keys.indexOf(path);
+  return at < 0 || at > 6 ? null : (`section-${at + 1}` as ShortcutId);
 }
 
 /** The part of a keyboard event a shortcut is matched against. */
@@ -142,6 +157,13 @@ export const COMMAND_ENTER_CHORD: Chord = { key: 'Enter', command: true };
 
 /** Find in the document the Library's reader shows, while the keyboard is in its project (`Reader.tsx`). */
 export const FIND_CHORD: Chord = { key: 'f', command: true };
+
+/**
+ * New Tab, on macOS only: window tabs are macOS's own. The app menu answers it
+ * (`electron/main.ts`), not the shell, so it is not in `SHORTCUTS`; the sheet
+ * names it with macOS's keys for the next and previous tab.
+ */
+export const NEW_TAB_CHORD: Chord = { key: 't', command: true };
 
 /** A field's or a form's opt-in to ⌘Enter, for spreading onto it: the button to press, or its form's submit. */
 export function commandEnter(button?: string): { 'data-command-enter': string } {

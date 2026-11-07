@@ -44,8 +44,19 @@ export const MARK: Record<string, string> = {
   not_selected: 'dash',
 };
 
+/**
+ * The two states only a run still going has, drawn beside the wall's so a
+ * running run speaks the wall's language (`runs/live.ts`): a source being
+ * asked is a ring with a core in the accent, and one not asked yet a dashed
+ * ring. Neither is a state the wall itself shows.
+ */
+export const RUNNING_MARK: Record<string, string> = {
+  asking: 'asking',
+  not_yet_asked: 'waiting',
+};
+
 export function markOf(state: string): string {
-  return MARK[state] ?? 'unknown';
+  return MARK[state] ?? RUNNING_MARK[state] ?? 'unknown';
 }
 
 /** "Showing 12 of 40 recorded runs." */
@@ -152,6 +163,7 @@ export const SEVERITY_MEANING: Record<string, string> = {
  */
 export const RETIRED_NAMES: Readonly<Record<string, string>> = {
   ieee: 'IEEE Xplore',
+  nist_rmm: 'NIST Resource Metadata Management',
   oapen: 'OAPEN Library',
   repec: 'RePEc/IDEAS',
   ssrn: 'SSRN',

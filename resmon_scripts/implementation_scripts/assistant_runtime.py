@@ -23,7 +23,7 @@ a write that does not go through the panel.
 **The constitution arrives above the conversation, not inside it.** On
 ``--append-system-prompt``, with ``--system-prompt-snapshot off`` so it applies
 fresh on every launch including a resumed one — verified against claude 2.1.258
-by resuming a session and getting the appended rule's behaviour back. That flag
+by resuming a session and getting the appended rule's behavior back. That flag
 matters: with snapshotting on, a resumed conversation would replay whatever
 system prompt was recorded the first time, and an edited constitution would not
 reach an old session. A lane that says "follow the attached constitution" with
@@ -91,7 +91,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
 
 from . import ai_cli
-from .ai_errors import is_cli_sign_in_failure, sanitize
+from .ai_errors import AIErrorKind, is_cli_sign_in_failure, sanitize
 from .child_process import hidden_window_kwargs
 from .assistant_constitution import load_assistant_constitution
 
@@ -107,7 +107,9 @@ __all__ = [
     "AssistantRuntime",
     "ClaudeCliRuntime",
     "CodexCliRuntime",
+    "AssistantCommandMissing",
     "AssistantStartupTimeout",
+    "CLI_MISSING",
     "RuntimeStatus",
     "TURN_BUDGET_USD",
     "cannot_resume_notice",
@@ -142,7 +144,7 @@ EVENT_TYPES = (
 # ``api_key`` is resmon's own loop over the same tools, for someone with
 # a provider key and no agent CLI. It has three request shapes and each one is a
 # separate place the constitution has to arrive, so the transmission test is
-# parametrised over families as well as kinds -- a defect in one of the three
+# parametrized over families as well as kinds -- a defect in one of the three
 # shapes would make "the runtime sends it" true of the runtime and false of one
 # of its paths.
 RUNTIME_KINDS = ("claude_cli", "codex_cli", "api_key")
@@ -256,6 +258,39 @@ class AssistantStartupTimeout(Exception):
     turn", and that sentence is what a user would see for five minutes if the
     CLI hung before its first line.
     """
+
+
+class AssistantCommandMissing(Exception):
+    """No command was found for the connection, so nothing was started.
+
+    Its message is discovery's own sentence (``CLIDiscovery.describe``), the
+    one Ask's routes answer with when ``status()`` says the command is missing,
+    and ``run_turn`` yields it unchanged as an error event whose ``detail`` is
+    ``cli_missing``.
+    """
+
+
+# The ``detail`` of a turn that failed because its command is missing: the
+# summary lanes' name for the same failure.
+CLI_MISSING = AIErrorKind.CLI_MISSING.value
+
+
+def _found_command(runtime: Any, binary: Optional[str] = None) -> str:
+    """The command a turn starts: the one named, admitted, or found, never a bare name.
+
+    A bare ``claude`` or ``codex`` is looked up on PATH when it is started, and
+    PATH leads to whatever is installed there, not to the command Settings
+    names. A configured path that does not exist would then start a different
+    command, on a developer's machine their own signed-in one, which
+    ``ai_cli.discover_cli`` refuses to do. With no command, nothing starts.
+    """
+    command = binary or runtime.resolved_binary
+    if command:
+        return command
+    status = runtime.status()
+    if status.path:
+        return status.path
+    raise AssistantCommandMissing(status.reason)
 
 
 @dataclass(frozen=True)
@@ -397,6 +432,11 @@ class ClaudeCliRuntime(AssistantRuntime):
         from . import api_auth  # noqa: PLC0415
 
         env["RESMON_STATE_DIR"] = str(api_auth.state_dir())
+        # The window's collection, which a call that names none reads.
+        import mcp_server  # noqa: PLC0415 - a sibling script, not a package
+
+        if mcp_server.turn_collection():
+            env[mcp_server.COLLECTION_ENV] = mcp_server.turn_collection()
 
         return {"mcpServers": {
             "resmon": {
@@ -451,7 +491,7 @@ class ClaudeCliRuntime(AssistantRuntime):
             identity(cli_session_id)
             if resume:
                 raise ValueError("Selected evidence cannot resume a native session")
-            argv = [binary or self.resolved_binary or (self.status().path or "claude"), "-p",
+            argv = [_found_command(self, binary), "-p",
                     "--output-format", "stream-json", "--verbose", "--tools", "",
                     "--strict-mcp-config", "--mcp-config", mcp_config_path,
                     "--setting-sources", "", "--disable-slash-commands",
@@ -463,7 +503,7 @@ class ClaudeCliRuntime(AssistantRuntime):
                 argv += ["--effort", self.effort]
             return [*argv, prompt]
         argv = [
-            binary or self.resolved_binary or (self.status().path or "claude"),
+            _found_command(self, binary),
             "-p",
             # stream-json requires --verbose. Not optional, and not documented
             # anywhere but the error: "When using --print,
@@ -509,7 +549,7 @@ class ClaudeCliRuntime(AssistantRuntime):
         on_event: Optional[Callable[[dict], None]] = None,
         history: Optional[list[dict]] = None,
     ) -> Iterator[dict]:
-        """Spawn the CLI for one turn and yield normalised events.
+        """Spawn the CLI for one turn and yield normalized events.
 
         ``history`` is accepted and unused: the CLI keeps the conversation and
         ``--resume`` is how it is reached. It is in the signature because the
@@ -520,19 +560,19 @@ class ClaudeCliRuntime(AssistantRuntime):
         so the CLI has nothing of the user's to read and nothing of resmon's to
         find except the MCP config it is handed.
 
-        **A resume the CLI cannot honour is recovered from, once, and said out
+        **A resume the CLI cannot honor is recovered from, once, and said out
         loud.** ``claude`` keeps its conversations in its own storage, on its
         own terms: a user who runs ``claude`` themselves, clears its history, or
         moves to a machine that restored resmon's database but not the CLI's,
         has a resmon conversation whose CLI session no longer exists. Without this
         recovery that turn would simply fail -- the user's message is stored,
         nothing answers it, and the sentence they get is "exit code 1". Instead
-        the failed resume is recognised from what the CLI actually said, a fresh CLI
+        the failed resume is recognized from what the CLI actually said, a fresh CLI
         session answers the same message, and a ``notice`` event tells the
         person their earlier messages are still on screen but no longer in front
         of the assistant.
 
-        Once, and only for this failure. A retry loop on an unrecognised failure
+        Once, and only for this failure. A retry loop on an unrecognized failure
         would double every real error, and a retry that did not say anything
         would quietly turn "it remembers" into "it does not".
         """
@@ -552,6 +592,10 @@ class ClaudeCliRuntime(AssistantRuntime):
                     session_id, prompt, config_path, workdir,
                     cli_session_id=cli_session_id, resume=resume, emit=emit,
                 )
+            except AssistantCommandMissing as exc:
+                # Raised before anything starts, with the sentence the routes
+                # give for the same missing command.
+                yield _error_event(str(exc), detail=CLI_MISSING)
             except AssistantStartupTimeout as exc:
                 # This one carries its own sentence. The catch-all below would
                 # flatten it to "resmon could not finish that turn", which a
@@ -576,7 +620,7 @@ class ClaudeCliRuntime(AssistantRuntime):
 
         The failed attempt's own ``done`` and ``error`` events are **withheld**
         rather than forwarded. They are true about a CLI invocation and false
-        about the turn: the panel would finalise the message, show a failure and
+        about the turn: the panel would finalize the message, show a failure and
         then start streaming an answer underneath it. What the person gets
         instead is the ``notice``, then the answer.
         """
@@ -651,7 +695,7 @@ class ClaudeCliRuntime(AssistantRuntime):
         reported_errors: list = []
         try:
             for line in _lines_with_timeout(process, self.timeout):
-                for event in _normalise(line):
+                for event in _normalize(line):
                     if event['type'] == 'started':
                         native_flag = '--resume' if '--resume' in argv else '--session-id'
                         expected_native = argv[argv.index(native_flag) + 1] if native_flag in argv else None
@@ -722,7 +766,12 @@ class ClaudeCliRuntime(AssistantRuntime):
         with tempfile.TemporaryDirectory(prefix="resmon-selected-") as workdir:
             config = os.path.join(workdir, "mcp.json")
             Path(config).write_text('{"mcpServers":{}}', encoding='utf-8')
-            argv = self.build_argv(prompt, mcp_config_path=config, cli_session_id=native_id, resume=False)
+            try:
+                argv = self.build_argv(prompt, mcp_config_path=config, cli_session_id=native_id, resume=False)
+            except AssistantCommandMissing as exc:
+                event = {'type': 'error', 'detail': CLI_MISSING, 'message': str(exc)}
+                emit(event); yield event
+                return
             source_env = _child_env(argv[0] if argv else None)
             env = {k: source_env[k] for k in ('HOME','USER','LOGNAME','PATH','TMPDIR','LANG','LC_ALL','SYSTEMROOT','WINDIR') if k in source_env}
             def consume(stream: Any, label: str) -> None:
@@ -792,7 +841,7 @@ class ClaudeCliRuntime(AssistantRuntime):
                                     message.get('tools') != [] or message.get('mcp_servers') != []):
                                 raise ValueError('selected_startup_inventory')
                             started = True
-                        normal = _normalise(line.decode('utf-8'))
+                        normal = _normalize(line.decode('utf-8'))
                         for event in normal:
                             kind = event['type']
                             if kind in ('tool_call','tool_result'):
@@ -1296,6 +1345,11 @@ class CodexCliRuntime(AssistantRuntime):
                "RESMON_MCP_READ_ONLY": "1"}
         if self.backend_port:
             env["RESMON_PORT"] = str(self.backend_port)
+        # The window's collection, which a call that names none reads.
+        import mcp_server  # noqa: PLC0415 - a sibling script, not a package
+
+        if mcp_server.turn_collection():
+            env[mcp_server.COLLECTION_ENV] = mcp_server.turn_collection()
         overrides = [
             f"mcp_servers.resmon.command={_toml_string(self.python_executable)}",
             f"mcp_servers.resmon.args=[{_toml_string(str(Path(server_dir) / 'mcp_server.py'))}]",
@@ -1324,7 +1378,7 @@ class CodexCliRuntime(AssistantRuntime):
         directory is the process's own. ``--`` ends the options: a prompt that
         reads ``help`` or ``resume`` is a prompt, not a subcommand.
         """
-        argv = [binary or self.resolved_binary or (self.status().path or "codex"), "exec"]
+        argv = [_found_command(self, binary), "exec"]
         if thread_id:
             argv.append("resume")
         argv += [
@@ -1365,7 +1419,7 @@ class CodexCliRuntime(AssistantRuntime):
         on_event: Optional[Callable[[dict], None]] = None,
         history: Optional[list[dict]] = None,
     ) -> Iterator[dict]:
-        """Spawn ``codex exec`` for one turn and yield normalised events.
+        """Spawn ``codex exec`` for one turn and yield normalized events.
 
         ``history`` is unused, as on Claude Code: Codex keeps the thread and
         ``codex exec resume`` reaches it. Runs in an empty temporary directory
@@ -1382,6 +1436,8 @@ class CodexCliRuntime(AssistantRuntime):
                                         thread_id=(cli_session_id or None) if resume else None):
                     emit(event)
                     yield event
+            except AssistantCommandMissing as exc:
+                yield _error_event(str(exc), detail=CLI_MISSING)
             except AssistantStartupTimeout as exc:
                 logger.warning("Assistant turn: %s", exc)
                 yield _error_event(str(exc), detail="startup_timeout")
@@ -1595,10 +1651,10 @@ bus = SessionBus()
 
 
 # ---------------------------------------------------------------------------
-# Normalising the CLI's stream
+# Normalizing the CLI's stream
 # ---------------------------------------------------------------------------
 
-def _normalise(line: str) -> list[dict]:
+def _normalize(line: str) -> list[dict]:
     """Turn one stream-json line into zero or more resmon events.
 
     Unknown message types are **dropped with a log line, never rendered raw**.
@@ -1724,7 +1780,7 @@ def _usage_reports(usage: Any) -> list[dict]:
 def _short_tool_name(raw: Any) -> str:
     """``mcp__resmon__list_routines`` → ``list_routines``.
 
-    The panel shows the tool the user would recognise from the app, not the MCP
+    The panel shows the tool the user would recognize from the app, not the MCP
     address. The raw name rides along on the event for the transcript.
     """
     name = str(raw or "")
@@ -1781,7 +1837,7 @@ def _classify_failure(
 ) -> str:
     """One sentence a person can act on, built only from what the CLI said.
 
-    Never a stack trace and never a guess: an unrecognised failure says the exit
+    Never a stack trace and never a guess: an unrecognized failure says the exit
     code and that resmon does not know, which is the honest answer.
 
     The cannot-resume branch is reachable in normal running only when the retry
@@ -1913,7 +1969,7 @@ def _child_env(binary: Optional[str] = None) -> dict:
     environment against the real binary — ``USER`` alone restores it, and
     ``LOGNAME``, ``SHELL``, ``TMPDIR`` and ``XPC_SERVICE_NAME`` do not.
 
-    That generalises past ``USER``: an allowlist of what an agent CLI needs is
+    That generalizes past ``USER``: an allowlist of what an agent CLI needs is
     a guess about someone else's program, and the next thing it needs breaks the
     same way. The summary lane passes the environment through untouched, so this
     matches it — the CLI is the user's own, running as the user, and the only
@@ -1948,7 +2004,7 @@ def assistant_provider(settings: dict) -> str:
 
     ``assistant_provider`` when it is set, and the summary lane's own
     ``ai_provider`` when it is not. Falling back rather than requiring a second
-    choice: someone who has already told resmon which provider to summarise with
+    choice: someone who has already told resmon which provider to summarize with
     has answered this question, and asking twice is how the two drift apart.
     ``/api/assistant/status`` reports which of the two was used, so the fallback
     is visible rather than magic.

@@ -1,10 +1,11 @@
-import type { ReactNode } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { answer, engine, EngineError } from '../../api/client';
+import { Icon } from '../../shell/Icon';
 import type { components } from '../../api/schema';
 import { queueWords } from '../collection/Paper';
-import { authors, number, publishedWords } from '../today/format';
+import { authors, count, number, publishedWords } from '../today/format';
 import { invalidateFor } from '../today/freshness';
 import { sourceName } from '../health/model';
 import { scheduleText } from '../watches/model';
@@ -16,13 +17,16 @@ import {
   type LiveSource, type ProgressEvent, type Run,
 } from './model';
 import { LivePanel } from './LivePanel';
+import { TABS, type Tab } from './tabs';
 import { RunMap } from './RunMap';
+import { SaveButton, SaveLimit, useSaveToRead } from '../library/SaveMany';
+import { PickBox, SelectBar, useRowKeys } from '../selection/SelectBar';
+import { has, isEmpty, pickedIn, selectedWords, sizeOf, usePicks } from '../selection/picks';
 
 /** One of a run's papers, with its place in the reading queue. */
 export type RunPaper = components['schemas']['RunPaper'];
 
-export const TABS = ['Papers', 'Map', 'Report', 'Search record', 'Log', 'Metadata', 'Progress'] as const;
-export type Tab = typeof TABS[number];
+export { TABS, type Tab };
 
 interface Props {
   run: Run;
@@ -34,6 +38,9 @@ interface Props {
   /** The open tab, held by the page so its sky can open the map. */
   tab: Tab;
   onTab: (tab: Tab) => void;
+  /** Reads the Papers tab's next page, where there is one. */
+  morePapers?: () => void;
+  readingMore?: boolean;
 }
 
 /**
@@ -45,7 +52,7 @@ interface Props {
  * page's own side column, under 400 pixels, cannot hold. As a tab it has the
  * record's full width, and nothing of it is drawn until it is opened.
  */
-export function RunTabs({ run, live, names, events, papers, running, tab, onTab }: Props) {
+export function RunTabs({ run, live, names, events, papers, running, tab, onTab, morePapers, readingMore = false }: Props) {
   return (
     <section className="run-record" id="run-record" aria-label="The run's record">
       <div className="run-tabs" role="tablist" aria-label="Record">
@@ -65,7 +72,9 @@ export function RunTabs({ run, live, names, events, papers, running, tab, onTab 
         ))}
       </div>
       <div className="run-panel" role="tabpanel" id="run-tab-panel" aria-labelledby={`run-tab-${tab}`}>
-        {tab === 'Papers' && <Papers runId={run.id} papers={papers} running={running} names={names} />}
+        {tab === 'Papers' && (
+          <Papers runId={run.id} papers={papers} running={running} names={names} more={morePapers} readingMore={readingMore} />
+        )}
         {tab === 'Map' && <RunMap runId={run.id} running={running} settledAt={running ? null : run.end_time ?? run.status}
           endedAt={running ? null : run.end_time ?? null} names={names} />}
         {tab === 'Report' && <TextRecord run={run} kind="report" running={running} names={names} />}
@@ -78,7 +87,16 @@ export function RunTabs({ run, live, names, events, papers, running, tab, onTab 
   );
 }
 
-function Papers({ runId, papers, running, names }: Pick<Props, 'papers' | 'running' | 'names'> & { runId: number }) {
+/**
+ * The papers the run stored, a page at a time, each with Save to read or its
+ * place in the reading queue. Save this run's new papers saves every paper the
+ * run was the first to find, read or not. Select gives each row a box, and
+ * the selection bar saves the rows picked, or with Select all every paper the
+ * run stored, past the pages read.
+ */
+function Papers({ runId, papers, running, names, more, readingMore }: Pick<Props, 'papers' | 'running' | 'names'> & {
+  runId: number; more?: () => void; readingMore: boolean;
+}) {
   const client = useQueryClient();
   const save = useMutation({
     mutationFn: (documentId: number) => answer(engine().POST('/api/reading-queue', { body: { document_id: documentId } })),
@@ -88,21 +106,88 @@ function Papers({ runId, papers, running, names }: Pick<Props, 'papers' | 'runni
       void invalidateFor(client, 'paper-changed');
     },
   });
+  // How many the run was the first to find, still in the collection: what Save this run's new papers saves.
+  const fresh = useQuery({
+    queryKey: ['run-papers', runId, 'new'], enabled: !running,
+    queryFn: () => answer(engine().GET('/api/executions/{exec_id}/documents', {
+      params: { path: { exec_id: runId }, query: { only_new: true, limit: 1 } },
+    })),
+  });
+  const freshCount = fresh.data?.total ?? 0;
+  const [selecting, setSelecting] = useState(false);
+  const order = useMemo(() => papers?.papers.map((paper) => paper.id) ?? [], [papers]);
+  const picks = usePicks<number>(order, `run:${runId}`);
+  const total = papers?.total ?? null;
+  const picked = sizeOf(picks.picks, total);
+  const allPicked = picks.picks.all && picks.picks.except.size === 0;
+  const saving = useSaveToRead(() => picks.release('all'));
+  const { pick, selectAll, clear } = picks;
+  const { cancel } = saving;
+  const endSelecting = useCallback(() => { setSelecting(false); clear(); cancel(); }, [clear, cancel]);
+  const { attach, onKeyDown: rowKeys } = useRowKeys({
+    count: order.length, onAll: selectAll,
+    onRange: (to, from) => { const id = order[to]; if (id !== undefined) pick(id, true, order[from]); },
+  });
+  const savePicked = () => {
+    if (!picked) return;
+    if (picks.picks.all) {
+      saving.save({
+        target: { kind: 'run', executionId: runId, onlyNew: false, except: [...picks.picks.except], atMost: picked },
+        n: picked, all: allPicked, what: allPicked ? `all ${count(picked, 'paper')} this run stored` : `these ${count(picked, 'paper')}`,
+      });
+    } else {
+      const ids = pickedIn(picks.picks, order);
+      saving.save({ target: { kind: 'listed', ids }, n: ids.length, all: false, what: `these ${count(ids.length, 'paper')}` });
+    }
+  };
+  const saveNew = () => saving.save({
+    target: { kind: 'run', executionId: runId, onlyNew: true, except: [], atMost: freshCount },
+    n: freshCount, all: true, what: `this run’s ${count(freshCount, 'new paper')}`,
+  });
+
   if (running) return <p className="record-cap">The run&rsquo;s papers are listed when it has finished storing them.</p>;
   if (!papers) return <p className="record-cap">Reading the run&rsquo;s papers.</p>;
   if (!papers.papers.length) return <p className="record-cap">This run stored no papers.</p>;
   return (
     <>
-      <p className="record-cap">
-        {papers.total > papers.papers.length
-          ? `The first ${number(papers.papers.length)} of ${number(papers.total)} papers this run stored.`
-          : `${number(papers.total)} ${papers.total === 1 ? 'paper' : 'papers'} this run stored.`}
-      </p>
-      <ol className="paper-list">
-        {papers.papers.map((paper) => {
+      {selecting ? (
+        <SelectBar label="The selected papers" className="run-papers-select" said={selectedWords(picked, total)}
+          tick={isEmpty(picks.picks, total) ? 'none' : allPicked ? 'on' : 'part'}
+          allLabel={allPicked ? null : `Select all ${count(papers.total, 'paper')}`} onAll={selectAll} onDone={endSelecting}
+          below={<><SaveLimit n={picked} />{saving.question}{saving.refused}</>}>
+          <SaveButton n={picked} all={allPicked} busy={saving.pending || saving.asking} saving={saving.pending} onSave={savePicked} />
+        </SelectBar>
+      ) : (
+        <div className="run-papers-head">
+          <p className="record-cap">
+            {papers.total > papers.papers.length
+              ? `The first ${number(papers.papers.length)} of ${number(papers.total)} papers this run stored.`
+              : `${number(papers.total)} ${papers.total === 1 ? 'paper' : 'papers'} this run stored.`}
+          </p>
+          <span className="run-papers-acts">
+            {freshCount > 0 && (
+              <button type="button" className="btn sm" data-run="save-new" disabled={saving.pending || saving.asking}
+                title="Every paper this run was the first to find, including those not listed yet" onClick={saveNew}>
+                <Icon name="bookmark" size={14} />Save this run&rsquo;s {count(freshCount, 'new paper')} to read
+              </button>
+            )}
+            <button type="button" className="btn sm" data-run="select" onClick={() => setSelecting(true)}>Select</button>
+          </span>
+          {!selecting && saving.question}
+          {!selecting && saving.refused}
+        </div>
+      )}
+      <ol className="paper-list" ref={attach} onKeyDown={selecting ? rowKeys : undefined}>
+        {papers.papers.map((paper, index) => {
           const state = queueWords(paper.queue_status);
+          const chosen = selecting && has(picks.picks, paper.id);
           return (
-            <li key={paper.id} className="paper-row" data-document={paper.id} data-queue={paper.queue_status ?? 'none'}>
+            <li key={paper.id} className={selecting ? (chosen ? 'paper-row picking picked' : 'paper-row picking') : 'paper-row'}
+              data-document={paper.id} data-queue={paper.queue_status ?? 'none'}>
+              {selecting && (
+                <PickBox picked={chosen} label={`Select “${paper.title || 'Untitled'}”`} index={index}
+                  onPick={(range) => pick(paper.id, range)} />
+              )}
               <div className="paper-row-main">
                 <Link to={`/papers/${paper.id}`} className="paper-title">{paper.title || 'Untitled'}</Link>
                 <span className="meta">
@@ -122,7 +207,13 @@ function Papers({ runId, papers, running, names }: Pick<Props, 'papers' | 'runni
           );
         })}
       </ol>
+      {more && (
+        <button type="button" className="btn quiet sm runlog-older" data-run="more-papers" disabled={readingMore} onClick={more}>
+          {readingMore ? 'Reading more papers' : `More papers (${number(papers.total - papers.papers.length)} more)`}
+        </button>
+      )}
       {save.error && <p className="field-error" role="alert">The paper could not be saved: {save.error.message}.</p>}
+      {saving.notice}
     </>
   );
 }
@@ -297,7 +388,7 @@ function SearchFacts({ search, run }: { search: Record<string, unknown>; run: Ru
     ['Kind', text(search.execution_type) ? runKind(String(search.execution_type)) : <span className="nr">not recorded</span>],
     ['Run at', <Value value={search.run_at} />],
     ['Completed at', <Value value={search.completed_at} />],
-    ['Status', <Value value={search.status} />],
+    ['Status', <Value value={search.status === 'cancelled' ? 'canceled' : search.status} />],
     // The words typed; what each source was sent is the next row.
     ['Search terms, as typed', keywords.length ? keywords.join(', ') : <span className="nr">none</span>],
     ['Query as sent', <QueriesSent queries={search.queries_as_sent as QuerySent[] | null | undefined} />],
@@ -524,10 +615,10 @@ function eventWords(event: ProgressEvent, names: ReadonlyMap<string, string>): s
       : `${source} answered with ${event.result_count ?? 'an unrecorded number of'} records.`;
     case 'repo_skipped_missing_key': return `${source} not queried: no API key.`;
     case 'repo_error': return event.error === 'cancelled by user'
-      ? `${source}: cancelled while it was being asked.`
+      ? `${source}: canceled while it was being asked.`
       : `${source}: ${event.error ?? 'error'}`;
     case 'complete': return `The run finished: ${event.status ?? 'status not recorded'}.`;
-    case 'cancelled': return 'The run was cancelled.';
+    case 'cancelled': return 'The run was canceled.';
     case 'error': return `The run failed: ${event.error ?? 'reason not recorded'}.`;
     default: return event.message || event.type.replace(/_/g, ' ');
   }

@@ -11,7 +11,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { MARK, markOf } from '../model';
+import { MARK, markOf, RUNNING_MARK } from '../model';
 
 const SOURCE_WALL = path.join(__dirname, '..', '..', '..', '..', '..', '..', 'implementation_scripts', 'source_wall.py');
 
@@ -34,4 +34,12 @@ test('each of the backend\'s wall states is drawn with its own mark', () => {
 test('Atlas draws no state the backend does not have', () => {
   const states = wallStates();
   expect(Object.keys(MARK).filter((state) => !states.includes(state))).toEqual([]);
+});
+
+test('a running run\'s two marks are its own: no wall state, and no wall state\'s mark', () => {
+  const states = wallStates();
+  expect(Object.keys(RUNNING_MARK).filter((state) => states.includes(state))).toEqual([]);
+  expect(Object.values(RUNNING_MARK).filter((mark) => Object.values(MARK).includes(mark))).toEqual([]);
+  expect(markOf('asking')).toBe('asking');
+  expect(markOf('not_yet_asked')).toBe('waiting');
 });

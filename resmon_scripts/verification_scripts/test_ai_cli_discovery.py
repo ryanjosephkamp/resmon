@@ -28,6 +28,23 @@ def _make_executable(path):
     return str(path)
 
 
+@pytest.fixture(autouse=True)
+def discovery_searches(monkeypatch, tmp_path):
+    """Each case here searches, as the app does, but finds only what it made.
+
+    The suite pins ``RESMON_AI_CLI_DISCOVERY=configured-only`` (``conftest.py``)
+    so that nothing finds the person's own CLI. These cases test the search
+    itself, so the pin is cleared for each one, and a case about a mode sets
+    that mode. HOME is an empty folder, so ``~`` reaches nothing of the
+    person's, and every case that gets as far as searching points PATH and the
+    installers' locations at folders of its own.
+    """
+    monkeypatch.delenv("RESMON_AI_CLI_DISCOVERY", raising=False)
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+
+
 @pytest.fixture
 def no_path(monkeypatch):
     """An environment where PATH finds nothing — the packaged-app case."""
@@ -92,8 +109,8 @@ def test_path_is_the_last_resort(tmp_path, monkeypatch):
 def test_a_test_instance_finds_only_the_command_it_names(tmp_path, monkeypatch):
     """With configured-only, neither the installers' locations nor PATH is searched.
 
-    The e2e and journey harnesses set it so a test that forgets to name a
-    command cannot reach the person's own signed-in CLI.
+    The e2e and journey harnesses and the backend suite's conftest set it, so
+    a test that forgets to name a command cannot reach the person's own CLI.
     """
     installed = _make_executable(tmp_path / "installed-claude")
     on_path_dir = tmp_path / "bin"
@@ -228,7 +245,7 @@ def test_describe_never_claims_the_cli_is_logged_in(tmp_path, no_path):
     assert "signed in" not in text
 
 
-def test_to_dict_is_serialisable_and_complete(tmp_path, no_path):
+def test_to_dict_is_serializable_and_complete(tmp_path, no_path):
     payload = discover_cli("codex", _make_executable(tmp_path / "codex")).to_dict()
     assert payload["found"] is True
     assert set(payload) == {"provider", "path", "how", "found", "tried", "detail"}

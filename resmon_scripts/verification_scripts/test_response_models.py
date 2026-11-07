@@ -80,6 +80,7 @@ import resmon as resmon_mod                                    # noqa: E402
 from implementation_scripts import response_models             # noqa: E402
 from implementation_scripts import watch_profiles as wp        # noqa: E402
 from implementation_scripts import collection_map              # noqa: E402
+from implementation_scripts import reading_queue               # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -128,12 +129,18 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("PUT", "/api/settings/execution"),
         ("GET", "/api/settings/notifications"),
         ("PUT", "/api/settings/notifications"),
+        ("GET", "/api/settings/sources"),
+        ("PUT", "/api/settings/sources"),
         ("GET", "/api/settings/storage"),
         ("PUT", "/api/settings/storage"),
     ),
     "appearance": (
         ("GET", "/api/appearance"),
         ("PUT", "/api/appearance"),
+    ),
+    "the top bar": (
+        ("GET", "/api/top-bar"),
+        ("PUT", "/api/top-bar"),
     ),
     "agent CLI sign-in and the models that answered": (
         ("GET", "/api/ai/cli/sign-in"),
@@ -149,6 +156,7 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     "today": (
         ("GET", "/api/today"),
+        ("GET", "/api/today/papers"),
         ("POST", "/api/today/looked"),
     ),
     "document briefs": (
@@ -159,6 +167,10 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("POST", "/api/reading-queue"),
         ("PUT", "/api/reading-queue/{document_id}"),
         ("DELETE", "/api/reading-queue/{document_id}"),
+        ("POST", "/api/reading-queue/{document_id}/restore"),
+        ("POST", "/api/reading-queue/batch"),
+        ("POST", "/api/reading-queue/batch/all"),
+        ("POST", "/api/reading-queue/batch/undo"),
     ),
     "watchdog": (
         ("GET", "/api/watchdog"),
@@ -198,13 +210,28 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("POST", "/api/executions/{exec_id}/restart"),
         ("GET", "/api/executions/{exec_id}/documents"),
         ("GET", "/api/executions/{exec_id}/document-ids"),
+        ("DELETE", "/api/executions/waiting/{ticket}"),
+        ("POST", "/api/executions/seen"),
+        ("GET", "/api/executions/{exec_id}/find"),
+        ("GET", "/api/executions/{exec_id}/full-text"),
     ),
     "the Explorer": (
         ("POST", "/api/explorer/search"),
     ),
+    "collections": (
+        ("GET", "/api/collections"),
+        ("POST", "/api/collections"),
+        ("PUT", "/api/collections/current"),
+        ("GET", "/api/collections/{collection_id}"),
+        ("PUT", "/api/collections/{collection_id}"),
+        ("DELETE", "/api/collections/{collection_id}"),
+        ("POST", "/api/collections/{collection_id}/papers"),
+        ("POST", "/api/collections/{collection_id}/papers/undo"),
+    ),
     "a paper's account": (
         ("GET", "/api/documents/{doc_id}"),
         ("GET", "/api/documents/{doc_id}/why"),
+        ("POST", "/api/documents/{doc_id}/full-text"),
     ),
     "the same work twice": (
         ("POST", "/api/links/for-documents"),
@@ -263,6 +290,17 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
     "the source wall": (
         ("GET", "/api/coverage/source-wall"),
     ),
+    # Find a paper and Get the PDF (schema 27). A find's record and a run's
+    # PDFs are read under the run, in "runs"; Get the PDF is a paper's, in
+    # "a paper's account".
+    "finding a paper": (
+        ("GET", "/api/find/plan"),
+        ("POST", "/api/find"),
+    ),
+    "full text": (
+        ("GET", "/api/full-text/rules"),
+        ("POST", "/api/full-text/for-documents"),
+    ),
     "the owned library": (
         ("GET", "/api/library"),
         ("POST", "/api/library/vault"),
@@ -273,6 +311,15 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("POST", "/api/library/files/{file_id}/open"),
         ("GET", "/api/library/export"),
         ("GET", "/api/library/files/{file_id}/text"),
+        ("PUT", "/api/library/files/{file_id}/picture"),
+        ("GET", "/api/library/files/{file_id}/removal"),
+        ("DELETE", "/api/library/files/{file_id}"),
+        ("GET", "/api/library/removed"),
+        ("POST", "/api/library/removed/{file_id}/restore"),
+        ("POST", "/api/library/removed/{file_id}/release"),
+        ("DELETE", "/api/library/removed/{file_id}"),
+        ("POST", "/api/library/vault/relink"),
+        ("POST", "/api/library/vault/move"),
     ),
     "evidence projects": (
         ("GET", "/api/evidence/projects"),
@@ -544,6 +591,7 @@ def driven() -> Drive:
         _drive_process_identity(drive)
         _drive_settings(drive)
         _drive_appearance(drive)
+        _drive_top_bar(drive)
 
         # A profile with no identifier, so ``basis_warning`` is a sentence and
         # not ``None``: the field most easily lost is the one carrying a value.
@@ -640,6 +688,7 @@ def driven() -> Drive:
         _drive_today(drive)
         _drive_runs(drive)
         _drive_collection(drive)
+        _drive_collections(drive, doc_ids)
         _drive_watches(drive, doc_ids)
         _drive_background_service(drive)
         _drive_credentials_and_the_test_send(drive)
@@ -649,6 +698,7 @@ def driven() -> Drive:
         _drive_shared_wording(drive, kept[0])
         _drive_assistant(drive)
         _drive_backup_and_restore(drive)
+        _drive_full_text(drive, doc_ids)
         # Last, because it erases what every slice above made: the corpus, the
         # runs, the configurations, the settings and the keyring's keys.
         _drive_danger_zone(drive)
@@ -821,7 +871,53 @@ def _drive_library(drive: Drive, document_id: int) -> tuple[str, str, str]:
     text = drive("GET", f"/api/library/files/{file_id}/text?expected_vault_id={vault}"
                  f"&expected_version_id={version_id}", headers=library)
     assert text["text"] == "Perovskite notes\nkept as written\n" and text["line_count"] == 3
+    head = drive("GET", f"/api/library/files/{file_id}/text?expected_vault_id={vault}"
+                 f"&expected_version_id={version_id}&lines=1", headers=library)
+    assert (head["text"], head["shown_lines"], head["line_count"]) == ("Perovskite notes", 1, 3)
+    _drive_library_lifecycle(drive, vault, parent, document_id)
     return vault, file_id, version_id
+
+
+def _drive_library_lifecycle(drive: Drive, vault: str, parent: str, document_id: int) -> None:
+    """A PDF's picture, a removal and its undo, a release and a forget, and the folder found again and moved.
+
+    Its own file, so the file the Evidence slice uses next is untouched. Every
+    folder is a scratch folder of this run; the release's path is moved out of
+    the Library folder here, where the desktop's Trash would take it.
+    """
+    from conftest import TEST_RENDERER_ORIGIN  # noqa: PLC0415
+    library = {"Origin": TEST_RENDERER_ORIGIN, "X-Resmon-Library": "1"}
+    raw = {**library, "Content-Type": "application/octet-stream"}
+    pdf = drive("POST", f"/api/library/files?expected_vault_id={vault}&filename=scenario.pdf&document_id={document_id}",
+                expect=201, headers=raw, content=b"%PDF-1.4\nscenario\n%%EOF")["file"]
+    file_id, version = pdf["file_id"], pdf["version_id"]
+    query = f"expected_vault_id={vault}&expected_version_id={version}"
+    drive("PUT", f"/api/library/files/{file_id}/picture?{query}",
+          headers={**library, "Content-Type": "image/png"}, content=b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
+    summary = drive("GET", f"/api/library/files/{file_id}/removal?{query}", headers=library)
+    assert summary["needs_confirmation"] is False and summary["links"], "a link gives the list a row"
+    drive("DELETE", f"/api/library/files/{file_id}", headers=library,
+          json={"expected_vault_id": vault, "expected_version_id": version})
+    listed = drive("GET", f"/api/library/removed?expected_vault_id={vault}", headers=library)
+    assert [r["file_id"] for r in listed["removed"]] == [file_id]
+    drive("POST", f"/api/library/removed/{file_id}/restore", headers=library, json={"expected_vault_id": vault})
+    drive("DELETE", f"/api/library/files/{file_id}", headers=library,
+          json={"expected_vault_id": vault, "expected_version_id": version})
+    released = drive("POST", f"/api/library/removed/{file_id}/release", headers=library,
+                     json={"expected_vault_id": vault})
+    os.rename(released["path"], os.path.join(parent, "stand-in-trash.pdf"))
+    drive("DELETE", f"/api/library/removed/{file_id}", headers=library, json={"expected_vault_id": vault})
+    # The folder moved outside resmon, found again, then moved back by resmon.
+    status = drive("GET", "/api/library", headers=library)
+    root = status["vault"]["path"]
+    elsewhere = os.path.join(parent, "elsewhere")
+    os.mkdir(elsewhere)
+    os.rename(root, os.path.join(elsewhere, os.path.basename(root)))
+    assert drive("GET", "/api/library", headers=library)["status"] == "missing"
+    drive("POST", "/api/library/vault/relink", headers=library, json={"expected_vault_id": vault, "folder": elsewhere})
+    moved = drive("POST", "/api/library/vault/move", headers=library,
+                  json={"expected_vault_id": vault, "parent_directory": parent})
+    assert moved["vault"]["path"] == root and moved["moved"]["same_disk"] is True
 
 
 def _drive_shared_wording(drive: Drive, vault: str) -> None:
@@ -997,9 +1093,9 @@ def _drive_selected_answers(drive: Drive, vault: str, project: str, revision: in
         again = drive("POST", f"{answers}/answers", expect=202, headers=library, json=consent)
         assert again["answer_id"] == sent["answer_id"]
         drive("GET", f"{answers}/answers?expected_vault_id={vault}", headers=library)
-        cancelled = drive("POST", f"{answer}/cancel", headers=library,
+        canceled = drive("POST", f"{answer}/cancel", headers=library,
                           json={"expected_vault_id": vault, "expected_runtime_id": runtime})
-        assert cancelled["state"] == "succeeded"
+        assert canceled["state"] == "succeeded"
     finally:
         resmon_mod.serving_port = original_port
 
@@ -1173,7 +1269,7 @@ def _only_scratch_paths(paths: dict[str, Any]) -> None:
 
 
 def _drive_backup_and_restore(drive: Drive) -> None:
-    """A bundle written, verified, staged, cancelled, applied as a start applies it, and its record read.
+    """A bundle written, verified, staged, canceled, applied as a start applies it, and its record read.
 
     Everything happens in folders this slice makes. ``RESMON_STATE_DIR`` names
     a scratch state directory for the slice, so the pointer, the record, the
@@ -1182,6 +1278,10 @@ def _drive_backup_and_restore(drive: Drive) -> None:
     export directory is set to a scratch folder through the storage settings
     route. Every path is checked before the first backup.
 
+    Backup is read once with nothing beside the database and once with a file
+    named as an upgrade's copy of it, so ``pre_upgrade_copy`` is drawn both
+    ways; the file is removed again.
+
     The live database is given one orphan row before the backup, so the
     foreign-key fields carry a finding, and loses it again at the end. A copy
     of the bundle with one report changed and the vault id taken out of its
@@ -1189,7 +1289,7 @@ def _drive_backup_and_restore(drive: Drive) -> None:
     ``vault_destination`` is ``None``.
 
     A restore is staged three times. The first, with no vault parent, is
-    cancelled, and a garbled pointer is read and cancelled after it. The
+    canceled, and a garbled pointer is read and canceled after it. The
     second is applied the way a start applies it, by
     ``backup.apply_pending_restore``, against a scratch database file rather
     than this app's own and with a scratch vault parent, so neither the live
@@ -1201,6 +1301,7 @@ def _drive_backup_and_restore(drive: Drive) -> None:
     import shutil  # noqa: PLC0415 — only this slice needs these
     import sqlite3  # noqa: PLC0415
     from implementation_scripts import backup as backup_module  # noqa: PLC0415
+    from implementation_scripts import upgrade_copy  # noqa: PLC0415
 
     with _scratch("resmon-scenario-backup-") as root:
         state, exports, reports, elsewhere, restored = (
@@ -1244,7 +1345,17 @@ def _drive_backup_and_restore(drive: Drive) -> None:
                                "pending_restore": None, "pending_restore_runs_when": None,
                                "pending_restore_runs_on": None,
                                "last_restore": None, "undo_copies": [],
-                               "drive_upload_retired": False}, nothing
+                               "drive_upload_retired": False, "pre_upgrade_copy": None}, nothing
+
+            # The copy an upgrade keeps beside the database, as Backup reads it.
+            kept = upgrade_copy.copy_path(_database_file(), resmon_mod.SCHEMA_VERSION - 1)
+            sqlite3.connect(kept).close()
+            try:
+                held = drive("GET", "/api/backup/last")["pre_upgrade_copy"]
+                assert (held["path"], held["schema_version"]) == (
+                    str(kept), resmon_mod.SCHEMA_VERSION - 1), held
+            finally:
+                kept.unlink()
 
             # A database from before the upload to Google Drive was removed,
             # with it switched on, as that version stored it.
@@ -1292,7 +1403,7 @@ def _drive_backup_and_restore(drive: Drive) -> None:
                 broken = drive("POST", "/api/backup/verify", json={"path": str(damaged)})
                 assert not broken["ok"] and broken["problems"] and broken["vault_destination"] is None, broken
 
-                # Staged, read, cancelled; then a pointer nobody can read.
+                # Staged, read, canceled; then a pointer nobody can read.
                 first = drive("POST", "/api/restore", json={**confirm, "path": str(bundle),
                                                             "accept_fk_violations": True})
                 assert first["staged"]["vault_parent"] is None, first["staged"]
@@ -1438,7 +1549,7 @@ def _drive_source_wall_and_analytics(drive: Drive) -> None:
     """The Source wall over every run the scenario recorded, and the analytics views.
 
     Last in the scenario, so the wall has the watchdog slice's failures, the
-    runs slice's ``missing_key`` non-answers and its cancelled run to classify,
+    runs slice's ``missing_key`` non-answers and its canceled run to classify,
     and every view has the slices' papers and watches to count.
 
     Two of the views are only interesting past a threshold, so this adds what
@@ -1507,6 +1618,18 @@ def _drive_today(drive: Drive) -> None:
     scenario's papers, routines and runs in it, then the window after a look,
     which is empty."""
     first = drive("GET", "/api/today")
+    # A later page: with a page one paper long, the first page's cursor reads the next.
+    from urllib.parse import quote  # noqa: PLC0415
+    from implementation_scripts import today as today_mod  # noqa: PLC0415
+    page = today_mod.PAPER_PAGE
+    today_mod.PAPER_PAGE = 1
+    try:
+        one = drive("GET", "/api/today")
+        assert one["next_cursor"], "the scenario has more than one new paper"
+        later = drive("GET", f"/api/today/papers?cursor={quote(one['next_cursor'])}")
+        assert later["papers"] and later["papers"][0]["id"] != one["papers"][0]["id"]
+    finally:
+        today_mod.PAPER_PAGE = page
     drive("POST", "/api/today/looked")
     drive("GET", "/api/today")
     # Briefs for the papers Today listed, and for an id that is not there.
@@ -1612,6 +1735,59 @@ def _drive_collection(drive: Drive) -> None:
         drive.client.put("/api/settings/embeddings", json={"settings": {"embedding_enabled": "false"}})
 
 
+def _drive_full_text(drive: Drive, doc_ids: list[int]) -> None:
+    """Find a paper and Get the PDF: a plan, a find over one source, its record, and two PDFs asked for.
+
+    The find asks Crossref, whose module's ``safe_request`` answers here with
+    an authored record carrying the first paper's DOI, so the find stores a
+    second copy and links the two. The first paper is given an open copy with
+    a stated license, so its request waits (the suite's engine runs no PDF
+    worker); the second has none, so its request is skipped with the reason.
+    """
+    import httpx  # noqa: PLC0415
+    from implementation_scripts import api_crossref, open_access  # noqa: PLC0415
+
+    conn = resmon_mod._get_db()
+    try:
+        open_access.record(conn, doc_ids[0], "openalex", [open_access.location(
+            "openalex", pdf_url="https://pdf.resmon.test/0.pdf", license="cc-by",
+            version="publishedVersion")], [("pmid", "99900000")])
+        conn.commit()
+    finally:
+        resmon_mod._close_db(conn)
+    drive("GET", "/api/full-text/rules")
+    waiting = drive("POST", f"/api/documents/{doc_ids[0]}/full-text")
+    skipped = drive("POST", f"/api/documents/{doc_ids[1]}/full-text")
+    assert waiting["state"] == "waiting" and skipped["reason"] == "no_open_copy"
+    statuses = drive("POST", "/api/full-text/for-documents", json={"document_ids": doc_ids})
+    assert statuses[0]["best"]["license"] == "cc-by" and statuses[1]["downloadable"] is False
+
+    plan = drive("GET", "/api/find/plan", params={"q": "https://doi.org/10.1000/0"})
+    assert plan["kind"] == "doi" and "crossref" in plan["asked"] and plan["not_asked"]
+
+    def crossref(method, url, **kwargs):
+        from implementation_scripts.api_base import search_outcome  # noqa: PLC0415
+
+        search_outcome().note_attempt()
+        item = {"DOI": "10.1000/0", "title": ["Paper 0"], "URL": "https://doi.org/10.1000/0"}
+        return httpx.Response(200, json={"message": item}, request=httpx.Request(method, url))
+
+    original = api_crossref.safe_request
+    api_crossref.safe_request = crossref
+    try:
+        started = drive("POST", "/api/find", json={
+            "query": "10.1000/0", "repositories": ["crossref", "arxiv"], "request_id": "find-slice-1"})
+        _wait_until_settled(drive, started["execution_id"])
+    finally:
+        api_crossref.safe_request = original
+    found = drive("GET", f"/api/executions/{started['execution_id']}/find")
+    outcomes = {s["source"]: s["outcome"] for s in found["sources"]}
+    # Crossref holds it; arXiv cannot look up a DOI; every other source was left out.
+    assert outcomes.pop("crossref") == "found" and outcomes.pop("arxiv") == "not_asked"
+    assert set(outcomes.values()) == {"not_asked"}
+    drive("GET", f"/api/executions/{started['execution_id']}/full-text")
+
+
 def _wait_until_settled(drive: Drive, exec_id: int, timeout: float = 30.0) -> dict:
     """Poll a run, unrecorded, until it is no longer running."""
     import time  # noqa: PLC0415 — only the runs slice waits on a thread
@@ -1625,8 +1801,32 @@ def _wait_until_settled(drive: Drive, exec_id: int, timeout: float = 30.0) -> di
         time.sleep(0.05)
 
 
+def _drive_collections(drive: Drive, doc_ids: list[int]) -> None:
+    """Collections: made, renamed, chosen, papers copied, moved by a search and
+    put back, a collection read with what deleting it would do, and deleted.
+
+    The move takes a paper out of the default collection, so ``removed`` holds
+    a membership as it was, and the delete keeps a paper only it held."""
+    made = drive("POST", "/api/collections", expect=201, json={"name": "Fluid dynamics"})
+    drive("PUT", f"/api/collections/{made['id']}", json={"name": "Fluids"})
+    drive("PUT", "/api/collections/current", json={"collection": "fluids"})
+    drive("GET", "/api/collections")
+    drive("POST", f"/api/collections/{made['id']}/papers", json={"mode": "copy", "document_ids": doc_ids[:1]})
+    moved = drive("POST", f"/api/collections/{made['id']}/papers", json={
+        "mode": "move", "matching": {"collection": 1, "query": "Paper 1"}})
+    assert moved["removed"], "the move took a paper out of the default collection"
+    drive("POST", f"/api/collections/{made['id']}/papers/undo", json={
+        "added": moved["added"], "from_collection": moved["from_collection_id"], "removed": moved["removed"]})
+    drive("POST", f"/api/collections/{made['id']}/papers", json={
+        "mode": "move", "from_collection": 1, "document_ids": doc_ids[1:2]})
+    detail = drive("GET", f"/api/collections/{made['id']}")
+    assert detail["only_here"] == 1 and detail["also_elsewhere"] == 1
+    drive("DELETE", f"/api/collections/{made['id']}")
+    drive("PUT", "/api/collections/current", json={"collection": 1})
+
+
 def _drive_runs(drive: Drive) -> None:
-    """Runs started over the API, read back, restarted and cancelled.
+    """Runs started over the API, read back, restarted and canceled.
 
     Real runs, not seeded rows, over sources that require an API key: the
     suite's keyring is empty, so each is skipped at once and records a
@@ -1696,6 +1896,12 @@ def _drive_runs(drive: Drive) -> None:
         resmon_mod._close_db(conn)
     progress_store.register(held)
     try:
+        # A run going now, with its events folded, as the Runs tab reads it.
+        progress_store.emit(held, {"type": "repo_start", "repository": "arxiv", "timestamp": "2026-10-28T00:00:01Z"})
+        progress_store.emit(held, {"type": "query_progress", "repository": "arxiv", "phase": "searching",
+                                   "elapsed": 2.0, "requests": 1, "retries": 0, "timestamp": "2026-10-28T00:00:03Z"})
+        active = drive("GET", "/api/executions/active")
+        assert [run["id"] for run in active["running"]] == [held]
         drive("POST", f"/api/executions/{held}/cancel")
     finally:
         progress_store.cleanup(held)
@@ -1705,6 +1911,36 @@ def _drive_runs(drive: Drive) -> None:
             conn.commit()
         finally:
             resmon_mod._close_db(conn)
+
+    # At the run limit a search and a restart wait their turn (202, no run yet,
+    # their place and ticket); the queue is read back, and both are withdrawn
+    # before they start. A slot is held by an id no run has.
+    from implementation_scripts.admission import admission  # noqa: PLC0415
+    cap = admission.max()
+    admission.set_max(1)
+    admission.note_admitted(9_999_999)
+    try:
+        queued = drive("POST", "/api/search/sweep", expect=202,
+                       json={"repositories": ["springer"], "query": "w", "keywords": ["w"],
+                             "max_results": 5, "request_id": "runs-slice-queued"})
+        assert queued["queued"] is True and queued["execution_id"] is None
+        waiting_again = drive("POST", "/api/search/sweep", expect=202,
+                              json={"repositories": ["springer"], "query": "w", "keywords": ["w"],
+                                    "max_results": 5, "request_id": "runs-slice-queued"})
+        assert waiting_again["duplicate"] is True
+        repeat = drive("POST", f"/api/executions/{dive['execution_id']}/restart", expect=202,
+                       json={"again": True})
+        assert repeat["queued"] is True and repeat["restarted_from"] == dive["execution_id"]
+        waiting = drive("GET", "/api/executions/active")["waiting"]
+        assert [entry["ticket"] for entry in waiting] == ["runs-slice-queued", repeat["ticket"]]
+        drive("DELETE", "/api/executions/waiting/runs-slice-queued")
+        drive("DELETE", f"/api/executions/waiting/{repeat['ticket']}")
+        # The run monitor's panel opened: the failures until now are seen, and /active says when.
+        seen = drive("POST", "/api/executions/seen")
+        assert drive("GET", "/api/executions/active")["seen_at"] == seen["seen_at"]
+    finally:
+        admission.note_finished(9_999_999)
+        admission.set_max(cap)
 
 
 def _drive_collection_map(drive: Drive) -> None:
@@ -1754,6 +1990,20 @@ def _drive_appearance(drive: Drive) -> None:
     drive("GET", "/api/appearance")
 
 
+def _drive_top_bar(drive: Drive) -> None:
+    """Two lists of the same vocabulary, a page, and a nullable page.
+
+    Read before anything is stored, where ``lockup`` is null and nothing is
+    hidden, and after a PUT that hides two sections and names a page for the
+    resmon name, so both shapes of the two fields that have two are compared.
+    """
+    drive("GET", "/api/top-bar")
+    drive("PUT", "/api/top-bar", json={
+        "order": ["search", "today", "runs"], "hidden": ["health", "watches"],
+        "start": "/search/saved", "lockup": "/library"})
+    drive("GET", "/api/top-bar")
+
+
 def _drive_settings(drive: Drive) -> None:
     """Every stored group read, written and read again.
 
@@ -1797,6 +2047,12 @@ def _drive_settings(drive: Drive) -> None:
           json={"settings": {"notify_manual": False,
                              "notify_automatic_mode": "selected"}})
     drive("GET", "/api/settings/notifications")
+
+    # sources: the contact address, set, read, and cleared.
+    drive("GET", "/api/settings/sources")
+    drive("PUT", "/api/settings/sources", json={"contact_email": "ada@example.org"})
+    drive("GET", "/api/settings/sources")
+    drive("PUT", "/api/settings/sources", json={"contact_email": None})
 
     # execution: integers, and a PUT that echoes what it stored.
     drive("GET", "/api/settings/execution")
@@ -1856,7 +2112,27 @@ def _drive_reading_queue(drive: Drive, document_id: int) -> None:
     filtered = drive("GET", "/api/reading-queue?status=to_read")
     assert filtered["status"] == "to_read"
     drive("PUT", f"/api/reading-queue/{document_id}", json={"status": "read"})
+    searched = drive("GET", "/api/reading-queue?q=a&sort=title")
+    assert searched["sort"] == "title"
+    # Map order with no fitted map says the order it is really in.
+    assert drive("GET", "/api/reading-queue?sort=map")["sort"] in ("map", "saved")
+    removed = drive("DELETE", f"/api/reading-queue/{document_id}")
+    entry = removed["entry"]
+    back = drive("POST", f"/api/reading-queue/{document_id}/restore", json={
+        "status": entry["status"], "saved_at": entry["saved_at"],
+        "updated_at": entry["updated_at"], "read_at": entry["read_at"]})
+    assert back["restored"] is True and back["entry"] == entry
     drive("DELETE", f"/api/reading-queue/{document_id}")
+    # Many at once: the listed papers, then every one of a search, each with its Undo.
+    many = drive("POST", "/api/reading-queue/batch", json={"document_ids": [document_id]})
+    assert many["saved_ids"] == [document_id] and many["saved_at"]
+    drive("POST", "/api/reading-queue/batch/undo",
+          json={"document_ids": many["saved_ids"], "saved_at": many["saved_at"]})
+    every = drive("POST", "/api/reading-queue/batch/all",
+                  json={"scope": "search", "search": {}, "at_most": reading_queue.BATCH_MOST})
+    assert every["saved"] >= 1
+    drive("POST", "/api/reading-queue/batch/undo",
+          json={"document_ids": every["saved_ids"], "saved_at": every["saved_at"]})
 
 
 class _ServiceDown:

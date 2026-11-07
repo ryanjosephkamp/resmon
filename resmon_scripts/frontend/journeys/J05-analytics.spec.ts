@@ -35,7 +35,7 @@ journey.describe('J05 Analytics', () => {
     //
     // Compared without case: the stylesheet upper-cases these headings, so what
     // a person reads — and what `innerText` returns — is "YOUR CORPUS". Pinning
-    // the capitalisation would be pinning a stylesheet rule.
+    // the capitalization would be pinning a stylesheet rule.
     const drawn = view.headings.map((heading) => heading.toLowerCase());
     for (const card of [
       'Your corpus',

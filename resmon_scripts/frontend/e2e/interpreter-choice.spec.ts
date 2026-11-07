@@ -13,6 +13,7 @@ import * as path from 'path';
 import {
   InterpreterError, REPO_ROOT, resolveInterpreter, verifyInterpreter,
 } from './fixtures/python-interpreter';
+import { removeStateDir } from './fixtures/cleanup';
 
 const venv = process.platform === 'win32'
   ? path.join(REPO_ROOT, '.venv', 'Scripts', 'python.exe')
@@ -75,6 +76,13 @@ test('the interpreter this run chose does import the backend dependencies', () =
  * report, and asserts both the non-zero exit and the guard's own sentence in
  * the review log.
  *
+ * The deadline has to fall inside the test suite. Playwright counts it from the
+ * start, through loading the specs and the global setup (which imports the
+ * backend's dependencies, 3 to 4 s on a CI runner); a deadline that runs out
+ * before the suite begins ends the run before the guard has anything to count,
+ * and it says nothing. 3 s did that on some CI runs and not others. 20 s leaves
+ * the setup room, and the suite takes minutes, so cases still never run.
+ *
  * `RESMON_E2E_GUARD_CHILD` keeps the child from re-entering this case, which
  * would otherwise spawn a review run inside a review run.
  */
@@ -87,7 +95,7 @@ test('npm run e2e:review carries the completion guard', () => {
     env: {
       ...process.env,
       RESMON_E2E_GUARD_CHILD: '1',
-      RESMON_E2E_GLOBAL_TIMEOUT: '3000',
+      RESMON_E2E_GLOBAL_TIMEOUT: '20000',
       RESMON_E2E_REVIEW_DIR: reviewDir,
       FORCE_COLOR: '0',
     },
@@ -98,5 +106,5 @@ test('npm run e2e:review carries the completion guard', () => {
   const output = `${run.stdout || ''}${run.stderr || ''}`;
   expect(output).toContain('never ran');
   expect(run.status).not.toBe(0);
-  fs.rmSync(reviewDir, { recursive: true, force: true });
+  removeStateDir(reviewDir);
 });

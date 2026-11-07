@@ -6,6 +6,7 @@ import re
 import sqlite3
 from dataclasses import replace
 
+from . import open_access
 from .api_base import Author, NormalizedResult, as_authors
 from .database import insert_document, find_duplicates_by_hash
 from .utils import compute_metadata_hash, now_iso
@@ -56,7 +57,7 @@ def validate_result(result: NormalizedResult) -> bool:
 # ---------------------------------------------------------------------------
 
 def normalize_author_name(name: str) -> str:
-    """One author name, standardised to 'First Last'.
+    """One author name, standardized to 'First Last'.
 
     Handles 'Last, First' by reversing the components and collapses internal
     whitespace. Returns "" for a name that is nothing but whitespace.
@@ -71,12 +72,12 @@ def normalize_author_name(name: str) -> str:
 
 
 def normalize_authors(authors) -> list:
-    """Standardise author names, **keeping whatever else the source gave**.
+    """Standardize author names, **keeping whatever else the source gave**.
 
     Accepts names or ``Author`` objects and returns the same kind it was given,
     so the twenty-odd clients that still pass strings are unaffected and the
     handful that pass structured authors do not lose their ORCID to a
-    normalisation step. That last clause is the point: a function that took
+    normalization step. That last clause is the point: a function that took
     ``list[str]`` and returned ``list[str]`` would quietly discard exactly the
     fields author matching exists to keep.
     """
@@ -166,6 +167,8 @@ def normalize_result(result: NormalizedResult) -> NormalizedResult:
         publication_date=pub_date,
         url=result.url,
         categories=list(result.categories),
+        open_access=list(getattr(result, "open_access", None) or []),
+        identifiers=list(getattr(result, "identifiers", None) or []),
     )
     # Attach metadata hash as a transient attribute for dedup
     # The hash is over the *names* alone: adding an ORCID to a record must not
@@ -183,10 +186,16 @@ def normalize_result(result: NormalizedResult) -> NormalizedResult:
 def deduplicate_batch(
     conn: sqlite3.Connection,
     results: list[NormalizedResult],
+    *,
+    collection_id: int | None = None,
+    execution_id: int | None = None,
 ) -> dict:
     """Normalize, validate, and insert results into the database.
 
     Returns a dict with counts: {"total", "new", "duplicates", "invalid", "cross_source"}.
+
+    A paper stored here is filed in *collection_id* (the default collection
+    when None) as found by the run *execution_id*.
 
     - Same-source duplicates are silently ignored (UNIQUE constraint).
     - Cross-source duplicates are detected by metadata_hash and flagged but still stored.
@@ -236,10 +245,38 @@ def deduplicate_batch(
             "structured_authors": normalized.authors,
         }
 
-        row_id = insert_document(conn, doc)
+        row_id = insert_document(conn, doc, collection_id=collection_id, execution_id=execution_id)
         if row_id is not None:
             stats["new"] += 1
         else:
             stats["duplicates"] += 1
+        _record_open_access(conn, normalized, row_id)
 
     return stats
+
+
+def _record_open_access(conn: sqlite3.Connection, result: NormalizedResult,
+                        row_id: int | None) -> None:
+    """Store where this record says open copies are, for the paper new or already held.
+
+    A paper stored before its source sent this data gains it the next time
+    the source returns it: an insert that was ignored still records against
+    the stored row. A failure here is logged and never loses the paper.
+    """
+    if not result.open_access and not result.identifiers:
+        return
+    try:
+        if row_id is None:
+            existing = conn.execute(
+                "SELECT id FROM documents WHERE source_repository = ? AND external_id = ?",
+                (result.source_repository, result.external_id)).fetchone()
+            if existing is None:
+                return
+            row_id = int(existing[0])
+        open_access.record(conn, int(row_id), result.source_repository,
+                           result.open_access, result.identifiers)
+        conn.commit()
+    except sqlite3.Error:
+        conn.rollback()
+        logger.exception("Could not record open-access data for %s/%s",
+                         result.source_repository, result.external_id)

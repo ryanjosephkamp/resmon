@@ -14,7 +14,7 @@ what makes the lane safe as the primary route, so what these tests pin is not
 * **Accounting by document, not by call.** A batch that falls back and then
   succeeds one paper at a time did not half-work.
 * **Cancellation reaches inside a batch.** Ten papers in one process is one
-  long silence; a cancel honoured only between calls makes the user wait it
+  long silence; a cancel honored only between calls makes the user wait it
   out.
 
 The mapping rule is the fifth, and it is the one with a wrong answer that is
@@ -359,7 +359,7 @@ def test_cancel_terminates_the_process_running_the_batch(monkeypatch):
     assert spawns.processes[0].terminated is True
 
 
-def test_a_cancelled_client_refuses_to_start_another_batch(monkeypatch):
+def test_a_canceled_client_refuses_to_start_another_batch(monkeypatch):
     spawns = _Spawns().install(monkeypatch)
     spawns.default = _claude_batch_reply({0: "S0"})
 
@@ -672,7 +672,7 @@ def test_the_real_cli_answers_a_batch_with_one_summary_per_document(provider):
         pytest.skip(f"{provider} CLI not installed: {found.describe()}")
 
     texts = [
-        "Title: Thermal drift in layered sensors\n\nAbstract: We characterise "
+        "Title: Thermal drift in layered sensors\n\nAbstract: We characterize "
         "the thermal drift of a layered sensing lattice across 240 hours of "
         "continuous operation. Drift was 0.4 mK per hour under nominal load.",
         "Title: A retrieval benchmark for procedural corpora\n\nAbstract: We "

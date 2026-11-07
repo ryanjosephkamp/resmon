@@ -10,16 +10,16 @@
 /** ``/resmon`` — from ``astro.config.mjs``, with any trailing slash removed. */
 export const BASE: string = import.meta.env.BASE_URL.replace(/\/$/, '');
 
-/** The origin the in-app Blog tab locks its embedded reader to. */
+/** The origin the site is published at. */
 export const SITE_ORIGIN = 'https://ryanjosephkamp.github.io';
 
-/** ``/updates/`` -> ``/resmon/updates/``. Already-absolute URLs pass through. */
+/** ``/guide/`` -> ``/resmon/guide/``. Already-absolute URLs pass through. */
 export function url(path: string): string {
   if (/^[a-z]+:/i.test(path) || path.startsWith('//')) return path;
   return `${BASE}${path.startsWith('/') ? '' : '/'}${path}`;
 }
 
-/** The absolute form, which the feed and the canonical link element need. */
+/** The absolute form, which the canonical link element needs. */
 export function absoluteUrl(path: string): string {
   return `${SITE_ORIGIN}${url(path)}`;
 }

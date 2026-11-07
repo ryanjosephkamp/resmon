@@ -50,7 +50,7 @@ export const PROFILE_LIFECYCLE = 'profile-lifecycle';
 export const CHECK_FACTS = {
   perCheck: 1000,
   crossrefBatch: 40,
-  crossrefPerSecond: 10,
+  crossrefPerSecond: 1,
   arxivBatch: 50,
   biorxivPerSecond: 2,
   recheckDays: 30,
@@ -108,13 +108,16 @@ const it = (n: number, one: string, many: string) => (n === 1 ? one : many);
  *
  * The four counts partition the collection, and each is said: a paper that
  * carries nothing to ask about was never looked at, and one a service failed
- * on was not cleared, so neither is folded into the checked.
+ * on was not cleared, so neither is folded into the checked. The check covers
+ * every paper resmon holds; where there are *several* collections, the
+ * sentences say so.
  */
-export function coverageSentences(c: LifecycleCoverage, now: Date): string[] {
-  if (c.corpus === 0) return ['Your collection is empty, so there is nothing to check.'];
+export function coverageSentences(c: LifecycleCoverage, now: Date, several = false): string[] {
+  if (c.corpus === 0) return [several ? 'No collection holds a paper, so there is nothing to check.' : 'Your collection is empty, so there is nothing to check.'];
+  const papers = several ? `the ${count(c.corpus, 'paper')} in every collection` : `your ${count(c.corpus, 'paper')}`;
   const out = [c.checked === 0
-    ? `None of your ${count(c.corpus, 'paper')} has been checked yet.`
-    : `${number(c.checked)} of your ${count(c.corpus, 'paper')} ${it(c.checked, 'has', 'have')} been checked.`];
+    ? `None of ${papers} has been checked yet.`
+    : `${number(c.checked)} of ${papers} ${it(c.checked, 'has', 'have')} been checked.`];
   if (c.checked > 0 && c.unchecked > 0) {
     out.push(`${number(c.unchecked)} ${it(c.unchecked, 'has', 'have')} not been asked about yet.`);
   }
@@ -141,7 +144,7 @@ export interface RunLine { key: string; text: string }
  * checked nothing because a service did not answer says so first, never that
  * nothing changed.
  */
-export function lastRunLines(last: LifecycleRunResult, coverage: LifecycleCoverage, now: Date): { headline: string; lines: RunLine[] } {
+export function lastRunLines(last: LifecycleRunResult, coverage: LifecycleCoverage, now: Date, several = false): { headline: string; lines: RunLine[] } {
   const at = when(instantOf(last.checked_at)?.toISOString(), now);
   const looked = last.outcomes.ok;
   const unaskable = last.outcomes.no_identifier;
@@ -155,7 +158,7 @@ export function lastRunLines(last: LifecycleRunResult, coverage: LifecycleCovera
   } else if (unaskable > 0) {
     headline = `The check ${at} had nothing it could ask about.`;
   } else if (coverage.corpus === 0) {
-    headline = `The check ${at} had nothing to check: your collection is empty.`;
+    headline = `The check ${at} had nothing to check: ${several ? 'no collection holds a paper' : 'your collection is empty'}.`;
   } else {
     headline = `The check ${at} found no paper due: each has been asked about in the last `
       + `${count(coverage.recheck_after_days, 'day')}, or carries nothing to ask about.`;

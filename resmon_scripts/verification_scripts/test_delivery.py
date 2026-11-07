@@ -107,7 +107,7 @@ class SMTPStub:
         # ``echo_recipient`` rewrites the address in the 550 line. SMTP
         # addresses are not case-sensitive in their local part by any rule the
         # sender can rely on, and a server is free to answer with whatever
-        # spelling it likes; several echo the canonicalised or display form.
+        # spelling it likes; several echo the canonicalized or display form.
         # The scrub has to survive that, so a test can ask this server to
         # answer in a case the client never sent.
         self.echo_recipient = echo_recipient
@@ -219,7 +219,7 @@ class SMTPStub:
 def smtp_no_verify(monkeypatch):
     """Let ``smtplib`` accept the stub's self-signed certificate.
 
-    The only production behaviour changed for these tests, and it is changed at
+    The only production behavior changed for these tests, and it is changed at
     the TLS context rather than by replacing the client: everything else --
     the greeting, STARTTLS, AUTH, MAIL/RCPT/DATA and the failures -- is real.
     """
@@ -601,7 +601,7 @@ def test_a_pre_21_routine_with_email_enabled_still_emails_after_the_migration(
     conn.commit()
 
     database.init_db(conn=conn)             # the user's upgrade, in one call
-    assert database.get_schema_version(conn) == 24
+    assert database.get_schema_version(conn) == 27
 
     targets = delivery.list_targets(conn, routine_id)
     assert len(targets) == 1, targets
@@ -746,7 +746,7 @@ def test_the_mcp_delivery_summary_returns_no_address_and_no_path(corpus, tmp_pat
 
 
 def test_unconfigured_smtp_is_a_recorded_reason_not_a_silent_skip(corpus):
-    """The pre-21 behaviour was ``logger.info`` and return. That is the bug."""
+    """The pre-21 behavior was ``logger.info`` and return. That is the bug."""
     conn = corpus["conn"]
     database.update_routine(conn, corpus["routine_id"], {"email_enabled": 1})
     _enqueue(corpus)
@@ -858,9 +858,9 @@ def test_a_channel_outside_the_schemas_vocabulary_is_refused_when_it_is_added(co
 def _mixed_case(address: str) -> str:
     """``private@example.org`` -> ``Private@Example.ORG``.
 
-    Not a spelling resmon ever sends: the local part is capitalised, the
+    Not a spelling resmon ever sends: the local part is capitalized, the
     domain is title-cased and the TLD shouted, which is the sort of
-    canonicalisation a mail server does to the address it echoes back.
+    canonicalization a mail server does to the address it echoes back.
     """
     local, _, domain = address.partition("@")
     host, _, tld = domain.rpartition(".")
@@ -898,7 +898,7 @@ def test_the_address_scrub_is_not_defeated_by_the_case_the_server_answers_in(
                     "resmon@example.org"):
         assert private not in error, error
         assert _mixed_case(private) not in error, error
-    # Nothing recognisable is left of either spelling, in any case.
+    # Nothing recognizable is left of either spelling, in any case.
     assert "example.org" not in error.lower(), error
     assert "<address>" in error, error
     # The failure is still diagnosable, and the row still names the target.

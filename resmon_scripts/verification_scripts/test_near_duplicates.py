@@ -84,20 +84,20 @@ def test_titles_are_compared_after_folding_case_punctuation_and_accents():
 
 
 def test_a_non_latin_title_is_words_rather_than_nothing():
-    """The bug an ASCII-only tokeniser hides.
+    """The bug an ASCII-only tokenizer hides.
 
     Encoding to ASCII and ignoring what will not fit turns every Japanese title
     into zero words, which scores 0.0 against everything — so a whole source's
     papers could never be linked, and nothing would say so. NDL Search is in the
     catalog.
     """
-    assert near_duplicates.normalise_title("深層学習による画像認識")
+    assert near_duplicates.normalize_title("深層学習による画像認識")
     assert near_duplicates.title_similarity(
         "深層学習による画像認識", "深層学習による画像認識") == 1.0
 
 
 def test_a_character_that_only_means_the_same_costs_one_token_not_the_match():
-    """Recorded behaviour, not an aspiration: µ and u are different characters.
+    """Recorded behavior, not an aspiration: µ and u are different characters.
 
     The pair still clears the gate, so the limitation costs similarity rather
     than the link. A transliteration table is a large thing to maintain for this.
@@ -110,7 +110,7 @@ def test_a_character_that_only_means_the_same_costs_one_token_not_the_match():
     assert score >= near_duplicates.DEFAULT_MIN_TITLE_SIMILARITY
 
 
-def test_digits_survive_normalisation_because_gpt4_is_not_gpt3():
+def test_digits_survive_normalization_because_gpt4_is_not_gpt3():
     """Dropping numerals would make two different papers look like one."""
     assert near_duplicates.title_similarity(
         "Evaluating GPT-4 on clinical notes", "Evaluating GPT-3 on clinical notes",
@@ -142,14 +142,14 @@ def test_an_empty_or_missing_title_scores_zero_rather_than_matching_everything()
     "doi:10.1234/Abc.Def",
     "  http://dx.doi.org/10.1234/abc.def  ",
 ])
-def test_the_same_doi_written_five_ways_normalises_to_one(raw):
-    assert near_duplicates._normalised_doi(raw) == "10.1234/abc.def"
+def test_the_same_doi_written_five_ways_normalizes_to_one(raw):
+    assert near_duplicates._normalized_doi(raw) == "10.1234/abc.def"
 
 
 @pytest.mark.parametrize("junk", [None, "", "unknown", "n/a", "10.", "not-a-doi"])
 def test_something_that_is_not_a_doi_is_not_treated_as_one(junk):
     """Two papers must never be linked because both carry the word 'unknown'."""
-    assert near_duplicates._normalised_doi(junk) is None
+    assert near_duplicates._normalized_doi(junk) is None
 
 
 # ---------------------------------------------------------------------------
@@ -500,13 +500,13 @@ def test_a_completed_rescan_replaces_the_previous_answer(conn, corpus, tmp_path)
     assert remaining, "the real pair should still be there"
 
 
-def test_a_cancelled_scan_keeps_what_it_found_and_clears_nothing(conn, corpus, tmp_path):
+def test_a_canceled_scan_keeps_what_it_found_and_clears_nothing(conn, corpus, tmp_path):
     """A partial scan must not delete links it never re-examined."""
     near_duplicates.write_links(conn, near_duplicates.find_links(conn, MODEL)["pairs"])
     before = conn.execute("SELECT COUNT(*) FROM document_links").fetchone()[0]
     assert before > 0
 
-    # Cancelled while the scan is inside ``find_links``, which is where the flag
+    # Canceled while the scan is inside ``find_links``, which is where the flag
     # is actually read. Setting it before ``start`` would be cleared by ``start``
     # itself — the job resets its own flag so a previous cancel cannot poison the
     # next run, which is right, and means the cancel has to land after that.

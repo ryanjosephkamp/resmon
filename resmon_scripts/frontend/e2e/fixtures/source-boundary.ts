@@ -8,7 +8,7 @@
  * outside the offline boundary. They replace the *input* and nothing else: the
  * request is a real HTTP request over a real socket, made by the real client,
  * and every match, vector, link and rendered row downstream is computed by the
- * app. What they cannot see is a provider's own behaviour — a schema change or
+ * app. What they cannot see is a provider's own behavior — a schema change or
  * an outage at arXiv or OpenAlex is invisible to an authored reply, and this
  * suite does not claim otherwise.
  */
@@ -21,6 +21,7 @@ import { execFileSync } from 'child_process';
 import { _electron as electron, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { FRONTEND_ROOT, REPO_ROOT, atlasEnv, launchEnv } from './resmon-app';
+import { removeStateDir } from './cleanup';
 
 type Mode = 'paper' | 'empty' | 'failure' | '503' | 'malformed'
   | 'authored-person' | 'authored-corpus' | 'authored-duplicates';
@@ -366,9 +367,11 @@ api_openalex._OPENALEX_API_URL = ${JSON.stringify(openAlexEndpoint)}
   env.PYTHONPATH = [hookDir, env.PYTHONPATH].filter(Boolean).join(path.delimiter);
   env.PYTHONDONTWRITEBYTECODE = '1';
   env.PYTHON_KEYRING_BACKEND = 'keyring.backends.null.Keyring';
-  // arXiv waits out a 429 or 503 for up to three minutes; this stand-in answers
-  // 503 every time, so a short budget ends the run in seconds.
+  // arXiv waits out a 429 or 503 for up to three minutes, or fifteen in a
+  // watch's scheduled run; this stand-in answers 503 every time, so short
+  // budgets end the run in seconds.
   env.RESMON_ARXIV_PATIENCE_SECONDS = '8';
+  env.RESMON_ARXIV_UNATTENDED_PATIENCE_SECONDS = '8';
   env.NO_PROXY = env.no_proxy = '127.0.0.1,localhost';
   for (const key of ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']) delete env[key];
   let app: Awaited<ReturnType<typeof electron.launch>> | undefined;
@@ -400,7 +403,7 @@ api_openalex._OPENALEX_API_URL = ${JSON.stringify(openAlexEndpoint)}
       if (ownedProcess) expect(appExited).toBe(true);
       console.log('SOURCE_CLEANUP', JSON.stringify({ stateDir, backendPid, sourcePort,
         serverListening: server.listening, blocked, appExited, backendExited: backendPid ? true : null }));
-      fs.rmSync(stateDir, { recursive: true, force: true });
+      removeStateDir(stateDir);
     }
   };
   try {

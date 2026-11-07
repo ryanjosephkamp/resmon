@@ -1,110 +1,364 @@
 ---
 /**
- * The Source wall from a real session, drawn as the app draws it: one row per
- * source, one column per run, one mark per cell.
+ * The Source wall from a real collection, drawn as the app draws it: one row
+ * per source, one column per run, one mark per cell, a line through each row
+ * behind its marks, and when each source was last asked.
  *
- * The data is `../data/run-record.json`, exported from the app's own
- * `GET /api/coverage/source-wall` and not edited; its `provenance` field says
- * where it came from and is printed under the grid. Marks are told apart by
- * shape, so the grid reads the same in either color scheme and to a reader who
- * does not see color. Each cell also carries its state in words for a screen
- * reader.
+ * The data is `../data/run-record.json`: the engine's own
+ * `GET /api/coverage/source-wall`, and each run's record, exported unedited
+ * by `resmon_scripts/frontend/demos/export_site.py`. Its `provenance` field
+ * says where it came from and is printed under the grid. Each mark is the
+ * app's (`screens/health/model.ts` names it, as `WallMark.tsx` draws it), so
+ * states are told apart by shape and read the same in either theme and to a
+ * reader who does not see color.
  *
- * The one motion on the page lives here: as the grid scrolls into view, each
- * column of marks fills in after the one before it, the way the runs happened.
- * It is CSS scroll-driven animation, so it needs no script; where that is not
- * supported, or motion is reduced, the grid is simply drawn.
+ * Choose a mark and its reading opens beside the grid, as it does in the app:
+ * the source, the run, the engine's label and sentence, and the facts they
+ * rest on. Before a mark is chosen, and without scripts, the reading is the
+ * record's first failure. Every cell also carries its label and sentence as
+ * its accessible name and its tooltip.
  */
 import record from '../data/run-record.json';
+import {
+  largestCount,
+  lastAsked,
+  markOf,
+  pointRadius,
+  type Wall,
+} from '../../../resmon_scripts/frontend/atlas/src/screens/health/model';
 
-const runs = record.runs;
-const utc = (iso: string) => `${iso.slice(11, 16)} UTC`;
-const footnotes: { n: number; text: string }[] = [];
-const rows = record.sources.map((source) => ({
-  name: source.name,
-  cells: source.cells.map((cell) => {
-    let note: number | null = null;
-    if (['failed', 'could_not_be_asked', 'not_recorded'].includes(cell.state) && cell.note) {
-      note = footnotes.length + 1;
-      footnotes.push({ n: note, text: cell.note });
-    }
-    return { ...cell, note };
-  }),
-}));
-const recordedOn = new Date(`${record.recorded_on}T12:00:00Z`).toLocaleDateString('en-US', {
-  year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC',
+const wall = record.wall as unknown as Wall;
+const KIND: Record<string, string> = { deep_dive: 'Deep Dive', deep_sweep: 'Deep Sweep', automated_sweep: 'Watch' };
+const ZONE = 'America/New_York';
+const TIME = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', timeZone: ZONE });
+const ZONED = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short', timeZone: ZONE });
+const DAY = new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: ZONE });
+const LONG_DAY = new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: ZONE });
+const NUMBER = new Intl.NumberFormat('en-US');
+/** The states that answered with papers a cell can count, as the app counts them. */
+const COUNTED = new Set(['answered', 'answered_empty', 'answered_in_part']);
+/** The line drawn through a row behind its marks: a run of answers, of failures, of gaps in what could be asked. */
+const TRACK: Record<string, string> = {
+  answered: 'kept', answered_empty: 'kept', answered_in_part: 'kept', failed: 'fault', could_not_be_asked: 'gap',
+};
+
+const byId = new Map(record.runs.map((run) => [run.id, run]));
+const runs = wall.runs.map((run, column) => {
+  const own = byId.get(run.execution_id);
+  // The wall's label is the kind and, for a watch, its name after a dash.
+  const name = run.label.split(' — ')[1] ?? null;
+  const sources = own?.repositories?.length ?? 0;
+  const at = new Date(run.started_at);
+  const kind = KIND[run.execution_type] ?? 'Run';
+  return {
+    id: run.execution_id,
+    column,
+    kind,
+    name,
+    query: own?.query ?? null,
+    sources,
+    time: TIME.format(at),
+    at: ZONED.format(at),
+    day: DAY.format(at),
+    // How the reading names the run: "Deep Sweep, “protein structure”" or "Watch, Protein structure".
+    title: name ? `${kind}, ${name}` : own?.query ? `${kind}, “${own.query}”` : kind,
+    returned: own?.result_count ?? null,
+    added: own?.new_result_count ?? null,
+  };
 });
+const days = runs.reduce<{ day: string; span: number }[]>((out, run) => {
+  const last = out[out.length - 1];
+  if (last && last.day === run.day) last.span += 1;
+  else out.push({ day: run.day, span: 1 });
+  return out;
+}, []);
+const largest = largestCount(wall);
+
+function selectionWords(inSelection: boolean | null | undefined): string {
+  if (inSelection === true) return 'Yes';
+  if (inSelection === false) return 'No';
+  return 'Not known: the run’s saved selection cannot be read';
+}
+
+/** What the reading says of one cell; the page's script fills the reading from the same fields. */
+function facts(cell: Wall['sources'][number]['cells'][number]) {
+  const papers = COUNTED.has(cell.state)
+    ? `${cell.result_count === null ? 'Not recorded' : NUMBER.format(cell.result_count)}${
+        cell.state === 'answered_in_part' && cell.result_count !== null ? ', from the part of the window read' : ''}`
+    : null;
+  return { papers, selection: selectionWords(cell.in_selection) };
+}
+
+const rows = wall.sources.map((source, row) => {
+  const last = lastAsked(source, wall.runs);
+  return {
+    row,
+    slug: source.slug,
+    name: source.name,
+    last: last
+      ? { state: last.cell.state, label: last.cell.label, at: ZONED.format(new Date(last.run.started_at)) }
+      : null,
+    cells: source.cells.map((cell, column) => ({
+      ...cell,
+      column,
+      mark: markOf(cell.state),
+      radius: pointRadius(cell.result_count, largest),
+      track: TRACK[cell.state],
+      counted: COUNTED.has(cell.state) && cell.result_count !== null
+        && !(cell.state === 'answered_in_part' && cell.result_count === 0),
+      ...facts(cell),
+    })),
+  };
+});
+
+// The reading the page opens on: the record's first failure, else its first source that could not be asked.
+const first = (state: string) => rows.flatMap((r) => r.cells.filter((c) => c.state === state).map((c) => ({ r, c })))[0];
+const opened = first('failed') ?? first('could_not_be_asked') ?? { r: rows[0], c: rows[0]?.cells[0] };
+const openedRun = opened.c ? runs[opened.c.column] : undefined;
+const recordedOn = LONG_DAY.format(new Date(wall.runs[0]?.started_at ?? Date.UTC(2026, 10, 3)));
+const legend = wall.state_legend.map((entry) => ({ ...entry, mark: markOf(entry.state) }));
 ---
 
-<figure class="record">
+<figure class="record" data-record>
   <blockquote class="verdict">
-    <p>“{record.verdict.headline}”</p>
-    {record.verdict.detail.map((line) => <p class="verdict-detail">{line}</p>)}
+    <p>“{wall.verdict.headline}”</p>
+    {wall.verdict.detail.map((line) => <p class="verdict-detail">{line}</p>)}
   </blockquote>
 
-  <div class="grid-wrap">
-    <table class="grid">
-      <caption class="visually-hidden">
-        What each of {rows.length} sources did on each of {runs.length} runs, recorded {recordedOn}
-      </caption>
-      <thead>
-        <tr>
-          <th scope="col" class="source-head">Source</th>
-          {runs.map((run) => (
-            <th scope="col" class="run-head mono">
-              <span class="visually-hidden">Run </span>{run.id}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
+  <div class="wall-wrap">
+    <div class="wall-scroll" tabindex="-1">
+      <table class="wall">
+        <caption class="visually-hidden">
+          What each of {rows.length} sources did on each of {runs.length} runs, recorded {recordedOn}. Choose a mark
+          to read it.
+        </caption>
+        <thead>
           <tr>
-            <th scope="row" class="source">{row.name}</th>
-            {row.cells.map((cell, col) => (
-              <td class="cell" style={`--col: ${col}`}>
-                <span class:list={['state', `state-${cell.state}`]} aria-hidden="true" />
-                <span class="visually-hidden">{cell.label}</span>
-                {cell.state === 'answered' && typeof cell.count === 'number' && (
-                  <span class="count mono">{cell.count}</span>
-                )}
-                {cell.note && <sup class="mono">{cell.note}</sup>}
-              </td>
+            <th scope="col" rowspan="2" class="corner">Source</th>
+            {days.map((d) => <th scope="colgroup" colspan={d.span} class="day">{d.day}</th>)}
+            <th scope="col" rowspan="2" class="last-head">When last asked</th>
+          </tr>
+          <tr>
+            {runs.map((run) => (
+              <th scope="col" class="run-head" data-run={run.column} title={`${run.title}, ${run.at}`}>
+                <span class="visually-hidden">Run </span><span class="run-n">{run.id}</span>
+                <span class="run-time">{run.time}</span>
+              </th>
             ))}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr data-row={row.row}>
+              <th scope="row" class="source">{row.name}</th>
+              {row.cells.map((cell) => (
+                <td class="cell" data-state={cell.state} data-track={cell.track} data-column={cell.column}
+                  data-picked={opened.c?.column === cell.column ? 'column' : undefined}>
+                  <button
+                    type="button"
+                    data-cell={`${row.row}-${cell.column}`}
+                    data-source={row.name}
+                    data-label={cell.label}
+                    data-note={cell.note}
+                    data-papers={cell.papers ?? undefined}
+                    data-selection={cell.selection}
+                    aria-pressed={opened.r === row && opened.c?.column === cell.column ? 'true' : 'false'}
+                    tabindex={opened.r === row && opened.c?.column === cell.column ? '0' : '-1'}
+                    aria-label={`${row.name}, ${runs[cell.column]?.title ?? 'a run'}, ${runs[cell.column]?.at ?? ''}: ${cell.label}`}
+                    title={`${cell.label}. ${cell.note}`}
+                  >
+                    <svg class="mark" data-mark={cell.mark} width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                      {cell.mark === 'point' && <circle cx="8" cy="8" r={cell.radius} />}
+                      {cell.mark === 'ring' && <circle class="line" cx="8" cy="8" r="4" stroke-width="1.4" />}
+                      {cell.mark === 'half' && (
+                        <><circle class="line" cx="8" cy="8" r="4.5" stroke-width="1.4" /><path d="M8 3.5a4.5 4.5 0 0 1 0 9z" /></>
+                      )}
+                      {cell.mark === 'struck' && (
+                        <><circle class="line" cx="8" cy="8" r="5" stroke-width="1.5" /><path class="line" d="M4.5 11.5 11.5 4.5" stroke-width="1.5" /></>
+                      )}
+                      {cell.mark === 'dotted' && <circle class="line" cx="8" cy="8" r="4.5" stroke-width="1.6" stroke-dasharray="1.7 1.8" />}
+                      {(cell.mark === 'dash' || cell.mark === 'blank') && <path class="line" d="M5 8h6" stroke-width="1.5" />}
+                      {cell.mark === 'dot' && <circle cx="8" cy="8" r="1.5" />}
+                      {cell.mark === 'unknown' && <rect class="line" x="4.5" y="4.5" width="7" height="7" stroke-width="1.3" />}
+                    </svg>
+                    {cell.counted && <span class="count">{NUMBER.format(cell.result_count ?? 0)}</span>}
+                  </button>
+                </td>
+              ))}
+              <td class="last" data-state={row.last?.state}>
+                {row.last ? <><b>{row.last.label}</b><small>{row.last.at}</small></> : <small>No answer recorded in these runs</small>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+    <p class="wall-more" data-wall-more hidden>
+      Scroll the grid sideways for the later runs, and for when each source was last asked.
+    </p>
 
-    <ol class="runs">
-      {runs.map((run) => (
-        <li>
-          <span class="mono run-n">{run.id}</span>
-          <span>
-            <strong>{run.label}</strong>, “{run.query}”, {run.sources} {run.sources === 1 ? 'source' : 'sources'}
-            <span class="mono run-facts">{utc(run.started_at)} · {run.returned} returned · {run.new} new</span>
-          </span>
-        </li>
-      ))}
-    </ol>
+    <div class="wall-side">
+      {opened.c && openedRun && (
+        <section class="reading" data-reading data-state={opened.c.state} aria-live="polite" aria-labelledby="reading-head">
+          <h3 id="reading-head" class="reading-head">
+            <span data-part="source">{opened.r?.name}</span> · <span data-part="run">{openedRun.title}</span> ·
+            <span data-part="at">{openedRun.at}</span>
+          </h3>
+          <p class="reading-label"><span data-part="mark" aria-hidden="true"></span><span data-part="label">{opened.c.label}</span></p>
+          <p class="reading-note" data-part="note">{opened.c.note}</p>
+          <dl class="reading-facts">
+            <div data-part="papers-row" hidden={!opened.c.papers}><dt>Papers</dt><dd data-part="papers">{opened.c.papers}</dd></div>
+            <div><dt>In this run’s selection</dt><dd data-part="selection">{opened.c.selection}</dd></div>
+          </dl>
+          <p class="reading-hint" data-part="hint" hidden>Choose any mark in the grid to read it; the arrow keys move between them.</p>
+        </section>
+      )}
+
+      <ol class="runs">
+        {runs.map((run) => (
+          <li data-run={run.column} data-picked={openedRun?.column === run.column ? 'true' : undefined}>
+            <span class="run-n">{run.id}</span>
+            <span>
+              <strong>{run.kind}</strong>{run.name ? <>, <span class="name">{run.name}</span></> : run.query && <>, “{run.query}”</>}{`, ${run.sources} ${run.sources === 1 ? 'source' : 'sources'}`}
+              <span class="run-facts">
+                {run.at}
+                {run.returned !== null && ` · ${NUMBER.format(run.returned)} returned`}
+                {run.added !== null && ` · ${NUMBER.format(run.added)} new`}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
   </div>
 
-  <ul class="legend">
-    {record.legend.map((entry) => (
-      <li>
-        <span class:list={['state', `state-${entry.state}`]} aria-hidden="true" />
+  <ul class="legend" aria-label="What each mark means">
+    {legend.map((entry) => (
+      <li data-state={entry.state}>
+        <svg class="mark" data-mark={entry.mark} width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+          {entry.mark === 'point' && <circle cx="8" cy="8" r="4" />}
+          {entry.mark === 'ring' && <circle class="line" cx="8" cy="8" r="4" stroke-width="1.4" />}
+          {entry.mark === 'half' && (
+            <><circle class="line" cx="8" cy="8" r="4.5" stroke-width="1.4" /><path d="M8 3.5a4.5 4.5 0 0 1 0 9z" /></>
+          )}
+          {entry.mark === 'struck' && (
+            <><circle class="line" cx="8" cy="8" r="5" stroke-width="1.5" /><path class="line" d="M4.5 11.5 11.5 4.5" stroke-width="1.5" /></>
+          )}
+          {entry.mark === 'dotted' && <circle class="line" cx="8" cy="8" r="4.5" stroke-width="1.6" stroke-dasharray="1.7 1.8" />}
+          {(entry.mark === 'dash' || entry.mark === 'blank') && <path class="line" d="M5 8h6" stroke-width="1.5" />}
+          {entry.mark === 'dot' && <circle cx="8" cy="8" r="1.5" />}
+          {entry.mark === 'unknown' && <rect class="line" x="4.5" y="4.5" width="7" height="7" stroke-width="1.3" />}
+        </svg>
         <span><strong>{entry.label}</strong> {entry.meaning}</span>
       </li>
     ))}
   </ul>
 
   <figcaption>
-    {footnotes.map((f) => (
-      <p class="footnote"><span class="mono">{f.n}</span> {f.text}</p>
-    ))}
     <p class="provenance">{record.provenance}</p>
   </figcaption>
 </figure>
+
+<script>
+  /*
+   * Choosing a mark: the cell is pressed, its row and column are marked, and
+   * the reading beside the grid is filled from the cell's own fields. One
+   * cell at a time takes Tab; the arrow keys move between them, as in a grid.
+   */
+  for (const record of document.querySelectorAll<HTMLElement>('[data-record]')) {
+    const reading = record.querySelector<HTMLElement>('[data-reading]');
+    const part = (name: string) => reading?.querySelector<HTMLElement>(`[data-part="${name}"]`);
+    const cells = [...record.querySelectorAll<HTMLButtonElement>('[data-cell]')];
+    const at = (row: number, column: number) => record.querySelector<HTMLButtonElement>(`[data-cell="${row}-${column}"]`);
+    const runs = [...record.querySelectorAll<HTMLElement>('.runs [data-run]')];
+    const heads = [...record.querySelectorAll<HTMLElement>('.run-head[data-run]')];
+    const columns = heads.length;
+    const hint = part('hint');
+    if (hint) hint.hidden = false;
+
+    // Where the grid is wider than the page, as on a phone, a line under it says it scrolls.
+    const scroller = record.querySelector<HTMLElement>('.wall-scroll');
+    const more = record.querySelector<HTMLElement>('[data-wall-more]');
+    if (scroller && more) {
+      const check = () => { more.hidden = scroller.scrollWidth <= scroller.clientWidth + 1; };
+      check();
+      new ResizeObserver(check).observe(scroller);
+    }
+
+    const mark = (button: HTMLButtonElement) => {
+      const svg = button.querySelector('svg')?.cloneNode(true);
+      const slot = part('mark');
+      if (slot) slot.replaceChildren(...(svg ? [svg] : []));
+    };
+    const first = cells.find((cell) => cell.getAttribute('aria-pressed') === 'true');
+    if (first) mark(first);
+
+    const pick = (button: HTMLButtonElement) => {
+      const column = Number((button.dataset.cell ?? '0-0').split('-')[1]);
+      for (const cell of cells) {
+        const on = cell === button;
+        cell.setAttribute('aria-pressed', String(on));
+        cell.tabIndex = on ? 0 : -1;
+      }
+      for (const td of record.querySelectorAll<HTMLElement>('td.cell')) {
+        if (Number(td.dataset.column) === column) td.dataset.picked = 'column';
+        else delete td.dataset.picked;
+      }
+      for (const li of runs) {
+        if (Number(li.dataset.run) === column) li.dataset.picked = 'true';
+        else delete li.dataset.picked;
+      }
+      if (!reading) return;
+      reading.dataset.state = button.closest('td')?.dataset.state ?? '';
+      const head = heads[column];
+      const [title, when] = (head?.title ?? '').split(/, (?=[^,]*$)/);
+      const set = (name: string, text: string) => { const el = part(name); if (el) el.textContent = text; };
+      set('source', button.dataset.source ?? '');
+      set('run', title ?? '');
+      set('at', when ?? '');
+      set('label', button.dataset.label ?? '');
+      set('note', button.dataset.note ?? '');
+      set('papers', button.dataset.papers ?? '');
+      set('selection', button.dataset.selection ?? '');
+      const papersRow = part('papers-row');
+      if (papersRow) papersRow.hidden = !button.dataset.papers;
+      mark(button);
+    };
+
+    for (const cell of cells) {
+      cell.addEventListener('click', () => pick(cell));
+      cell.addEventListener('keydown', (event) => {
+        const [row = 0, column = 0] = (cell.dataset.cell ?? '0-0').split('-').map(Number);
+        const step: Record<string, [number, number]> = {
+          ArrowLeft: [0, -1], ArrowRight: [0, 1], ArrowUp: [-1, 0], ArrowDown: [1, 0],
+        };
+        const move = step[event.key];
+        if (!move) return;
+        const next = at(row + move[0], Math.max(0, Math.min(columns - 1, column + move[1])));
+        if (!next) return;
+        event.preventDefault();
+        pick(next);
+        next.focus();
+      });
+    }
+
+    // Pointing at a run, in the list or its heading, marks its column.
+    const hot = (column: number | null) => {
+      for (const td of record.querySelectorAll<HTMLElement>('td.cell')) {
+        if (column !== null && Number(td.dataset.column) === column) td.dataset.hot = 'true';
+        else delete td.dataset.hot;
+      }
+      for (const el of [...runs, ...heads]) {
+        if (column !== null && Number(el.dataset.run) === column) el.dataset.hot = 'true';
+        else delete el.dataset.hot;
+      }
+    };
+    for (const el of [...runs, ...heads]) {
+      el.addEventListener('pointerenter', () => hot(Number(el.dataset.run)));
+      el.addEventListener('pointerleave', () => hot(null));
+    }
+  }
+</script>
 
 <style>
   .record {
@@ -137,34 +391,112 @@ const recordedOn = new Date(`${record.recorded_on}T12:00:00Z`).toLocaleDateStrin
     color: var(--color-text-muted);
   }
 
-  .grid-wrap {
+  /* The grid, and beside it the reading and the runs; side by side where both fit, the side under the grid where not. */
+  .wall-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: var(--space-6) var(--space-7);
+  }
+
+  /* Positioned, so the visually hidden words in its headings are clipped with the grid on a narrow screen. */
+  .wall-scroll {
+    position: relative;
+    flex: 0 1 auto;
+    max-width: 100%;
+    overflow-x: auto;
+    outline: none;
+  }
+
+  .wall-more {
+    flex-basis: 100%;
+    margin: calc(-1 * var(--space-4)) 0 0;
+    color: var(--color-text-muted);
+    font-size: var(--text-xs);
+  }
+
+  .wall-more[hidden] {
+    display: none;
+  }
+
+  .wall-side {
+    flex: 1 1 var(--wall-side-min);
+    max-width: var(--wall-side-max);
     display: grid;
     gap: var(--space-5);
   }
 
-  .grid {
+  .wall {
     border-collapse: collapse;
     font-size: var(--text-sm);
   }
 
-  .grid th,
-  .grid td {
+  .wall th,
+  .wall td {
     padding: 0;
     border-bottom: var(--border-width) solid var(--color-border);
   }
 
-  .source-head,
+  .corner,
+  .last-head,
+  .day,
   .run-head {
-    padding-bottom: var(--space-2) !important;
-    border-bottom: var(--border-width-heavy) solid var(--color-rule-heavy) !important;
     font-size: var(--text-xs);
     font-weight: var(--weight-bold);
     text-align: start;
+    vertical-align: bottom;
+  }
+
+  .corner,
+  .last-head,
+  .run-head {
+    padding-bottom: var(--space-2) !important;
+    border-bottom: var(--border-width-heavy) solid var(--color-rule-heavy) !important;
+  }
+
+  .day {
+    padding-bottom: var(--space-1) !important;
+    color: var(--color-text-muted);
+    font-weight: var(--weight-medium);
+    text-align: center;
+    border-bottom: 0 !important;
+  }
+
+  .last-head {
+    padding-inline-start: var(--space-4) !important;
   }
 
   .run-head {
-    width: var(--mark-cell);
+    width: var(--wall-cell);
+    min-width: var(--wall-cell);
     text-align: center;
+    transition: color var(--duration-fast) var(--ease);
+  }
+
+  .run-head .run-n {
+    display: block;
+  }
+
+  .run-time {
+    display: block;
+    margin-top: var(--space-1);
+    color: var(--color-text-faint);
+    font-weight: var(--weight-normal);
+    font-size: var(--text-2xs);
+    white-space: nowrap;
+  }
+
+  .run-head[data-hot] .run-n {
+    color: var(--color-accent-text);
+  }
+
+  /* The names stay in view while the grid scrolls under them. */
+  .corner,
+  .source {
+    position: sticky;
+    inset-inline-start: 0;
+    z-index: 1;
+    background: var(--color-canvas);
   }
 
   .source {
@@ -172,73 +504,205 @@ const recordedOn = new Date(`${record.recorded_on}T12:00:00Z`).toLocaleDateStrin
     font-weight: var(--weight-bold);
     text-align: start;
     white-space: nowrap;
-    height: var(--mark-cell);
+    height: var(--wall-row);
   }
 
   .cell {
     position: relative;
-    width: var(--mark-cell);
+    z-index: 0;
+    width: var(--wall-cell);
     text-align: center;
     vertical-align: middle;
   }
 
-  .count {
-    display: block;
-    font-size: var(--text-2xs);
-    line-height: 1;
-    color: var(--color-text-faint);
-    margin-top: var(--space-1);
+  /* The line through a row, behind its marks: a run of answers, of failures (dashed), of gaps (dotted). */
+  .cell[data-track]::before {
+    content: '';
+    position: absolute;
+    z-index: -1;
+    inset-inline: 0;
+    top: 50%;
+    border-top: var(--border-width) solid var(--color-border-strong);
   }
 
-  sup {
-    position: absolute;
-    top: var(--space-1);
-    inset-inline-end: var(--space-1);
+  .cell[data-track='fault']::before {
+    border-top-style: dashed;
+    border-top-color: var(--color-fault);
+  }
+
+  .cell[data-track='gap']::before {
+    border-top-style: dotted;
+    border-top-color: var(--color-text-faint);
+  }
+
+  .cell[data-picked],
+  .cell[data-hot] {
+    background: var(--color-accent-surface);
+  }
+
+  .cell button {
+    position: relative;
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: var(--space-1);
+    width: 100%;
+    height: var(--wall-row);
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--color-text);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .cell button:hover {
+    background: var(--color-surface);
+  }
+
+  .cell button[aria-pressed='true'] {
+    box-shadow: inset 0 0 0 var(--border-width-heavy) var(--color-accent-mark);
+  }
+
+  .cell button:focus-visible {
+    outline: var(--border-width-heavy) solid var(--color-focus);
+    outline-offset: calc(-1 * var(--border-width-heavy));
+  }
+
+  .count {
     font-size: var(--text-2xs);
+    line-height: 1;
+    color: var(--color-text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .last {
+    padding-inline: var(--space-4) 0 !important;
+    font-size: var(--text-xs);
+    white-space: nowrap;
+  }
+
+  .last b {
+    display: block;
     font-weight: var(--weight-semibold);
   }
 
-  /* ---- The marks ------------------------------------------------------- */
-
-  .state {
-    display: inline-block;
-    width: var(--mark-size);
-    height: var(--mark-size);
-    vertical-align: middle;
+  .last[data-state='failed'] b {
+    color: var(--color-fault);
   }
 
-  .state-answered {
-    border-radius: 50%;
-    background: var(--color-mark-ink);
+  .last small {
+    color: var(--color-text-faint);
+    font-size: var(--text-2xs);
   }
 
-  .state-answered_empty {
-    border-radius: 50%;
-    border: var(--mark-stroke) solid var(--color-mark-ink);
+  /* ---- The marks: the app's, by shape ----------------------------------- */
+
+  .mark {
+    display: block;
+    flex: none;
+    fill: currentColor;
+    color: var(--color-text);
   }
 
-  .state-could_not_be_asked {
-    border: var(--border-width) solid var(--color-mark-ink);
-    background: var(--mark-hatch);
+  .mark .line {
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
   }
 
-  .state-failed {
-    background: var(--mark-cross);
+  .mark[data-mark='ring'] {
+    color: var(--color-text-muted);
   }
 
-  .state-not_recorded {
-    width: calc(var(--mark-size) / 3);
-    height: calc(var(--mark-size) / 3);
-    border-radius: 50%;
-    background: var(--color-mark-ink);
+  .mark[data-mark='struck'] {
+    color: var(--color-fault);
   }
 
-  .state-not_selected {
-    height: var(--border-width-heavy);
-    background: var(--color-mark-quiet);
+  .mark[data-mark='dotted'],
+  .mark[data-mark='dot'],
+  .mark[data-mark='unknown'] {
+    color: var(--color-text-faint);
   }
 
-  /* ---- Run key, legend, notes ------------------------------------------ */
+  .mark[data-mark='dash'],
+  .mark[data-mark='blank'] {
+    color: var(--color-mark-quiet);
+  }
+
+  /* ---- The reading: one cell, as the app reads it ------------------------ */
+
+  .reading {
+    padding: var(--space-4);
+    border: var(--border-width) solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+  }
+
+  .reading-head {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    line-height: var(--leading-snug);
+  }
+
+  .reading-label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin: var(--space-2) 0 0;
+    font-weight: var(--weight-semibold);
+  }
+
+  .reading[data-state='failed'] .reading-label {
+    color: var(--color-fault);
+  }
+
+  .reading-note {
+    margin: var(--space-1) 0 0;
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+    line-height: var(--leading-snug);
+  }
+
+  .reading-facts {
+    display: grid;
+    gap: var(--space-1);
+    margin: var(--space-3) 0 0;
+    padding-top: var(--space-3);
+    border-top: var(--border-width) solid var(--color-border);
+    font-size: var(--text-xs);
+  }
+
+  .reading-facts > div {
+    display: grid;
+    grid-template-columns: var(--reading-key) minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+
+  .reading-facts > div[hidden] {
+    display: none;
+  }
+
+  .reading-facts dt {
+    color: var(--color-text-faint);
+  }
+
+  .reading-facts dd {
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .reading-hint {
+    margin: var(--space-3) 0 0;
+    color: var(--color-text-faint);
+    font-size: var(--text-xs);
+  }
+
+  /* ---- The runs, the legend, where it came from -------------------------- */
 
   .runs {
     list-style: none;
@@ -250,16 +714,37 @@ const recordedOn = new Date(`${record.recorded_on}T12:00:00Z`).toLocaleDateStrin
   .runs li {
     display: grid;
     grid-template-columns: var(--space-6) 1fr;
-    padding-block: var(--space-2);
+    padding: var(--space-2) var(--space-2) var(--space-2) 0;
     border-bottom: var(--border-width) solid var(--color-border);
+    transition: background-color var(--duration-fast) var(--ease);
   }
 
   .runs li + li {
     margin-top: 0;
   }
 
+  .runs li[data-hot],
+  .runs li[data-picked] {
+    background: var(--color-accent-surface);
+  }
+
+  .runs li[data-picked] .run-n {
+    color: var(--color-accent-text);
+  }
+
+  .run-n,
+  .count {
+    font-variant-numeric: tabular-nums;
+  }
+
   .run-n {
+    padding-inline-start: var(--space-1);
     font-weight: var(--weight-semibold);
+  }
+
+  .name {
+    font-family: var(--font-serif);
+    font-style: italic;
   }
 
   .run-facts {
@@ -281,15 +766,18 @@ const recordedOn = new Date(`${record.recorded_on}T12:00:00Z`).toLocaleDateStrin
   .legend li {
     display: grid;
     grid-template-columns: var(--space-5) 1fr;
-    align-items: baseline;
+    align-items: start;
     margin: 0;
+  }
+
+  .legend .mark {
+    margin-top: var(--mark-nudge);
   }
 
   .legend strong {
     color: var(--color-text);
   }
 
-  .footnote,
   .provenance {
     margin: 0 0 var(--space-2);
     font-size: var(--text-xs);
@@ -298,37 +786,8 @@ const recordedOn = new Date(`${record.recorded_on}T12:00:00Z`).toLocaleDateStrin
   }
 
   @media (min-width: 52rem) {
-    .grid-wrap {
-      grid-template-columns: auto 1fr;
-      align-items: start;
-      gap: var(--space-7);
-    }
-
     .legend {
       grid-template-columns: 1fr 1fr;
-    }
-  }
-
-  /* ---- The fill -------------------------------------------------------- */
-
-  @supports (animation-timeline: view()) {
-    @media (prefers-reduced-motion: no-preference) {
-      .cell .state {
-        animation: fill linear both;
-        animation-timeline: view();
-        animation-range: entry calc(var(--col) * 9%) entry calc(var(--col) * 9% + 40%);
-      }
-    }
-  }
-
-  @keyframes fill {
-    from {
-      opacity: 0.12;
-      transform: scale(0.4);
-    }
-    to {
-      opacity: 1;
-      transform: none;
     }
   }
 </style>

@@ -3,6 +3,7 @@ import sys
 import time
 from datetime import date
 from pathlib import Path
+from urllib.parse import unquote
 
 import httpx
 import pytest
@@ -40,12 +41,12 @@ import implementation_scripts.api_nasa_ads       # noqa: F401
 TIER_1_REPOS = [
     "arxiv", "crossref", "semantic_scholar", "openalex", "pubmed",
     "europepmc", "biorxiv", "core", "datacite", "doaj", "dblp", "dryad", "eric",
-    "inspire_hep", "medrxiv", "nasa_ads", "ndl_search", "nist_rmm", "openlibrary", "openaire", "osti", "zenodo",
+    "inspire_hep", "medrxiv", "nasa_ads", "ndl_search", "openlibrary", "openaire", "osti", "zenodo",
 ]
 
 
 def test_all_tier1_registered():
-    """All 22 Tier 1 repositories are registered in the client registry."""
+    """All 21 Tier 1 repositories are registered in the client registry."""
     repos = list_repositories()
     for name in TIER_1_REPOS:
         assert name in repos, f"Missing Tier 1 client: {name}"
@@ -58,6 +59,11 @@ def test_each_client_instantiates():
         assert client.get_name() is not None
 
 
+# NIST RMM was withdrawn in November 2026: its papers API has answered HTTP 500
+# to every search since the source was added (``api_registry.RETIRED_REPOSITORIES``).
+# Its scheduled live case went with it. The fixture contracts below stay, and
+# build ``NistRmmClient`` directly rather than through the registry, because the
+# client is kept on disk for a revival and these are what a revival would rely on.
 def _nist_rmm_record(
     doi="10.18434/mds2-1234",
     *,
@@ -405,17 +411,6 @@ def test_nist_rmm_search_returns_empty_on_upstream_failure(monkeypatch, response
     monkeypatch.setattr(api_nist_rmm, "safe_request", _request)
 
     assert api_nist_rmm.NistRmmClient().search(query="materials") == []
-
-
-@pytest.mark.live_network
-def test_nist_rmm_live_search_degrades_when_the_public_endpoint_is_unavailable():
-    """The real call may return the known 500 outage; either outcome is a list."""
-    results = get_client("nist_rmm").search(query="materials", max_results=1)
-
-    assert isinstance(results, list)
-    if results:
-        assert all(isinstance(result, NormalizedResult) for result in results)
-        assert all(result.source_repository == "nist_rmm" for result in results)
 
 
 class _FakeResponse:
@@ -2347,6 +2342,8 @@ def test_inspire_search_builds_projected_date_query_and_normalizes(monkeypatch):
         publication_date="2024-04-15",
         url="https://inspirehep.net/literature/301",
         categories=["Theory-HEP", "Gravitation and Cosmology"],
+        # The record's ``arxiv_eprints``: its copy at arXiv.
+        identifiers=[("arxiv", "2404.01234")],
     )]
 
 
@@ -2970,7 +2967,9 @@ def test_a_date_clause_is_joined_to_the_whole_query(monkeypatch, slug, clause):
 
     def _request(method, url, **kwargs):
         params = kwargs.get("params") or {}
-        sent.append(params.get("query") or params.get("q") or str(url).rsplit("/", 1)[-1])
+        # DOAJ's query is its path's last segment, percent-encoded so a DOI's
+        # slash stays inside it; what DOAJ reads is the decoded text.
+        sent.append(params.get("query") or params.get("q") or unquote(str(url).rsplit("/", 1)[-1]))
         return _FakeResponse(payload={})
 
     monkeypatch.setattr(module, "safe_request", _request)
@@ -3206,7 +3205,7 @@ def test_openaire_search_respects_date_window():
 # ---------------------------------------------------------------------------
 #
 # INSPIRE's Terms of Use §5(ii) permit reuse of an abstract only where that
-# abstract's own ``source`` is arXiv or CERN. The client honours that at parse
+# abstract's own ``source`` is arXiv or CERN. The client honors that at parse
 # time; these pin it, because the failure mode is silent — a stored abstract we
 # have no license for looks exactly like one we do.
 

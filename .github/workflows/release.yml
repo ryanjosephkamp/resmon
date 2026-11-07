@@ -156,7 +156,7 @@ jobs:
           PY="${{ matrix.runtime }}"
           test -x "$PY"
           "$PY" -c "import sys; print('bundled runtime:', sys.version)"
-          "$PY" -c "import fastapi, uvicorn, lxml, cryptography, tiktoken, nltk, keyring, sqlite3; print('imports OK')"
+          "$PY" -c "import fastapi, uvicorn, lxml, cryptography, tiktoken, keyring, sqlite3; print('imports OK')"
           if [ "${{ runner.os }}" = "macOS" ]; then
             # Anchored: a user-level /Library/Frameworks at the start of the
             # path is a dependency on the build machine; /System/Library/Frameworks
@@ -256,7 +256,7 @@ jobs:
     needs: build
     # A version tag only, and only when every leg above passed: `needs` runs this
     # job when the whole matrix succeeded and skips it when any leg failed or
-    # was cancelled, so a release is never made from some of the files.
+    # was canceled, so a release is never made from some of the files.
     if: github.repository == 'ryanjosephkamp/resmon' && github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 10

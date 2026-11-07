@@ -349,7 +349,7 @@ def test_the_same_request_id_twice_yields_one_execution(client):
 
     Cannot see: whether the *renderer* sends a fresh id per click. That is a
     renderer property and it is asserted in the renderer's own suite; what this
-    establishes is that the backend honours whatever it is sent.
+    establishes is that the backend honors whatever it is sent.
     """
     cases = [
         ("/api/search/sweep", dict(_SWEEP, request_id="11111111-1111-1111-1111-111111111111")),
@@ -377,6 +377,84 @@ def test_the_same_request_id_twice_yields_one_execution(client):
     assert second.json()["duplicate"] is True
     assert second.json()["execution_id"] == first.json()["execution_id"]
     assert conn.execute("SELECT count(*) FROM executions").fetchone()[0] == 3
+
+
+@patch("resmon.SweepEngine.run_prepared", _fast_run_prepared)
+def test_a_runs_ticket_is_in_its_row_the_moment_any_reader_can_see_the_row(client, monkeypatch):
+    """The ticket goes in with the run's own INSERT, for a search and for a restart.
+
+    A window matches its ticket to the run it started by ``request_id``; a run
+    whose row was written first and stamped afterward could be read, between
+    the two, as a run with no ticket.
+    """
+    from implementation_scripts import sweep_engine as sweep_engine_mod
+
+    seen: list[tuple[int, object]] = []
+    real = database.insert_execution
+
+    def watched(conn, exec_dict):
+        exec_id = real(conn, exec_dict)
+        # Committed by now: what any other connection reads.
+        seen.append((exec_id, conn.execute(
+            "SELECT request_id FROM executions WHERE id = ?", (exec_id,)).fetchone()[0]))
+        return exec_id
+
+    monkeypatch.setattr(sweep_engine_mod, "insert_execution", watched)
+    monkeypatch.setattr(resmon_mod, "insert_execution", watched)
+
+    dive = client.post("/api/search/dive", json=dict(_DIVE, request_id="44444444-4444-4444-4444-444444444444"))
+    assert dive.status_code == 200, dive.text
+    # Run again needs the first run ended; it runs on its own thread, so wait for that.
+    conn = resmon_mod._get_db()
+    first = dive.json()["execution_id"]
+    deadline = time.time() + 20
+    while time.time() < deadline and conn.execute(
+            "SELECT status FROM executions WHERE id = ?", (first,)).fetchone()[0] == "running":
+        time.sleep(0.02)
+    assert conn.execute("SELECT status FROM executions WHERE id = ?", (first,)).fetchone()[0] != "running"
+    again = client.post(f"/api/executions/{dive.json()['execution_id']}/restart",
+                        json={"request_id": "55555555-5555-5555-5555-555555555555", "again": True})
+    assert again.status_code == 202, again.text
+
+    assert [ticket for _, ticket in seen] == [
+        "44444444-4444-4444-4444-444444444444", "55555555-5555-5555-5555-555555555555"]
+
+
+@patch("resmon.SweepEngine.run_prepared", _fast_run_prepared)
+def test_a_watch_runs_watch_is_in_its_row_the_moment_any_reader_can_see_the_row(client, monkeypatch):
+    """A watch's run goes in with its watch, so no reader sees a watch run that belongs to no watch."""
+    from implementation_scripts import sweep_engine as sweep_engine_mod
+
+    seen: list[object] = []
+    real = database.insert_execution
+
+    def watched(conn, exec_dict):
+        exec_id = real(conn, exec_dict)
+        seen.append(conn.execute(
+            "SELECT routine_id FROM executions WHERE id = ?", (exec_id,)).fetchone()[0])
+        return exec_id
+
+    monkeypatch.setattr(sweep_engine_mod, "insert_execution", watched)
+    rid = _make_routine()
+    fired = client.post(f"/api/routines/{rid}/run")
+    assert fired.status_code == 200, fired.text
+    _wait_for_claim_release(rid)
+    assert seen == [rid]
+
+
+@patch("resmon.SweepEngine.run_prepared", _fast_run_prepared)
+def test_a_launch_whose_ticket_another_run_holds_answers_with_that_run_and_writes_nothing(client):
+    """The race between the duplicate check and the INSERT: the index refuses the second row."""
+    conn = resmon_mod._get_db()
+    held = database.insert_execution(conn, {
+        "execution_type": "deep_dive", "parameters": "{}", "start_time": "2026-11-06T00:00:00Z",
+        "request_id": "66666666-6666-6666-6666-666666666666"})
+    before = conn.execute("SELECT count(*) FROM executions").fetchone()[0]
+    launch = resmon_mod._launch_search(
+        "deep_dive", ["arxiv"], {"query": "lattice"}, ai_enabled=False, ai_settings=None,
+        ephemeral_credentials=None, saved_configuration_id=None)
+    assert launch(None, "66666666-6666-6666-6666-666666666666") == held
+    assert conn.execute("SELECT count(*) FROM executions").fetchone()[0] == before
 
 
 @patch("resmon.SweepEngine.run_prepared", _fast_run_prepared)
@@ -741,7 +819,7 @@ def test_the_19_to_20_step_is_additive_and_keeps_every_row(tmp_path):
 
         database.init_db(conn=conn)
 
-        assert database.get_schema_version(conn) == 24
+        assert database.get_schema_version(conn) == 27
         after = [tuple(r) for r in conn.execute(
             "SELECT id, execution_type, parameters, start_time, status FROM executions "
             "ORDER BY id")]

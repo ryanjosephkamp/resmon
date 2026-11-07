@@ -1,10 +1,9 @@
 # The webhook receiver contract
 
-resmon can deliver a routine's report to an HTTPS endpoint you own. This page is
-what you need to write the thing on the other end. It documents behaviour that
-shipped with schema 21's second delivery PR; the channel itself, and the record
-behind it, are described in the README's *Delivery: where a report goes, and
-whether it got there*.
+resmon can deliver a watch's report to an HTTPS endpoint you own. This page is
+what you need to write the thing on the other end. It documents the webhook
+channel's behavior; the channel itself, and the record behind it, are described
+in the guide.
 
 resmon is a desktop application on your machine. It makes an outbound POST and
 opens nothing to the network; a receiver on the same machine is the ordinary
@@ -21,7 +20,7 @@ One `POST` per delivered run, with `Content-Type: application/json`, a
 | `X-Resmon-Delivery` | the delivery's id in this corpus, stable across retries |
 | `X-Resmon-Signature` | `sha256=<hex>` — HMAC-SHA256 of the **exact request body**, keyed with this destination's shared secret |
 
-The body:
+The body (the API calls a watch a routine, so the key is `routine`):
 
 ```json
 {
@@ -51,7 +50,7 @@ setting when you have set one, and from `http://127.0.0.1:<the port resmon is
 serving on>` when you have not. `search_record_url` needs resmon's local API
 token; `bundle_url` does not, and is the only route in resmon that does not.
 
-When the destination has *Send the bundle inside the envelope* ticked, the
+When the destination is set to put the report's files inside the envelope, the
 envelope carries `bundle_base64`, `bundle_sha256` and `bundle_bytes` instead of
 `bundle_url` and `bundle_expires_at`, both of which are then `null`.
 
@@ -73,8 +72,8 @@ if not hmac.compare_digest(expected, request.headers.get("X-Resmon-Signature", "
     return 401
 ```
 
-The secret is yours and resmon's. You set it on the destination in the routine's
-Delivery list; resmon puts it in the operating system's keyring under
+The secret is yours and resmon's. You set it on the destination in the watch's
+Delivery tab; resmon puts it in the operating system's keyring under
 `webhook_secret_<destination id>` and never writes it to a database, a settings
 file or a log. A destination with no secret saved is never sent to: resmon signs
 every envelope and has no unsigned fallback.
@@ -82,7 +81,7 @@ every envelope and has no unsigned fallback.
 ## Fetching the bundle
 
 `GET` the `bundle_url` exactly as given. It answers `application/zip` — the same
-export bundle the app's Results screen produces, with the report, the log, the
+export bundle the app produces for a run, with the report, the log, the
 metadata, the LaTeX/PDF bundle and the search-record companions.
 
 The link is signed for one delivery and expires 24 hours after the envelope was
@@ -101,7 +100,7 @@ the zip and compare it to that.
 Answer `2xx` once you have taken responsibility for the envelope. Anything else,
 and any answer that takes longer than **20 seconds**, is a failure: resmon
 records it, waits 1 minute, then 5, then 25, and stops after three attempts with
-the reason on the row, where the user sees it under *Where did this go?*. Press
+the reason on the row, where the user sees it in the watch's Delivery tab. Press
 Retry there and the attempt counter starts again.
 
 Work implied by the envelope — fetching the bundle, rendering something, sending
@@ -111,7 +110,7 @@ inside the request can be sent the same run twice.
 
 `X-Resmon-Delivery` is the idempotency key. It is the same across all three
 attempts at one delivery and unique per (run, destination), so a receiver that
-records it can recognise a repeat.
+records it can recognize a repeat.
 
 ## What resmon records, and what it does not
 

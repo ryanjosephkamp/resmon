@@ -53,14 +53,14 @@ test('P3: an external link opens in-app, titled with its URL, and never reaches 
   const interception = await app.evaluateHandle(({ session }, target) => {
     const facts = {
       installed: false,
-      cancelled: [] as string[],
+      canceled: [] as string[],
       errors: [] as { url: string; error: string }[],
     };
     session.defaultSession.webRequest.onErrorOccurred({ urls: [target] }, (details) => {
       facts.errors.push({ url: details.url, error: details.error });
     });
     session.defaultSession.webRequest.onBeforeRequest({ urls: [target] }, (details, callback) => {
-      facts.cancelled.push(details.url);
+      facts.canceled.push(details.url);
       callback({ cancel: true });
     });
     facts.installed = true;
@@ -68,13 +68,13 @@ test('P3: an external link opens in-app, titled with its URL, and never reaches 
   }, href!);
   const before = app.windows().length;
   try {
-    expect(await interception.jsonValue()).toEqual({ installed: true, cancelled: [], errors: [] });
+    expect(await interception.jsonValue()).toEqual({ installed: true, canceled: [], errors: [] });
     await link.click();
-    await expect.poll(() => interception.evaluate((facts) => facts.cancelled)).toEqual([href]);
+    await expect.poll(() => interception.evaluate((facts) => facts.canceled)).toEqual([href]);
     await expect.poll(() => interception.evaluate((facts) => facts.errors)).toEqual([
       { url: href, error: 'net::ERR_BLOCKED_BY_CLIENT' },
     ]);
-    console.log('ATTRIBUTION CANCELLED BEFORE TRANSPORT', JSON.stringify(await interception.jsonValue()));
+    console.log('ATTRIBUTION CANCELED BEFORE TRANSPORT', JSON.stringify(await interception.jsonValue()));
 
     // `setWindowOpenHandler` runs in the main process, so the new window is an
     // Electron fact rather than a DOM one.
@@ -93,7 +93,7 @@ test('P3: an external link opens in-app, titled with its URL, and never reaches 
     expect(opened).toBeTruthy();
 
     // The title bar carries the address. That is the whole reason this window
-    // exists rather than a plain popup: a licence page that sets its own title
+    // exists rather than a plain popup: a license page that sets its own title
     // would otherwise hide where you are, and `page-title-updated` is prevented
     // in `openLinkWindow` for exactly that reason.
     expect((opened as { title: string }).title).toBe(href);
@@ -140,7 +140,7 @@ test('P3b: the main-process OS-facing surface is still the five that are guarded
   );
   console.log('P3b OS-FACING CALLS IN main.ts and downloads.ts', JSON.stringify([...calls].sort()));
   expect([...calls].sort()).toEqual([
-    'openExternal', 'openPath', 'showItemInFolder', 'showMessageBox', 'showOpenDialog',
+    'openExternal', 'openPath', 'showItemInFolder', 'showMessageBox', 'showOpenDialog', 'trashItem',
   ]);
 });
 

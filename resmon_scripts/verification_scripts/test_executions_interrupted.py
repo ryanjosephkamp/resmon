@@ -160,7 +160,7 @@ def test_the_18_to_19_step_keeps_every_row_link_and_sequence(tmp_path):
 def test_the_old_daemon_restart_rows_history_is_not_rewritten(tmp_path):
     """`failed` + `cancel_reason='daemon_restart'` is what happened, and stays.
 
-    Relabelling those rows `interrupted` now would be inventing an observation
+    Relabeling those rows `interrupted` now would be inventing an observation
     after the fact, which is the same mistake as the overclaim the new status
     exists to end -- only pointing backwards.
     """
@@ -280,7 +280,7 @@ def test_a_running_row_whose_owner_is_gone_becomes_interrupted(db_conn):
 
     live = db.get_execution_by_id(db_conn, mine)
     assert live["status"] == "running", (
-        "a row whose owning process is alive was relabelled; that is the "
+        "a row whose owning process is alive was relabeled; that is the "
         "overclaim this whole change exists to avoid")
     assert counts["interrupted"] == 1 and counts["left_running"] == 1
 
@@ -416,27 +416,75 @@ def test_restart_refuses_a_live_or_finished_run_and_names_the_state(client, stat
 
 
 def test_restart_goes_through_the_manual_admission_cap(client, monkeypatch):
-    """A restart cannot get resmon past the cap a manual run respects."""
-    monkeypatch.setattr(resmon_mod.admission, "try_admit", lambda **kw: False)
+    """A restart cannot get resmon past the cap a manual run respects: at it, it is refused only when the queue is full."""
+    monkeypatch.setattr(resmon_mod.admission, "admit_manual", lambda *a, **kw: "full")
     source = _row(client, "interrupted")
     resp = client.post(f"/api/executions/{source}/restart")
     assert resp.status_code == 429
+    assert resp.headers.get("x-resmon-conflict") == "admission_queue_full"
     assert resmon_mod._get_db().execute(
         "SELECT COUNT(*) FROM executions WHERE restarted_from = ?", (source,)).fetchone()[0] == 0
 
 
-def test_cancelling_an_interrupted_row_answers_with_its_state(client):
-    source = _row(client, "interrupted")
+def test_a_restart_at_the_cap_waits_and_its_row_is_written_when_it_starts(client, monkeypatch):
+    """Queued, the restart has no run yet; its row is written, and carries its ticket, when its turn comes."""
+    monkeypatch.setattr(resmon_mod.SweepEngine, "run_prepared", lambda self, exec_id: None)
+    admission = resmon_mod.admission
+    admission.set_max(1)
+    admission.note_admitted(987_654)
+    try:
+        source = _row(client, "failed")
+        resp = client.post(f"/api/executions/{source}/restart", json={"request_id": "again-1"})
+        assert resp.status_code == 202, resp.text
+        body = resp.json()
+        assert list(body) == ["execution_id", "restarted_from", "ai_enabled", "queued", "queue_position", "ticket", "detail"]
+        assert body["execution_id"] is None and body["restarted_from"] == source
+        assert body["queued"] is True and body["ticket"] == "again-1"
+        conn = resmon_mod._get_db()
+        count = lambda: conn.execute(  # noqa: E731
+            "SELECT COUNT(*) FROM executions WHERE restarted_from = ?", (source,)).fetchone()[0]
+        assert count() == 0, "a waiting restart wrote a run that is not running"
+        admission.note_finished(987_654)
+        deadline = time.time() + 5
+        while count() == 0 and time.time() < deadline:
+            time.sleep(0.02)
+        row = conn.execute("SELECT * FROM executions WHERE restarted_from = ?", (source,)).fetchone()
+        assert row is not None and row["request_id"] == "again-1"
+    finally:
+        admission.set_max(3)
+
+
+def test_run_again_repeats_a_completed_run_only_when_asked_to(client, monkeypatch):
+    """Run again is restart for a run that finished: its search once more, linked back to it."""
+    monkeypatch.setattr(resmon_mod.SweepEngine, "run_prepared", lambda self, exec_id: None)
+    source = _row(client, "completed")
+    assert client.post(f"/api/executions/{source}/restart").status_code == 409
+    resp = client.post(f"/api/executions/{source}/restart", json={"again": True})
+    assert resp.status_code == 202, resp.text
+    new_id = resp.json()["execution_id"]
+    conn = resmon_mod._get_db()
+    new_row = conn.execute("SELECT * FROM executions WHERE id = ?", (new_id,)).fetchone()
+    old_row = conn.execute("SELECT * FROM executions WHERE id = ?", (source,)).fetchone()
+    assert new_row["parameters"] == old_row["parameters"] and new_row["restarted_from"] == source
+    running = _row(client, "running")
+    refused = client.post(f"/api/executions/{running}/restart", json={"again": True})
+    assert refused.status_code == 409
+    assert refused.json()["detail"] == f"Execution {running} is running; only a run that has ended can be run again."
+
+
+@pytest.mark.parametrize("status,word", [("interrupted", "interrupted"), ("cancelled", "canceled")])
+def test_canceling_an_ended_row_answers_with_its_state(client, status, word):
+    source = _row(client, status)
     resp = client.post(f"/api/executions/{source}/cancel")
     assert resp.status_code == 409
     detail = resp.json()["detail"]
     assert isinstance(detail, str), "detail is rendered straight into the DOM"
-    assert "interrupted" in detail and str(source) in detail
+    assert detail.startswith(f"Execution {source} is {word};")
     # Anything that needs the state structurally reads it off the row.
-    assert client.get(f"/api/executions/{source}").json()["status"] == "interrupted"
+    assert client.get(f"/api/executions/{source}").json()["status"] == status
 
 
-def test_cancelling_an_id_that_never_existed_still_answers_409(client):
+def test_canceling_an_id_that_never_existed_still_answers_409(client):
     """The shipped contract, kept: 409, and a sentence that says why."""
     resp = client.post("/api/executions/99999/cancel")
     assert resp.status_code == 409
@@ -480,10 +528,42 @@ def test_restart_reproduces_the_ai_choice_the_source_row_records(client, monkeyp
     assert seen == [False, True], "the engine was not handed the recorded choice"
 
 
+def test_restart_summarizes_as_the_run_was_set_to_not_as_far_as_it_got(client, monkeypatch):
+    """The run's ``ai_choice`` event decides: a run set to summarize that failed before summarizing restarts on.
+
+    Two watches' failed runs on November 4, 2026 said "Summaries: On" on their
+    pages and "Restart does not summarize" beside it, because the restart read
+    the lanes tried, and a run that failed before any paper had none.
+    """
+    seen: list = []
+    monkeypatch.setattr(resmon_mod.SweepEngine, "run_prepared",
+                        lambda self, exec_id: seen.append((exec_id, self.config.get("ai_enabled"))))
+    conn = resmon_mod._get_db()
+
+    def failed_with(choice):
+        exec_id = _row(client, "failed")
+        events = [{"type": "execution_start"}]
+        if choice is not None:
+            events.insert(0, {"type": "ai_choice", "enabled": choice, "lanes": [], "message": "AI summaries"})
+        db.save_progress_events(conn, exec_id, events)
+        return exec_id
+
+    on = failed_with(True)
+    off = failed_with(False)
+    old = failed_with(None)                     # a run from before the event: its lanes decide
+    db.start_ai_lane(conn, old, 0, lane_label="Lane 1", lane_kind="api_key", provider="anthropic", model="a-model")
+    answers = {exec_id: client.post(f"/api/executions/{exec_id}/restart").json() for exec_id in (on, off, old)}
+    assert {k: v["ai_enabled"] for k, v in answers.items()} == {on: True, off: False, old: True}
+    deadline = time.monotonic() + 10
+    while len(seen) < 3 and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert sorted(flag for _, flag in seen) == [False, True, True], "the engine was not handed the recorded choice"
+
+
 def test_the_terminal_state_list_the_progress_stream_reads_is_complete():
     """`stream_progress` branches on this tuple; it must hold every ended state.
 
-    Structural, and deliberately so. The behaviour — that an interrupted run
+    Structural, and deliberately so. The behavior — that an interrupted run
     takes the persisted-batch path rather than the live generator — cannot be
     checked through `TestClient`: an SSE endpoint that never yields blocks
     inside the in-process portal, so the regression hangs the worker instead of
@@ -512,3 +592,95 @@ def test_the_terminal_state_list_the_progress_stream_reads_is_complete():
 # that cannot fail is worse than none: it reads like evidence. The `finally` in
 # `_reconcile_executions_on_startup` is a shape the file keeps, not a leak it
 # fixes, and its comment says so.
+
+
+# ---------------------------------------------------------------------------
+# A watch's run is never run alongside its watch
+# ---------------------------------------------------------------------------
+
+
+def _watch(client, query: str) -> int:
+    conn = resmon_mod._get_db()
+    return db.insert_routine(conn, {
+        "name": "Overlap watch", "schedule_cron": "0 9 * * *", "is_active": 0,
+        "parameters": json.dumps({"query": query, "keywords": [query], "repositories": ["arxiv"]}),
+    })
+
+
+def test_run_again_on_a_watchs_run_is_the_watchs_run_now_and_never_overlaps_it(client, monkeypatch):
+    """Run again on last night's run while the watch runs is refused; otherwise it is the watch's Run now."""
+    claims = resmon_mod.routine_claims
+    held: list = []
+    monkeypatch.setattr(resmon_mod.SweepEngine, "run_prepared",
+                        lambda self, exec_id: held.append((exec_id, claims.holder(watch))))
+    watch = _watch(client, "now")
+    old = _row(client, "completed", execution_type="automated_sweep", routine_id=watch,
+               parameters=json.dumps({"query": "then", "keywords": ["then"], "repositories": ["arxiv"]}))
+    conn = resmon_mod._get_db()
+    before = conn.execute("SELECT COUNT(*) FROM executions").fetchone()[0]
+
+    # The watch is running (its scheduled fire holds its claim): Run again is refused, in Run now's words.
+    assert claims.try_claim(watch)
+    claims.bind(watch, 4242)
+    try:
+        refused = client.post(f"/api/executions/{old}/restart", json={"again": True})
+        assert refused.status_code == 409, refused.text
+        assert refused.json()["detail"].startswith("This watch is already running as run 4242.")
+        assert conn.execute("SELECT COUNT(*) FROM executions").fetchone()[0] == before
+    finally:
+        claims.release(watch)
+
+    # Free: it runs as the watch, with the watch's search as it is now, holding the watch's claim.
+    resp = client.post(f"/api/executions/{old}/restart", json={"again": True})
+    assert resp.status_code == 202, resp.text
+    body = resp.json()
+    new_id = body["execution_id"]
+    assert body["restarted_from"] is None
+    # Named as the watch's, so a window that asked finds the run by its watch when it was queued.
+    assert body["routine_id"] == watch
+    new_row = dict(conn.execute("SELECT * FROM executions WHERE id = ?", (new_id,)).fetchone())
+    assert new_row["execution_type"] == "automated_sweep" and new_row["routine_id"] == watch
+    assert new_row["restarted_from"] is None
+    assert json.loads(new_row["parameters"])["query"] == "now"
+    deadline = time.time() + 5
+    while not held and time.time() < deadline:
+        time.sleep(0.02)
+    assert held == [(new_id, new_id)], "the run again did not hold its watch's claim"
+
+
+def test_a_restart_of_a_watchs_run_is_the_watchs_run_now(client, monkeypatch):
+    """Restart on an interrupted watch's run agrees with Run again: the watch's Run now, never beside it."""
+    claims = resmon_mod.routine_claims
+    held: list = []
+    monkeypatch.setattr(resmon_mod.SweepEngine, "run_prepared",
+                        lambda self, exec_id: held.append((exec_id, claims.holder(watch))))
+    watch = _watch(client, "now")
+    old = _row(client, "interrupted", execution_type="automated_sweep", routine_id=watch,
+               parameters=json.dumps({"query": "then", "keywords": ["then"], "repositories": ["arxiv"]}))
+    conn = resmon_mod._get_db()
+
+    assert claims.try_claim(watch)
+    claims.bind(watch, 4343)
+    try:
+        refused = client.post(f"/api/executions/{old}/restart")
+        assert refused.status_code == 409, refused.text
+        assert refused.json()["detail"].startswith("This watch is already running as run 4343.")
+        assert refused.headers["x-resmon-conflict"] == "routine_already_running"
+        assert conn.execute("SELECT COUNT(*) FROM executions WHERE id > ?", (old,)).fetchone()[0] == 0
+    finally:
+        claims.release(watch)
+
+    resp = client.post(f"/api/executions/{old}/restart")
+    assert resp.status_code == 202, resp.text
+    new_id = resp.json()["execution_id"]
+    assert resp.json()["restarted_from"] is None
+    new_row = dict(conn.execute("SELECT * FROM executions WHERE id = ?", (new_id,)).fetchone())
+    assert new_row["routine_id"] == watch and json.loads(new_row["parameters"])["query"] == "now"
+    deadline = time.time() + 5
+    while not held and time.time() < deadline:
+        time.sleep(0.02)
+    assert held == [(new_id, new_id)], "the restart ran without its watch's claim"
+    deadline = time.time() + 5
+    while claims.is_claimed(watch) and time.time() < deadline:
+        time.sleep(0.02)
+    assert not claims.is_claimed(watch), "the restart kept its watch's claim after it ended"

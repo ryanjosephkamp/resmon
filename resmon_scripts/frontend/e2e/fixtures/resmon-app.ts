@@ -46,6 +46,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { resolveInterpreter } from './python-interpreter';
+import { removeStateDir } from './cleanup';
 
 // ---------------------------------------------------------------------------
 // The local API token, for the suite's own backend calls
@@ -247,7 +248,7 @@ function pythonPath(): string {
 /**
  * The environment a launched resmon runs in.
  *
- * Exported because `default-behaviour.spec.ts` launches the app with exactly
+ * Exported because `default-behavior.spec.ts` launches the app with exactly
  * this minus `RESMON_E2E`, and the two have to differ in nothing else for that
  * comparison to mean anything.
  */
@@ -280,6 +281,12 @@ export function launchEnv(stateDir: string, e2e: boolean): Record<string, string
     // resmon's service installed changed what Today and Watches said about
     // firing. A spec that needs its own directory still sets one after this.
     RESMON_SERVICE_UNIT_DIR: path.join(stateDir, 'service-units'),
+    // And launchd: a label of the suite's own, and a stand-in for launchctl
+    // that holds nothing and starts nothing, so neither Settings nor the app's
+    // check of its service at launch ever asks about, starts, or stops the
+    // service of the person running the suite.
+    RESMON_SERVICE_LABEL: 'com.resmon.e2e',
+    RESMON_LAUNCHCTL: path.join(REPO_ROOT, 'resmon_scripts', 'verification_scripts', 'fixtures', 'fake_launchctl.py'),
     // An AI command only where a spec names it. Left to search the installers'
     // locations and PATH, the engine finds the person's own signed-in `claude`
     // or `codex`, and a turn sent with no command set runs it. A spec about
@@ -289,6 +296,7 @@ export function launchEnv(stateDir: string, e2e: boolean): Record<string, string
   // A RESMON_UI left in the shell running the suite is not passed on: this
   // build has one renderer, and the variable means nothing to it.
   delete env.RESMON_UI;
+  delete env.FAKE_LAUNCHCTL_STATE;
   if (e2e) {
     env.RESMON_E2E = '1';
     env.RESMON_E2E_WIDTH = String(WINDOW_WIDTH);
@@ -347,7 +355,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     const { app, stateDir } = await launchResmon(true);
     await use(app);
     await app.close().catch(() => { /* already gone */ });
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }, { scope: 'worker' }],
 
   win: [async ({ app, consoleErrors, failedRequests, currentRoute }, use) => {

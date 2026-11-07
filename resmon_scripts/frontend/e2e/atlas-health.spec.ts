@@ -4,7 +4,7 @@
  *
  * A seeded record of four sweeps, so every state the wall draws is on it:
  * arXiv answers, answers with nothing, and has one run with no row (not
- * recorded); CrossRef answers and then fails three runs in a row (broken, to
+ * recorded); Crossref answers and then fails three runs in a row (broken, to
  * the watchdog); Springer Nature is left out of three runs (not asked) and
  * could not be asked in the fourth (no key); bioRxiv is answered in part on the
  * last three, resmon's budget stopping each read (advice, to the watchdog, and
@@ -23,6 +23,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
 import { FRONTEND_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 const SEED = String.raw`
 import json, os, sys
@@ -195,7 +196,7 @@ test('Health: the Source wall draws what each source did, the watchdog judges it
       counts: { alarms: number; broken: number; unusual: number };
       findings: { key: string; title: string; severity: string; scope: Json }[];
     };
-    // The headline from the engine's own counts: the seed makes CrossRef broken,
+    // The headline from the engine's own counts: the seed makes Crossref broken,
     // and what else the rules find in it (Springer Nature's missing key) is theirs to say.
     const headline = (c: Report['counts']): string => [
       c.broken ? `${c.broken} ${c.broken === 1 ? 'thing is' : 'things are'} broken` : '',
@@ -276,6 +277,6 @@ test('Health: the Source wall draws what each source did, the watchdog judges it
     expect(problems).toEqual([]);
   } finally {
     await app.close();
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });

@@ -34,6 +34,49 @@ for _path in (_REPO_ROOT, _REPO_ROOT / "resmon_scripts"):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
 
+# ---------------------------------------------------------------------------
+# The suite's own state, outside the checkout
+# ---------------------------------------------------------------------------
+#
+# ``config`` falls back to the checkout for the database (``resmon.db``), the
+# reports folder (``resmon_reports/``, which also holds a tracked figure), and
+# the port file beside the database, and reads them once, when it is first
+# imported. Set here, before anything imports it, a run writes every run log,
+# report, and default database into one temporary folder, removed when the
+# run ends, and leaves the checkout as it found it. A test that needs the
+# checkout-relative defaults (``test_state_dir_overrides.py``) starts its own
+# interpreter without these.
+import atexit  # noqa: E402
+import shutil  # noqa: E402
+import tempfile  # noqa: E402
+
+_SUITE_STATE = Path(tempfile.mkdtemp(prefix="resmon-test-suite-"))
+os.environ["RESMON_DB_PATH"] = str(_SUITE_STATE / "resmon.db")
+os.environ["RESMON_REPORTS_DIR"] = str(_SUITE_STATE / "reports")
+os.environ["RESMON_PORT_FILE"] = str(_SUITE_STATE / "resmon.port")
+atexit.register(shutil.rmtree, _SUITE_STATE, True)
+
+# ---------------------------------------------------------------------------
+# AI commands: only the one a test names
+# ---------------------------------------------------------------------------
+#
+# ``ai_cli.discover_cli`` looks for ``claude`` and ``codex`` where their
+# installers put them and on PATH, and on a developer's machine that finds the
+# developer's own CLI. Whatever it finds is what the summary lanes, Ask's
+# turns, Settings' sign-in check, and Codex's model list go on to run, and the
+# suite must never run it. With this, discovery finds only the path a
+# test names (a fake CLI it wrote). It is set, not defaulted, so a value the
+# shell exported for an e2e run does not reach the suite either.
+#
+# Two kinds of test search anyway. ``test_ai_cli_discovery.py`` tests the
+# search itself: it clears the variable for its own cases, with HOME, PATH,
+# and the installers' locations pointed at folders it made.
+# ``pytest_runtest_setup`` lifts it for a test marked both ``live_network``
+# and ``needs_agent_cli``, whose purpose is to run the person's own CLI and
+# which no default run selects (nor a ``RESMON_FORCE_HERMETIC=1`` run).
+# ``test_suite_isolation.py`` fails if this pin is dropped.
+os.environ["RESMON_AI_CLI_DISCOVERY"] = "configured-only"
+
 from resmon_scripts.verification_scripts.live_evidence import (  # noqa: E402
     LiveEvidenceWriter,
     QuarantineEntry,
@@ -169,7 +212,7 @@ def pytest_runtest_makereport(item, call):
 # ``ci.yml`` runs ``pytest -v`` so that the last line printed names the last
 # test that finished — pytest-timeout's dump does not say which item it killed,
 # and in quiet mode a hang leaves a row of dots to count. With ``-v`` every
-# parametrised case prints its id, and
+# parametrized case prints its id, and
 # ``test_evidence_reader.py``'s bounds case carries ``b"a" * 262144`` as a
 # parameter, which pytest renders *into the id*. The collected line is 262,284
 # bytes. ``gh run view --log`` reads with Go's ``bufio.Scanner`` at its default
@@ -309,7 +352,7 @@ def pytest_sessionfinish(session, exitstatus):
 # ---------------------------------------------------------------------------
 #
 # Executions and cloud-status checks read credentials, and on macOS the real
-# keychain backend blocks on a GUI authorisation prompt that nothing can answer
+# keychain backend blocks on a GUI authorization prompt that nothing can answer
 # during a test run. Before the bounded-timeout gate in credential_manager that
 # hung the suite indefinitely; with it, the suite would still pay the timeout on
 # every lookup. Tests must not touch the developer's keychain at all.
@@ -378,9 +421,15 @@ from implementation_scripts import api_auth  # noqa: E402
 # discovery would read the developer's real Application Support directory —
 # and, on a machine running resmon, find a real daemon's token there. The suite
 # gets a state directory of its own; a test that needs another sets its own.
-import tempfile  # noqa: E402
+os.environ["RESMON_STATE_DIR"] = tempfile.mkdtemp(prefix="resmon-test-state-", dir=_SUITE_STATE)
 
-os.environ["RESMON_STATE_DIR"] = tempfile.mkdtemp(prefix="resmon-test-state-")
+# The background service, likewise: a label of the suite's own, and a stand-in
+# for launchctl that holds nothing and starts nothing unless a test gives it a
+# state file. Settings asks launchd about the service's label, so without these
+# the suite would ask about the service the person running it has installed.
+os.environ["RESMON_SERVICE_LABEL"] = "com.resmon.verification"
+os.environ["RESMON_LAUNCHCTL"] = str(Path(__file__).resolve().parent / "fixtures" / "fake_launchctl.py")
+os.environ.pop("FAKE_LAUNCHCTL_STATE", None)
 
 TEST_API_TOKEN = api_auth.mint_token()
 TEST_API_PORT = 18743
@@ -450,7 +499,7 @@ def pytest_runtest_call(item):
     3.11, and the blunter ``InterfaceError: bad parameter or other API misuse``
     on 3.12 - which is how CI caught it while a local 3.11 run stayed green.
 
-    This has to be a hook rather than an autouse fixture. Fixtures finalise in
+    This has to be a hook rather than an autouse fixture. Fixtures finalize in
     reverse order of setup, and a conftest fixture is set up before a module's
     own - so it would tear down *after* ``_fresh_db`` had already closed the
     connection, which is exactly the window being closed here. ``pytest_runtest_call``
@@ -565,9 +614,111 @@ socket.socket.connect_ex = _guarded_connect_ex
 _FORCE_HERMETIC = os.environ.get("RESMON_FORCE_HERMETIC") == "1"
 
 
+# ---------------------------------------------------------------------------
+# No real AI command
+# ---------------------------------------------------------------------------
+#
+# The discovery pin above stops the search, and only the search. Code can
+# still run a command by name, and a bare name is looked up on PATH, which on
+# a developer's machine leads to their own CLI. The assistant runtimes start
+# only a command discovery found (``assistant_runtime._found_command``), but
+# any code that runs a name, in a test that leaves PATH alone, starts it.
+#
+# So, as with sockets, the property is checked. Starting a ``claude`` or
+# ``codex`` that is not a fake under the temporary folder or this directory
+# fails before anything runs, as a missing command would, and the test fails
+# at teardown even if the code under test caught the error. A test marked
+# ``live_network`` and ``needs_agent_cli`` is let through
+# (``pytest_runtest_setup``).
+
+import errno  # noqa: E402
+import inspect  # noqa: E402
+import subprocess  # noqa: E402
+
+_AI_COMMAND_NAMES = {"claude", "codex", "claude.exe", "codex.exe"}
+_FAKE_COMMAND_ROOTS = (Path(tempfile.gettempdir()).resolve(), Path(__file__).resolve().parent)
+_allow_agent_cli = {"value": False}
+_ai_commands_refused: list[str] = []
+_REAL_EXECUTE_CHILD = subprocess.Popen._execute_child
+_EXECUTE_CHILD_SIGNATURE = inspect.signature(_REAL_EXECUTE_CHILD)
+
+
+def _real_ai_command(args, executable, shell, env):
+    """The path of a real ``claude`` or ``codex`` *args* would start, else None."""
+    if isinstance(args, (str, bytes, os.PathLike)):
+        argv = [os.fsdecode(args)]
+    else:
+        argv = [os.fsdecode(arg) for arg in args]
+    if shell:
+        argv = " ".join(argv).split()
+    elif executable is not None:
+        argv = [os.fsdecode(executable)]
+    program = argv[0] if argv else ""
+    if os.path.basename(program) not in _AI_COMMAND_NAMES:
+        return None
+    if os.sep in program:
+        found = program if os.path.exists(program) else None
+    else:
+        found = shutil.which(program, path=(os.environ if env is None else env).get("PATH", os.defpath))
+    if found is None:
+        return None                          # nothing to start; Popen says so itself
+    resolved = Path(found).resolve()
+    if any(resolved.is_relative_to(root) for root in _FAKE_COMMAND_ROOTS):
+        return None
+    return found
+
+
+def _guarded_execute_child(self, *args, **kwargs):
+    if not _allow_agent_cli["value"]:
+        try:
+            call = _EXECUTE_CHILD_SIGNATURE.bind(self, *args, **kwargs).arguments
+            found = _real_ai_command(call["args"], call.get("executable"), call.get("shell"),
+                                     call.get("env"))
+        except (TypeError, ValueError, KeyError, OSError, RuntimeError):
+            found = None                     # arguments Popen itself will reject
+        if found is not None:
+            _ai_commands_refused.append(found)
+            raise PermissionError(
+                errno.EPERM,
+                "The suite never runs a real AI command. Give the code under test "
+                "a fake one under tmp_path, or mark the test live_network and "
+                "needs_agent_cli",
+                found,
+            )
+    return _REAL_EXECUTE_CHILD(self, *args, **kwargs)
+
+
+subprocess.Popen._execute_child = _guarded_execute_child
+
+
+@pytest.fixture(autouse=True)
+def _no_real_ai_command():
+    """Fail a test that tried to start a real AI command, caught or not."""
+    before = len(_ai_commands_refused)
+    yield
+    refused = sorted(set(_ai_commands_refused[before:]))
+    if refused:
+        pytest.fail(
+            f"This test tried to start {', '.join(refused)}, a real AI command, and was "
+            "refused. Give the code under test a fake command under tmp_path.",
+            pytrace=False,
+        )
+
+
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_setup(item):
-    """Open the network only for tests that declare they need it."""
-    _allow_network["value"] = (
-        item.get_closest_marker("live_network") is not None and not _FORCE_HERMETIC
-    )
+    """Open the network, and the person's own AI CLI, only for tests that need them.
+
+    Runs before any of the test's fixtures, module-scoped ones included, so a
+    fixture that discovers the CLI sees the same setting as the test. Every
+    other test starts with discovery pinned, whatever the test before it left
+    behind, and cannot start a real ``claude`` or ``codex``.
+    """
+    open_network = item.get_closest_marker("live_network") is not None and not _FORCE_HERMETIC
+    _allow_network["value"] = open_network
+    agent_cli = open_network and item.get_closest_marker("needs_agent_cli") is not None
+    _allow_agent_cli["value"] = agent_cli
+    if agent_cli:
+        os.environ.pop("RESMON_AI_CLI_DISCOVERY", None)
+    else:
+        os.environ["RESMON_AI_CLI_DISCOVERY"] = "configured-only"

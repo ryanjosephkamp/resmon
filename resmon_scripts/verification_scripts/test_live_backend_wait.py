@@ -10,7 +10,7 @@ So the wait is driven here against a **real loopback server that refuses an
 anonymous request exactly as the backend's guard does** -- a real socket, a real
 ``httpx`` request, a real ``api-token-<port>`` file written by
 ``api_auth.write_token_file``. The only thing that is not the real thing is the
-application behind the socket, and the one behaviour it imitates is the one
+application behind the socket, and the one behavior it imitates is the one
 under test: 401 without a matching bearer, 200 with one.
 
 No marker: nothing here leaves loopback, which ``conftest.py``'s socket guard

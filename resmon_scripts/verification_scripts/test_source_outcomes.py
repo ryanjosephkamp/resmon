@@ -34,8 +34,8 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):  # noqa: N802 - BaseHTTPRequestHandler's spelling
         self.server.hits.append(self.path)
-        behaviour = self.server.behaviour
-        if behaviour == "sleep":
+        behavior = self.server.behavior
+        if behavior == "sleep":
             time.sleep(self.server.sleep_for)
         status, body = self.server.reply
         payload = body.encode("utf-8")
@@ -58,7 +58,7 @@ def http_server():
     """A real loopback HTTP server whose answer each test chooses."""
     server = _Server(("127.0.0.1", 0), _Handler)
     server.hits = []
-    server.behaviour = "reply"
+    server.behavior = "reply"
     server.sleep_for = 0.0
     server.reply = (200, "{}")
     server.content_type = "application/json"
@@ -213,7 +213,7 @@ def test_a_success_after_a_transient_failure_is_not_a_failure(
 
 
 def test_exhausted_timeout_records_upstream_failure(http_server, fast_retries):
-    http_server.behaviour = "sleep"
+    http_server.behavior = "sleep"
     http_server.sleep_for = 5.0
 
     with pytest.raises(Exception):
@@ -293,7 +293,7 @@ def test_two_threads_do_not_share_an_outcome(http_server, fast_retries):
     for name, status in (("failing", 404), ("ok", 200)):
         server = _Server(("127.0.0.1", 0), _Handler)
         server.hits = []
-        server.behaviour = "reply"
+        server.behavior = "reply"
         server.sleep_for = 0.0
         server.reply = (status, "{}")
         server.content_type = "application/json"
@@ -350,7 +350,7 @@ def test_the_channel_is_empty_on_a_fresh_thread(http_server, fast_retries):
 # can actually reach. ``_CLIENT_MODULES`` is a local inside
 # ``_ensure_loaded`` and so not importable, and is also one short of the
 # truth -- medRxiv and bioRxiv share ``api_biorxiv.py``, so a module list would
-# leave medRxiv unexercised. Parametrising over the registry means a source
+# leave medRxiv unexercised. Parametrizing over the registry means a source
 # cannot be added without appearing here.
 
 
@@ -1006,7 +1006,7 @@ def test_hal_budget_expiry_is_stored_in_the_row_record_log_and_report(
     returned — a loaded runner could outrun it and see two hits. Here the
     server holds the very first request open for far longer
     than the budget, so the deadline expires while the one attempt is still in
-    flight on a real socket. What is asserted is behaviour: one attempt,
+    flight on a real socket. What is asserted is behavior: one attempt,
     ``operation_deadline``, and that sentence stored in the row, the record, the
     log and the report.
 
@@ -1020,7 +1020,7 @@ def test_hal_budget_expiry_is_stored_in_the_row_record_log_and_report(
     from resmon_scripts.implementation_scripts import api_hal
 
     budget_seconds = 2.0
-    http_server.behaviour = "sleep"
+    http_server.behavior = "sleep"
     http_server.sleep_for = 10 * budget_seconds
     http_server.reply = (503, "synthetic unavailable")
     monkeypatch.setattr(api_hal, "_HAL_API_URL", http_server.url)

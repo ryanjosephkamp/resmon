@@ -488,7 +488,8 @@ def test_paging_the_queue_shows_every_entry_exactly_once(clean_queue):
     assert _API.get(base + "/api/reading-queue",
                      params={"status": "read"}).json() == {
         "entries": [], "total": 0, "limit": 50, "offset": 0, "status": "read",
-        "counts": {"to_read": BIG_RUN_SIZE, "read": 0, "all": BIG_RUN_SIZE}}
+        "counts": {"to_read": BIG_RUN_SIZE, "read": 0, "all": BIG_RUN_SIZE},
+        "sort": "saved", "q": ""}
     beyond = _API.get(base + "/api/reading-queue",
                        params={"limit": 50, "offset": 500}).json()
     assert beyond["entries"] == [] and beyond["total"] == BIG_RUN_SIZE
@@ -675,7 +676,7 @@ def test_the_queue_survives_a_backend_restart_unchanged(tmp_path):
                 sorted(after["entries"], key=lambda e: e["document_id"])] == \
             [tuple(r) for r in rows_on_disk]
         assert entries_of(after) == entries_of(before)
-        assert database_version(path) == 24
+        assert database_version(path) == 27
         print("P2_RESTART", json.dumps({"entries": after["counts"], "rows": len(rows_on_disk)}))
     finally:
         _stop(proc)
@@ -692,7 +693,7 @@ def test_a_fresh_database_carries_the_queue_from_the_first_launch(tmp_path):
     db.init_db(str(path))
     conn = db.get_connection(str(path))
     try:
-        assert db.get_schema_version(conn) == 24
+        assert db.get_schema_version(conn) == 27
         assert reading_queue.counts(conn) == {"to_read": 0, "read": 0, "all": 0}
         columns = {r[1] for r in conn.execute("PRAGMA table_info(reading_queue)")}
         assert columns == {"document_id", "status", "saved_at", "updated_at", "read_at"}

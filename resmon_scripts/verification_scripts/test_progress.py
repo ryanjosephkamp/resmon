@@ -409,7 +409,7 @@ class TestSweepEngineCancellation:
             event_types = [e["type"] for e in events]
             assert "cancelled" in event_types
 
-            # The client.search should NOT have been called (cancelled before first repo)
+            # The client.search should NOT have been called (canceled before first repo)
             mock_get.return_value.search.assert_not_called()
 
             progress_store.cleanup(exec_id)

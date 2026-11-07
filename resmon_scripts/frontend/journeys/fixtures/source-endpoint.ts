@@ -6,14 +6,14 @@
  * not the same code: that fixture launches the app out of *this* checkout, with
  * `cwd: FRONTEND_ROOT` written into it and a pile of assertions about its own
  * cleanup. A journey has to be launchable against another build, so the piece
- * that redirects arXiv is here, parameterised by the repository root of the
+ * that redirects arXiv is here, parameterized by the repository root of the
  * build under test, and everything else stays over there.
  *
  * What it replaces is the **input** and nothing else. The request is a real
  * HTTP request over a real socket, made by the shipped arXiv client through
  * `safe_request`; every outcome, zero reason, SQLite write and rendered row
  * downstream is the app's own. What no authored reply can see is arXiv's own
- * behaviour — a schema change or an outage upstream is invisible here, and this
+ * behavior — a schema change or an outage upstream is invisible here, and this
  * suite does not claim otherwise.
  *
  * **The guard is not optional.** The `sitecustomize.py` this writes refuses any
@@ -21,15 +21,18 @@
  * address carries a live launchd daemon over somebody's real corpus. Every
  * journey launch gets it, including the rows that never query a source, so
  * "this suite did not reach the internet" is a property of the suite rather
- * than of each spec's good behaviour.
+ * than of each spec's good behavior.
  */
 import * as fs from 'fs';
 import * as http from 'http';
 import * as net from 'net';
 import * as path from 'path';
+import { startFindSource } from './find-source';
 
 /** How the authored source answers. */
 export type SourceReply =
+  /** J50: distinct lookup answers and a licensed PDF on loopback. */
+  | 'find'
   /** One record, over a real HTTP 200. */
   | 'paper'
   /** A valid, empty Atom feed over a real HTTP 200 — `answered_empty`. */
@@ -202,6 +205,8 @@ function atomFeed(records: AuthoredRecord[]): string {
 export interface SourceEndpoint {
   /** Where the redirected arXiv client will send its requests. */
   url: string;
+  /** The certificate-verified PDF server, only for Find a paper. */
+  fullText?: { port: number; ca: string };
   /** How many requests the authored source has actually received. */
   requestCount(): number;
   /** Let a held reply through. A no-op for the other modes. */
@@ -219,6 +224,7 @@ export interface SourceEndpoint {
 
 /** Start the authored source. The port is chosen by the OS and is never 8742. */
 export async function startSourceEndpoint(reply: SourceReply): Promise<SourceEndpoint> {
+  if (reply === 'find') return startFindSource();
   const requests: string[] = [];
   const sockets = new Set<net.Socket>();
   let releaseGate!: () => void;
@@ -260,6 +266,7 @@ export async function startSourceEndpoint(reply: SourceReply): Promise<SourceEnd
     requestCount: () => requests.length,
     release: () => releaseGate(),
     answerWith: (next: SourceReply) => {
+      if (next === 'find') throw new Error('a find source must be selected at launch');
       current = next;
       // A journey that switches away from `held` has stopped waiting for a
       // release, so the gate is opened rather than left shut over a mode that
@@ -296,6 +303,7 @@ export function writeStartupHook(options: {
   repoRoot: string;
   /** The authored source, when this journey uses one. */
   sourceUrl?: string;
+  fullText?: { port: number; ca: string };
 }): string {
   const hookDir = path.join(options.stateDir, 'journey-python-hook');
   fs.mkdirSync(hookDir, { recursive: true });
@@ -306,6 +314,21 @@ from implementation_scripts import api_arxiv
 api_arxiv._ARXIV_API_URL = ${JSON.stringify(options.sourceUrl)}
 `
     : '';
+  const findRedirect = options.fullText && options.sourceUrl ? `
+from implementation_scripts import api_openalex, api_crossref, api_datacite, fulltext_download
+base = ${JSON.stringify(new URL(options.sourceUrl).origin)}
+api_openalex._OPENALEX_API_URL = base + '/openalex/works'
+api_crossref._CROSSREF_API_URL = base + '/crossref/works'
+api_datacite._DATACITE_API_URL = base + '/datacite/dois'
+# Only this test name may resolve to loopback; TLS verification stays on.
+fulltext_download._CA_BUNDLE = ${JSON.stringify(options.fullText.ca)}
+fulltext_download._LOOPBACK_TEST_HOSTS = frozenset({'pdf.resmon.test'})
+def resolve_pdf(host: str, port: int, *args, **kwargs) -> list:
+    if host == 'pdf.resmon.test':
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('127.0.0.1', port))]
+    return getaddrinfo(host, port, *args, **kwargs)
+fulltext_download._RESOLVE = resolve_pdf
+` : '';
   fs.writeFileSync(path.join(hookDir, 'sitecustomize.py'), `
 import ipaddress, json, os, runpy, socket, sys
 from pathlib import Path
@@ -355,6 +378,7 @@ socket.socket.connect = connect
 socket.socket.connect_ex = connect_ex
 socket.getaddrinfo = getaddrinfo
 ${redirect}
+${findRedirect}
 (_state / 'journey-hook.json').write_text(json.dumps({
     'pid': os.getpid(), 'parent_pid': os.getppid(),
     'source_url': ${JSON.stringify(options.sourceUrl ?? null)},

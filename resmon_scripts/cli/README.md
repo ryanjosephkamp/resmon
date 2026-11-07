@@ -42,15 +42,16 @@ which one it is: the app's, with the app's version and where it sits, or one ins
 
 | Command | What it shows |
 |---|---|
-| `resmon today` | The papers first collected since you last marked all read, by watch, with the sources that did not answer on each watch's last run. Reading it marks nothing. |
-| `resmon today mark-read` | Mark all read: the next Today starts now. |
-| `resmon search WORDS` | The app's Search › Your collection, over everything collected. `--source`, `--author`, `--category`, `--from` and `--to` narrow it; `--sort closest` ranks by meaning with the embedding model set in Settings → AI, and says so when none is set. |
-| `resmon runs` | Recent runs: what each asked, what it found, and how many of its sources answered. `resmon runs ID` gives one run's whole account, source by source. |
+| `resmon today` | The papers that arrived in a collection since you last marked its Today all read, by watch, with the sources that did not answer on each watch's last run. Reading it marks nothing. |
+| `resmon today mark-read` | Mark all read: the collection's next Today starts now. |
+| `resmon search WORDS` | The app's Search › Your collection, over a collection. `--source`, `--author`, `--category`, `--from` and `--to` narrow it; `--sort closest` ranks by meaning with the embedding model set in Settings → AI, and says so when none is set. |
+| `resmon runs` | Recent runs: what each asked, what it found, and how many of its sources answered. `--kind dive`, `sweep`, `find`, or `watch` narrows them; `find` is **Find a paper**. `resmon runs ID` gives one run's whole account, source by source. |
 | `resmon wall` | The Source wall: every source's recorded answer to each of the last runs, oldest to newest, and whether any has stopped answering. `--legend` says what each mark means. |
 | `resmon export` | References as BibTeX, RIS, CSV or JSON for `--run ID`, `--today`, `--ids`, or `--search WORDS`. They go to standard output unless `-o FILE` names a file. |
 | `resmon service status` | Which resmon the command reached, and whether anything will run your active watches. |
 | `resmon watch list` | Every saved watch, and whether anything will run it. |
-| `resmon watch add NAME` | A new watch: `--keyword` (repeatable), `--source` (repeatable), `--schedule` as five-field cron (default `0 8 * * *`), `--max-results`, `--intent`. Each run asks for papers published since the previous run, unless `--last-days N` (the N days before each run) or `--no-date-limit` (each source's own order). It is saved active, as the app's editor saves one, unless `--inactive`. |
+| `resmon collections` | Every collection, with how many papers and watches each has, which the app shows, and the default one. |
+| `resmon watch add NAME` | A new watch: `--keyword` (repeatable), `--source` (repeatable), `--schedule` as five-field cron (default `0 8 * * *`), `--max-results`, `--intent`. Each run asks for papers published since the previous run, unless `--last-days N` (the N days before each run) or `--no-date-limit` (each source's own order). It is saved active, as the app's editor saves one, unless `--inactive`. Its papers land in `--collection`, or the default collection. |
 
 Every command takes `--json`. On the commands that read one thing, that prints resmon's own answer
 unchanged; `service status`, `watch add` and `export` print an object whose keys say what each part
@@ -58,6 +59,21 @@ is. Errors go to standard error, as JSON when `--json` was given.
 
 Sources can be named as the app names them (`DBLP`) or by slug (`dblp`). A name resmon does not
 know is refused rather than searched for.
+
+Search counts use `total_is_exact` and `count_budget_ms`: when counting runs out of its
+1.5-second budget, the count is a lower bound, and the text says "At least". It does not cap
+the matches or a search export. `--limit` sets the page size, and `--cursor` reads the next page.
+
+`today` prints 20 papers unless `--limit` or `--all` is given. It reads only the newest page,
+up to 1,000 papers, even with `--all`; `export --today` exports that page too and says when
+older new papers were left out. The app can read the older pages. `export --run ID --new-only`
+exports only papers that run was the first to store in the database, regardless of collection;
+it is different from Today's collection-specific arrivals.
+
+`--collection`, on `today`, `search`, `export --today` and `--search`, and `watch add`, names a
+collection by its name or number; without it they use the default collection, which holds every
+paper a resmon had before it had collections. A name that is no collection is refused, with the
+names there are.
 
 ## What it prints
 

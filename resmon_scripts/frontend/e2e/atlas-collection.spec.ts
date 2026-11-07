@@ -22,6 +22,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
 import { FRONTEND_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 /** Whether this engine loaded sqlite-vec. The macos-15 runner's python3 cannot. */
 async function vecLoaded(win: Page): Promise<boolean> {
@@ -130,16 +131,17 @@ test('the collection, a paper, and the reading queue', async () => {
 
     // The queue: there under To read, marked read, then removed.
     await win.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Library' }).click();
-    await expect(win.getByRole('heading', { name: 'Reading queue', level: 1 })).toBeVisible();
-    const row = win.locator(`.queue-row[data-document="${other}"]`);
-    await expect(row.locator('.queue-state')).toHaveText('To read');
+    await expect(win.getByRole('heading', { name: 'Library', level: 1 })).toBeVisible();
+    const row = win.locator(`article.card[data-document="${other}"]`);
+    await expect(row).toHaveAttribute('data-status', 'to_read');
     await row.getByRole('button', { name: 'Mark read' }).click();
-    await expect(win.locator(`.queue-row[data-document="${other}"]`)).toHaveCount(0);
+    await expect(win.locator(`article.card[data-document="${other}"]`)).toHaveCount(0);
     await win.getByRole('group', { name: 'Show' }).getByRole('button', { name: /^Read/ }).click();
-    await expect(row.locator('.queue-state')).toHaveText('Read');
-    await row.getByRole('button', { name: 'Remove' }).click();
+    await expect(row).toHaveAttribute('data-status', 'read');
+    await row.hover();
+    await row.getByRole('button', { name: 'Remove from Read' }).click();
     await expect(row).toHaveCount(0);
-    await expect(win.locator('.queue-empty')).toHaveText('Nothing is marked read yet.');
+    await expect(win.locator('.lib-empty')).toHaveText('Nothing is marked read yet. Mark read on a cover in To read, or on a paper’s page.');
 
     // Saving from the run that collected it.
     await win.evaluate((id) => { window.location.hash = `#/runs/${id}`; }, run);
@@ -163,29 +165,35 @@ test('the collection, a paper, and the reading queue', async () => {
     expect(problems).toEqual([]);
   } finally {
     await app.close();
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });
 
-/** More papers than the search counts, written in one transaction: no authors or categories, so no facet rows. */
+/**
+ * More papers than the search once counted (it stopped at 10,000), written in one transaction: no authors or
+ * categories, so no facet rows. Published a day apart going back from October 1, 2026, so a jump to a month
+ * lands on a known paper.
+ */
 const MANY = String.raw`
 import os, sys
+from datetime import date, timedelta
 sys.path.insert(0, sys.argv[1])
 from implementation_scripts.database import init_db, get_connection
 path = os.environ["RESMON_DB_PATH"]
 init_db(path)
 conn = get_connection(path)
+start = date(2026, 10, 1)
 conn.executemany(
     "INSERT INTO documents (source_repository, external_id, title, abstract, publication_date, metadata_hash) "
-    "VALUES ('arxiv', ?, ?, 'An authored abstract about perovskite films.', '2026-10-01', ?)",
-    [(f"e2e-many-{n}", f"Perovskite film {n}", f"e2e-many-{n}") for n in range(10005)],
+    "VALUES ('arxiv', ?, ?, 'An authored abstract about perovskite films.', ?, ?)",
+    [(f"e2e-many-{n}", f"Perovskite film {n}", (start - timedelta(days=n)).isoformat(), f"e2e-many-{n}") for n in range(10005)],
 )
 conn.commit()
 `;
 
-test('a count the search stopped at its cap says so beside the number', async () => {
+test('a collection past ten thousand is counted whole, scrolled as one list, and jumped through by month', async () => {
   test.setTimeout(240_000);
-  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-cap-'));
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-many-'));
   const env: Record<string, string> = { ...launchEnv(stateDir, true) };
   const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', MANY, path.join(FRONTEND_ROOT, '..')], { env, encoding: 'utf8' });
   expect(seeded.status, seeded.stderr).toBe(0);
@@ -202,21 +210,43 @@ test('a count the search stopped at its cap says so beside the number', async ()
     await win.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Search' }).click();
     await expect(win.getByRole('heading', { name: 'Your collection', level: 1 })).toBeVisible({ timeout: 60_000 });
 
-    // The whole collection: the cap, and the collection's own count of every record.
-    await expect(win.locator('.count-sentence')).toHaveText(
-      '10,000+ papers in your collection · Search stops counting at 10,000; your collection holds 10,005 papers in all.',
-      { timeout: 60_000 },
-    );
-    // A search: the cap alone, because the collection's count is not a count of these matches.
+    // The whole collection, counted: it said "10,000+" and that search stops counting at 10,000.
+    await expect(win.locator('.count-sentence')).toHaveText('10,005 papers in your collection', { timeout: 60_000 });
+    await expect(win.locator('[data-collection="count-stopped"]')).toHaveCount(0);
+    // A search: every match counted too.
     await win.getByLabel('Search your collection').fill('perovskite');
     await win.getByLabel('Search your collection').press('Enter');
-    await expect(win.locator('.count-sentence')).toHaveText('10,000+ papers match · Search stops counting at 10,000.', { timeout: 60_000 });
+    await expect(win.locator('.count-sentence')).toHaveText('10,005 papers match', { timeout: 60_000 });
+
+    // One list, drawn as a window: scrolling to its end reads the next pages by itself, and the page holds
+    // only the rows near the view however many have been read.
+    const scroller = win.locator('section.results .index-scroll');
+    await expect(win.locator('.result').first()).toHaveAttribute('data-document', /\d+/);
+    await expect.poll(async () => {
+      await scroller.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+      return Number(await win.locator('.result').last().getAttribute('aria-posinset'));
+    }, { timeout: 30_000, intervals: [250] }).toBeGreaterThan(200);
+    expect(await win.locator('.result').count(), 'only the rows near the view are in the page').toBeLessThan(80);
+    expect(await win.locator('.result').last().getAttribute('aria-setsize')).toBe('10005');
+
+    // Jump to a month: the list starts at its last day, says how many newer matches come first, and the count
+    // above it is still every match. Paper n was published n days before October 1, 2026.
+    await win.getByLabel('Jump to a month of publication').fill('2026-03');
+    await expect(win.locator('[data-collection="jumped"]')).toContainText(
+      'Listed from March 2026 back. 184 newer matches come before it in the newest order.', { timeout: 30_000 });
+    await expect(win.locator('.result .result-title').first()).toHaveText('Perovskite film 184');
+    await expect(win.locator('.count-sentence')).toHaveText('10,005 papers match');
+    await expect(win).toHaveURL(/[?&]at=2026-03(&|$)/);
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-collection-jump.png') });
+    await win.locator('[data-collection="jumped"]').getByRole('button', { name: 'Back to the newest' }).click();
+    await expect(win.locator('[data-collection="jumped"]')).toHaveCount(0);
+    await expect(win.locator('.result .result-title').first()).toHaveText('Perovskite film 0');
     await expect(win.locator('[data-collection="ranking"]')).toContainText(await vecLoaded(win)
       ? 'none of your 10,005 papers has a vector'
       : 'the similarity index (sqlite-vec) did not load in this copy of resmon');
     expect(problems).toEqual([]);
   } finally {
     await app.close();
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });

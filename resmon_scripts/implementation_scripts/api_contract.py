@@ -139,7 +139,7 @@ REGISTER_TITLES = dict(REGISTER)
 #: route" and "nobody got round to mapping it" look identical otherwise.
 ROWLESS_REASONS: dict[str, str] = {
     "J08": (
-        "No route of its own. The capability is in the normaliser, the catalog's "
+        "No route of its own. The capability is in the normalizer, the catalog's "
         "`entity_search` syntax and `api_base.search_entity`; it reaches a user "
         "through the routes of J01, J02 and J07."
     ),
@@ -154,7 +154,7 @@ ROWLESS_REASONS: dict[str, str] = {
     "J27": "No route. Recorded in the register as not carried forward.",
     "J43": (
         "No route. Migrations run inside `database.init_db` at start; the journey is "
-        "exercised by `test_cumulative_upgrade.py` against a released fixture."
+        "exercised by `test_cumulative_upgrade.py` against the committed upgrade fixtures."
     ),
 }
 
@@ -313,6 +313,8 @@ ROUTE_JOURNEYS: dict[tuple[str, str], tuple[str, ...]] = {
     ("POST", "/api/export/references"): ("J18",),
     # --- Live monitoring and restart ---------------------------------------
     ("GET", "/api/executions/active"): ("J19",),
+    ("DELETE", "/api/executions/waiting/{ticket}"): ("J19",),
+    ("POST", "/api/executions/seen"): ("J19",),
     ("POST", "/api/executions/{exec_id}/cancel"): ("J19",),
     ("GET", "/api/executions/{exec_id}/progress/events"): ("J19", "J01", "J02"),
     ("GET", "/api/executions/{exec_id}/progress/stream"): ("J19", "J01", "J02"),
@@ -334,6 +336,17 @@ ROUTE_JOURNEYS: dict[tuple[str, str], tuple[str, ...]] = {
     ("POST", "/api/library/files/{file_id}/paper-links"): ("J34",),
     ("GET", "/api/library/files/{file_id}/text"): ("J34",),
     ("POST", "/api/library/vault"): ("J34",),
+    ("POST", "/api/library/vault/move"): ("J34",),
+    ("POST", "/api/library/vault/relink"): ("J34",),
+    ("DELETE", "/api/library/files/{file_id}"): ("J34",),
+    ("GET", "/api/library/files/{file_id}/pdf"): ("J34",),
+    ("GET", "/api/library/files/{file_id}/picture"): ("J34",),
+    ("PUT", "/api/library/files/{file_id}/picture"): ("J34",),
+    ("GET", "/api/library/files/{file_id}/removal"): ("J34",),
+    ("GET", "/api/library/removed"): ("J34",),
+    ("DELETE", "/api/library/removed/{file_id}"): ("J34",),
+    ("POST", "/api/library/removed/{file_id}/release"): ("J34",),
+    ("POST", "/api/library/removed/{file_id}/restore"): ("J34",),
     # --- Watchdog and lifecycle -------------------------------------------
     ("GET", "/api/lifecycle"): ("J06",),
     ("POST", "/api/lifecycle/check"): ("J06",),
@@ -368,6 +381,10 @@ ROUTE_JOURNEYS: dict[tuple[str, str], tuple[str, ...]] = {
     ("POST", "/api/reading-queue"): ("J28",),
     ("DELETE", "/api/reading-queue/{document_id}"): ("J28",),
     ("PUT", "/api/reading-queue/{document_id}"): ("J28",),
+    ("POST", "/api/reading-queue/{document_id}/restore"): ("J28",),
+    ("POST", "/api/reading-queue/batch"): ("J28",),
+    ("POST", "/api/reading-queue/batch/all"): ("J28",),
+    ("POST", "/api/reading-queue/batch/undo"): ("J28",),
     # --- Routines ----------------------------------------------------------
     ("GET", "/api/routines"): ("J03",),
     ("POST", "/api/routines"): ("J03",),
@@ -384,6 +401,8 @@ ROUTE_JOURNEYS: dict[tuple[str, str], tuple[str, ...]] = {
     # --- Manual runs -------------------------------------------------------
     ("POST", "/api/search/dive"): ("J01", "J39"),
     ("POST", "/api/search/sweep"): ("J02", "J39"),
+    ("GET", "/api/settings/sources"): ("J22",),
+    ("PUT", "/api/settings/sources"): ("J22",),
     ("GET", "/api/settings/execution"): ("J39",),
     ("PUT", "/api/settings/execution"): ("J39",),
     # --- Background daemon -------------------------------------------------
@@ -406,8 +425,11 @@ ROUTE_JOURNEYS: dict[tuple[str, str], tuple[str, ...]] = {
     ("GET", "/api/executions/{exec_id}/document-ids"): ("J47",),
     ("POST", "/api/documents/briefs"): ("J47", "J48"),
     ("GET", "/api/today"): ("J48",),
+    ("GET", "/api/today/papers"): ("J48",),
     ("POST", "/api/today/looked"): ("J48",),
     ("PUT", "/api/appearance"): ("J46",),
+    ("GET", "/api/top-bar"): ("J46",),
+    ("PUT", "/api/top-bar"): ("J46",),
     ("GET", "/api/shared-wording"): ("J49",),
     ("POST", "/api/shared-wording/scan"): ("J49",),
     ("POST", "/api/shared-wording/scan/cancel"): ("J49",),
@@ -415,6 +437,29 @@ ROUTE_JOURNEYS: dict[tuple[str, str], tuple[str, ...]] = {
     ("GET", "/api/shared-wording/papers/{document_id}"): ("J49",),
     ("GET", "/api/library/files/{file_id}/shared-wording"): ("J49", "J34"),
     ("POST", "/api/library/files/{file_id}/shared-wording"): ("J49", "J34"),
+    # --- Collections inside the one database (schema 26) --------------------
+    # Search › Your collection is the Explorer's row; the collection it shows,
+    # and moving and copying its papers, are part of that screen.
+    ("GET", "/api/collections"): ("J12",),
+    ("POST", "/api/collections"): ("J12",),
+    ("PUT", "/api/collections/current"): ("J12", "J48"),
+    ("GET", "/api/collections/{collection_id}"): ("J12",),
+    ("PUT", "/api/collections/{collection_id}"): ("J12",),
+    ("DELETE", "/api/collections/{collection_id}"): ("J12",),
+    ("POST", "/api/collections/{collection_id}/papers"): ("J12",),
+    ("POST", "/api/collections/{collection_id}/papers/undo"): ("J12",),
+    # --- Full text (schema 27) ---------------------------------------------
+    # Find a paper is a run asked of many sources at once, as a Deep Sweep is,
+    # and one submission is one run; its record is each source's answer.
+    ("GET", "/api/find/plan"): ("J02",),
+    ("POST", "/api/find"): ("J02", "J39"),
+    ("GET", "/api/executions/{exec_id}/find"): ("J02", "J29"),
+    # Get the PDF lands files in the owned Library; a watch's opt-in is the
+    # routine's, and a run's page says what it fetched.
+    ("GET", "/api/full-text/rules"): ("J34",),
+    ("POST", "/api/full-text/for-documents"): ("J34",),
+    ("POST", "/api/documents/{doc_id}/full-text"): ("J34",),
+    ("GET", "/api/executions/{exec_id}/full-text"): ("J34", "J03"),
 }
 
 
@@ -486,7 +531,7 @@ def modeled_route_count() -> int:
     return len(modeled_routes())
 
 
-def normalised_openapi() -> dict:
+def normalized_openapi() -> dict:
     """``app.openapi()`` with the version removed.
 
     ``info.version`` is ``config.APP_VERSION``, which moves at every release.
@@ -515,7 +560,7 @@ def contract_json() -> str:
     shows what changed rather than where it moved to.
     """
     return json.dumps(
-        normalised_openapi(), sort_keys=True, indent=2, ensure_ascii=False
+        normalized_openapi(), sort_keys=True, indent=2, ensure_ascii=False
     ) + "\n"
 
 
@@ -895,7 +940,7 @@ def _escape(text: str) -> str:
 
 def route_rows() -> list[dict]:
     """One row per ``(method, path)``, with everything the index prints."""
-    document = normalised_openapi()
+    document = normalized_openapi()
     paths = document.get("paths", {})
     by_key = {}
     for route in api_routes():
@@ -964,7 +1009,7 @@ def render_http_md() -> str:
     carried = sum(1 for jid, _ in REGISTER if by_journey.get(jid))
 
     out: list[str] = []
-    out.append("# The HTTP surface, by parity-register row")
+    out.append("# The HTTP surface, by journey")
     out.append("")
     out.append(
         "**Generated. Do not edit by hand.** `implementation_scripts/api_contract.py` "

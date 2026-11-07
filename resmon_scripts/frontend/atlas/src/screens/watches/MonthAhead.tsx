@@ -2,6 +2,8 @@ import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
+import { useChartTip, type TipContent } from '../../charts/ChartTip';
+import { joined } from '../../charts/roving';
 import { breakable } from '../../shell/breakable';
 import { clock, when } from '../today/format';
 import { firingOf, firingState, monthAheadLede, type Firing, type SchedulerStatus } from './firing';
@@ -49,11 +51,32 @@ function markWords(firing: Firing): string {
   return '';
 }
 
+const FIRE_DAY = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+
+/** A fire's tip: its watch, its day and time in this computer's time, whether anything will run it, and the way to the watch. */
+export function fireTip(name: string, start: string, firing: Firing): TipContent {
+  return {
+    name,
+    value: `${FIRE_DAY.format(new Date(start))} at ${clock(start)}`,
+    notes: firing === false ? ['Due, but nothing will run it.'] : firing === null ? ['Due, and not confirmed to run.'] : undefined,
+    opens: 'Opens the watch',
+  };
+}
+
+/** The fires a day has past the ones it names: each one's watch and time, in the tip and for a screen reader. */
+export function moreTip(rest: readonly { name: string; start: string }[]): TipContent {
+  return {
+    value: `${rest.length} more ${rest.length === 1 ? 'fire' : 'fires'} this day`,
+    lines: rest.map((fire) => ({ value: clock(fire.start), label: fire.name })),
+  };
+}
+
 /**
  * The month ahead: every fire a schedule is due, as a mark on its day named
  * with its time and its watch, in this computer's time, which is the zone the
  * scheduler fires in. The watch under the pointer, or under the keyboard's
- * focus, lights its own marks, and a mark opens its watch. Past days of this
+ * focus, lights its own marks, a mark's tip names its watch, its day, and its
+ * time, and a mark opens its watch. Past days of this
  * week are drawn quiet, with no fires: the calendar shows only fires still to
  * come.
  *
@@ -95,6 +118,7 @@ export function MonthAhead({ now, events, error, routines, lit, status, onLight 
   const drawn = days.flatMap((day) => (byDay.get(dayKey(day)) ?? []).slice(0, PER_DAY));
   const order = new Map(drawn.map((fire, index) => [fire, index]));
   const [focusAt, setFocusAt] = useState(0);
+  const tip = useChartTip();
   const marks = useRef<(HTMLAnchorElement | null)[]>([]);
   const current = Math.min(focusAt, Math.max(0, drawn.length - 1));
   const move = (event: KeyboardEvent<HTMLAnchorElement>, index: number) => {
@@ -139,13 +163,14 @@ export function MonthAhead({ now, events, error, routines, lit, status, onLight 
                       className="fire-mark"
                       ref={(node) => { marks.current[index] = node; }}
                       tabIndex={index === current ? 0 : -1}
-                      title={words}
                       aria-label={`${words}. Open the watch`}
                       data-firing={firingState(firing)}
                       data-lit={fire.routine_id === lit ? 'true' : undefined}
                       onKeyDown={(event) => move(event, index)}
-                      onFocus={() => { setFocusAt(index); if (fire.routine_id !== null) onLight?.(fire.routine_id); }}
                       onMouseEnter={() => { if (fire.routine_id !== null) onLight?.(fire.routine_id); }}
+                      {...joined({
+                        onFocus: () => { setFocusAt(index); if (fire.routine_id !== null) onLight?.(fire.routine_id); },
+                      }, tip.mark(fireTip(nameOf(fire), fire.start, firing)))}
                     >
                       <i
                         className="fire"
@@ -159,7 +184,14 @@ export function MonthAhead({ now, events, error, routines, lit, status, onLight 
                     </Link>
                   );
                 })}
-                {list.length > PER_DAY && <span className="fire-more num">{list.length - PER_DAY} more</span>}
+                {list.length > PER_DAY && (
+                  <span className="fire-more num" {...tip.mark(moreTip(list.slice(PER_DAY).map((fire) => ({ name: nameOf(fire), start: fire.start }))))}>
+                    {list.length - PER_DAY} more
+                    <span className="sr-only">
+                      : {list.slice(PER_DAY).map((fire) => `${nameOf(fire)} at ${clock(fire.start)}`).join(', ')}
+                    </span>
+                  </span>
+                )}
               </span>
             </div>
           );
@@ -169,6 +201,7 @@ export function MonthAhead({ now, events, error, routines, lit, status, onLight 
       {events !== null && !fires.length && (
         <p className="index-empty">Nothing is due: every watch is paused, or there are none.</p>
       )}
+      {tip.layer}
       <ol className="next-fires">
         {fires.slice(0, LISTED).map((fire) => {
           const firing = firingOf(status, fire.routine_id ?? -1);

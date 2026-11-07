@@ -12,6 +12,7 @@
 import { getCollection } from 'astro:content';
 import Base from '../../layouts/Base.astro';
 import { readDocument } from '../../lib/documents';
+import Cartouche from '../../components/Cartouche.astro';
 import IndexList from '../../components/IndexList.astro';
 import { url } from '../../lib/urls';
 
@@ -39,13 +40,10 @@ const contractRows = contract.map((entry) => ({
   path="/reference/"
   width="wide"
 >
-  <header class="page-head">
-    <h1>Reference</h1>
-    <p class="lede">
-      These pages are rendered from the Markdown in the repository's <code>docs/</code> folder,
-      not copied from it, so the site and a checkout cannot disagree.
-    </p>
-  </header>
+  <Cartouche
+    title="Reference"
+    meta="Rendered from the Markdown in the repository's docs/ folder, not copied from it, so the site and a checkout cannot disagree."
+  />
 
   <h2>Documents</h2>
   <IndexList rows={docRows.map((row) => ({ href: row.href, title: row.title, description: row.description, source: row.source }))} />
@@ -57,7 +55,6 @@ const contractRows = contract.map((entry) => ({
     files and fails on any difference. Published here, never edited here.
   </p>
   <IndexList
-    start={docRows.length + 1}
     rows={[
       ...contractRows.map((row) => ({ href: row.href, title: row.title, description: row.description, source: row.source })),
       {
@@ -71,18 +68,8 @@ const contractRows = contract.map((entry) => ({
 </Base>
 
 <style>
-  .page-head {
-    padding-bottom: var(--space-4);
-    border-bottom: var(--border-width-heavy) solid var(--color-rule-heavy);
-  }
-
-  h1 {
-    margin-top: 0;
-  }
-
   h2 {
-    font-size: var(--text-2xl);
-    font-weight: var(--weight-heavy);
+    font-size: var(--text-xl);
   }
 
   .lede {

@@ -33,8 +33,10 @@ from __future__ import annotations
 import json
 import os
 import sys
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Iterator, Optional
 
 import httpx
 from implementation_scripts import api_auth
@@ -53,14 +55,13 @@ from implementation_scripts.runtime_identity import valid_runtime_id, valid_iden
 # reconfigure the app or put a routine on a schedule, and a caller that ignored
 # that flag would be running writes the contract says a person approves first.
 #
-# The versioning rule in the contract points both ways for a narrowing. By its
-# enumeration -- removing a tool, renaming an argument, changing a return shape
-# -- nothing changes: 25 tools, every argument and every return shape the same.
-# By its test, "are callers unaffected", a caller that was setting
-# ``ai_cli_path`` is affected. The version moves as a minor, because a new major
-# and a new contract document would be out of proportion to a guard that takes
-# nothing off the surface and that the document's Safety section already implies.
-CONTRACT_VERSION = "2.4"
+# A narrowing (a call the server accepted that it now refuses) moves the version
+# as a minor: the contract's versioning rule asks whether callers are
+# affected, and a caller of the refused call is.
+#
+# 1.1 adds collections: ``list_collections``, and an optional ``collection`` on
+# the reads of the collection and on starting a run or a routine.
+CONTRACT_VERSION = "1.1"
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "resmon"
 
@@ -181,16 +182,14 @@ _CREDENTIAL_SHAPED: tuple[str, ...] = (
 # someone reading a summary, and never overclaiming outranks every other rule
 # here.
 #
-# **Both clauses are mechanical, and both are tested as mechanisms.** The first
-# draft argued no test was possible because neither moves a request. That was
-# wrong: ``test_every_key_whose_value_reaches_the_summarizer_prompt_is_withheld``
-# sentinels all 41 keys through the real builder and the real template, and
-# ``test_no_writable_key_can_switch_off_the_audit_prefix`` drives all 41 with
+# **Both clauses are mechanical, and both are tested as mechanisms.**
+# ``test_every_key_whose_value_reaches_the_summarizer_prompt_is_withheld``
+# sentinels all 39 keys through the real builder and the real template, and
+# ``test_no_writable_key_can_switch_off_the_audit_prefix`` drives all 39 with
 # the one string that disables the flag. Neither consults this dict to decide
 # what *should* be withheld; each works out which keys have the property and
-# then asks whether those keys are here. The first was red on ``ai_tone`` and
-# ``ai_summary_length`` when it was written, which is the proof that it is a
-# guard rather than a mirror.
+# then asks whether those keys are here, so each is a guard rather than a
+# mirror.
 #
 # The two lists partition ``resmon._SETTINGS_GROUPS`` exactly, and
 # ``test_every_settings_key_the_app_has_is_either_writable_or_withheld``
@@ -198,9 +197,8 @@ _CREDENTIAL_SHAPED: tuple[str, ...] = (
 # someone has to make rather than a key that arrives writable.
 #
 # **Four mechanisms derive 8 of the 19 keys below, and eleven are category
-# judgements.** Count them honestly, because the first draft of this comment's
-# neighboring prose claimed sixteen by counting a key as covered when it
-# merely belonged to a category a mechanism was named after:
+# judgments.** A key counts as covered only when a mechanism finds it, not when
+# it belongs to a category a mechanism is named after:
 #
 #   route_digest moves                  ai_cli_path, ai_custom_base_url
 #   reaches SUMMARIZE_ABSTRACT          ai_extraction_goals, ai_tone,
@@ -213,7 +211,7 @@ _CREDENTIAL_SHAPED: tuple[str, ...] = (
 # export_directory, smtp_server, smtp_port, smtp_to -- have a reason each, and
 # a reason is not a test. Move one of those to the writable set and the only
 # thing that goes red is the count assertion in the contract document, which
-# the same change would update: that was measured, not assumed. So the
+# the same change would update. So the
 # mechanisms are a **floor, not the line**, and for those eleven the thing
 # standing behind the list is a reviewer. A fifth mechanism that retires
 # some of them is the obvious next improvement here.
@@ -736,6 +734,83 @@ def _expected_runtime(args: dict) -> Optional[str]:
     return value
 
 
+#: The collection a call that names none reads, where one is set. The in-app
+#: assistant sets the window's for a turn (``in_collection``), and gives it to
+#: a server it starts as ``RESMON_MCP_COLLECTION``. Otherwise a call that names
+#: no collection reads the default one.
+COLLECTION_ENV = "RESMON_MCP_COLLECTION"
+_TURN_COLLECTION: ContextVar[Optional[str]] = ContextVar("resmon_mcp_collection", default=None)
+
+
+@contextmanager
+def in_collection(collection: Optional[Any]) -> Iterator[None]:
+    """Calls made inside read and write *collection* (an id or a name) where they name none."""
+    token = _TURN_COLLECTION.set(None if collection is None else str(collection))
+    try:
+        yield
+    finally:
+        _TURN_COLLECTION.reset(token)
+
+
+def turn_collection() -> Optional[str]:
+    """The collection set for calls that name none, or None for the default one."""
+    return _TURN_COLLECTION.get() or (os.environ.get(COLLECTION_ENV) or "").strip() or None
+
+
+def _collection(args: dict) -> Optional[str]:
+    """The collection a call names, by id or name, as a string, or the one set
+    for the turn, or None for the default one.
+
+    Passed to the backend as given: the backend resolves a name, reads a string
+    of digits as an id where one exists, and refuses a name that is no
+    collection, so this server and the app cannot disagree about which
+    collection a name means."""
+    value = args.get("collection")
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return turn_collection()
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        raise ToolError("invalid_argument", "'collection' is a collection's name or its id.")
+    return str(value).strip()
+
+
+def _collection_used(collection: Optional[str]) -> dict:
+    """The collection a call read or wrote, by id and name, resolved as the
+    backend resolves it: none is the default one, digits are an id where one
+    exists, and anything else is a name in any case. Where the collections
+    cannot be read, both are None rather than the answer failing."""
+    try:
+        data = backend.request("GET", "/api/collections") or {}
+    except ToolError:
+        return {"id": None, "name": None}
+    rows = (data.get("collections") if isinstance(data, dict) else None) or []
+    chosen = None
+    if collection is None:
+        chosen = next((r for r in rows if r.get("id") == data.get("default_id")), None)
+    else:
+        text = str(collection).strip()
+        if text.isdigit():
+            chosen = next((r for r in rows if r.get("id") == int(text)), None)
+        if chosen is None:
+            chosen = next((r for r in rows if str(r.get("name", "")).casefold() == text.casefold()), None)
+    return {"id": chosen.get("id"), "name": chosen.get("name")} if chosen else {"id": None, "name": None}
+
+
+def t_list_collections(args: dict) -> Any:
+    """Every collection, how many papers and watches each has, and the default one."""
+    data = backend.request("GET", "/api/collections") or {}
+    rows = data.get("collections") or []
+    return {
+        "collections": [{
+            "id": r.get("id"), "name": r.get("name"), "papers": r.get("papers"),
+            "watches": r.get("watches"), "is_default": r.get("is_default"),
+        } for r in rows],
+        "count": len(rows),
+        # The one the app shows; a call that names no collection reads the default one.
+        "current_id": data.get("current_id"),
+        "default_id": data.get("default_id"),
+    }
+
+
 def t_health(args: dict) -> Any:
     expected = _expected_runtime(args)
     if expected is None:
@@ -796,6 +871,9 @@ def t_search_corpus(args: dict) -> Any:
     for key in ("sources", "date_from", "date_to"):
         if args.get(key):
             body[key] = args[key]
+    collection = _collection(args)
+    if collection is not None:
+        body["collection"] = collection
     data = backend.request("POST", "/api/explorer/search", json=body) or {}
     rows = data.get("results") if isinstance(data, dict) else None
     rows = rows if isinstance(rows, list) else []
@@ -812,11 +890,13 @@ def t_search_corpus(args: dict) -> Any:
         "count": len(rows),
         "next_cursor": data.get("next_cursor"),
         "has_more": data.get("has_more"),
-        # The backend caps its own count; passing the cap through means a
-        # harness cannot mistake "at least this many" for an exact total.
+        # The count is exact unless it ran out of time; passing that through
+        # means a harness cannot mistake "at least this many" for an exact total.
         "total": data.get("total"),
-        "total_is_capped": data.get("total_is_capped"),
+        "total_is_exact": data.get("total_is_exact"),
         "mode": served,
+        # The one collection searched: the default one where the call named none.
+        "collection": _collection_used(collection),
     }
     if served == "semantic":
         # How much of the answer is actually ranked. Papers with no vector are
@@ -898,6 +978,8 @@ def t_list_routines(args: dict) -> Any:
             "schedule": r.get("schedule_cron"),
             "active": bool(r.get("is_active")),
             "last_run": r.get("last_executed_at"),
+            # Where its runs' papers land (list_collections names it).
+            "collection_id": r.get("collection_id"),
             # Fires that did not run -- came due while resmon was closed, or
             # were refused because the previous run of this routine was still
             # going. A count, not a verdict: it says the schedule was not
@@ -1022,8 +1104,7 @@ def t_get_execution_results(args: dict) -> Any:
     endpoint returns ``{"report_text": ...}`` -- the entire rendered Markdown
     report. Returning it would break the contract's own token-efficiency
     guarantee in the same document that states it, so this uses the structured
-    reference export instead. Recorded as a contract amendment rather than a
-    silent deviation.
+    reference export instead, as the contract's tool table says.
     """
     exec_id = _require_int(args, "exec_id")
     raw = backend.request(
@@ -1085,8 +1166,13 @@ def t_get_analytics(args: dict) -> Any:
             f"Unknown view '{view}'. Expected one of: "
             f"{', '.join(sorted(_ANALYTICS_VIEWS))}.",
         )
-    params = {"window": args["window"]} if args.get("window") else None
-    return backend.request("GET", path, params=params)
+    params = {"window": args["window"]} if args.get("window") else {}
+    collection = _collection(args)
+    if collection is not None:
+        params["collection"] = collection
+    data = backend.request("GET", path, params=params or None)
+    # The one collection the view counts: the default one where the call named none.
+    return {**data, "collection": _collection_used(collection)} if isinstance(data, dict) else data
 
 
 def t_get_watchdog_findings(args: dict) -> Any:
@@ -1128,9 +1214,22 @@ def t_run_sweep(args: dict) -> Any:
             body[key] = args[key]
     if args.get("ai_enabled") is not None:
         body["ai_enabled"] = bool(args["ai_enabled"])
+    collection = _collection(args)
+    if collection is not None:
+        body["collection"] = collection
     data = backend.request("POST", "/api/search/sweep", json=body) or {}
+    if data.get("queued"):
+        # At resmon's run limit the sweep waits for a free slot and starts on
+        # its own; there is no run to poll until it does. The ticket is the
+        # ``request_id`` its run carries once it starts, which is how a caller
+        # finds it in ``list_executions`` afterwards.
+        return {"execution_id": None, "queued": True,
+                "queue_position": data.get("queue_position"), "ticket": data.get("ticket"),
+                "detail": data.get("detail"), "collection": _collection_used(collection)}
     return {"execution_id": data.get("execution_id"),
-            "detail": "Started. Poll get_execution for progress."}
+            "detail": "Started. Poll get_execution for progress.",
+            # Where its papers land: the default collection where the call named none.
+            "collection": _collection_used(collection)}
 
 
 def t_create_routine(args: dict) -> Any:
@@ -1172,6 +1271,9 @@ def t_create_routine(args: dict) -> Any:
     intent = str(args.get("intent") or "").strip()
     if intent:
         body["intent"] = intent
+    collection = _collection(args)
+    if collection is not None:
+        body["collection"] = collection
     created = backend.request("POST", "/api/routines", json=body) or {}
 
     # ``POST /api/routines`` answers with ``{id, name}`` -- everything the
@@ -1188,7 +1290,10 @@ def t_create_routine(args: dict) -> Any:
         except ToolError:
             routine = created
 
+    landing = routine.get("collection_id") if isinstance(routine, dict) else None
     answer = {"routine": routine,
+              # Where its runs' papers land.
+              "collection": _collection_used(str(landing) if landing is not None else collection),
               "detail": "Created inactive. Activate it — in resmon, or by asking "
                         "to turn it on — to put it on its schedule."}
     # The creation reply carries a sentence when none of the named sources can be
@@ -1264,7 +1369,7 @@ def t_update_settings(args: dict) -> Any:
        file. ``GET /api/settings/<group>`` returns the group's keys, so a key
        renamed in the app cannot silently become a no-op here -- and an
        unknown key is refused rather than dropped. The backend's own PUT
-       ignores keys outside the group, which is the right behaviour for a
+       ignores keys outside the group, which is the right behavior for a
        form and the wrong one for a tool: a caller told "success" for a key
        that was discarded has been lied to.
     5. **The answer is a before/after diff.** Not "success": the exact keys
@@ -1440,7 +1545,7 @@ def t_list_watch_profiles(args: dict) -> Any:
 
 
 def t_get_watch_profile(args: dict) -> Any:
-    """One profile, in full, with its matches summarised by basis.
+    """One profile, in full, with its matches summarized by basis.
 
     The per-basis counts ride along rather than living behind a second call, for
     the same reason ``get_routine`` carries its coverage summary: the number a
@@ -1516,9 +1621,11 @@ def t_get_profile_matches(args: dict) -> Any:
     means to make it.
     """
     profile_id = _require_int(args, "profile_id")
-    body = backend.request(
-        "GET", f"/api/profiles/{profile_id}/matches",
-        params={"limit": _limit(args), "offset": _offset(args)}) or {}
+    params: dict[str, Any] = {"limit": _limit(args), "offset": _offset(args)}
+    collection = _collection(args)
+    if collection is not None:
+        params["collection"] = collection
+    body = backend.request("GET", f"/api/profiles/{profile_id}/matches", params=params) or {}
     rows = body.get("matches") or []
     return {
         "matches": [{
@@ -1535,6 +1642,8 @@ def t_get_profile_matches(args: dict) -> Any:
         } for r in rows],
         "total": body.get("total", 0),
         "by_basis": body.get("by_basis", {}),
+        # The one collection read: the default one where the call named none.
+        "collection": _collection_used(collection),
         "what_a_basis_means": {
             "identifier": "the source returned this profile's ORCID on the paper",
             "name+affiliation": ("a name matched and an affiliation on the record "
@@ -1545,6 +1654,12 @@ def t_get_profile_matches(args: dict) -> Any:
     }
 
 
+#: The optional argument every read of the collection and every start of a run takes.
+_COLLECTION_ARG = {"type": "string", "description": (
+    "Optional. One collection, by its name or its id as a string, as list_collections "
+    "gives them. The call reads that collection only; without one, the default "
+    "collection, not every collection. The answer names the collection used.")}
+
 TOOLS: list[dict] = [
     {"name": "health", "fn": t_health,
      "description": "Whether resmon is running, and which version.",
@@ -1553,9 +1668,11 @@ TOOLS: list[dict] = [
 
     {"name": "search_corpus", "fn": t_search_corpus,
      "description": (
-         "Search the papers resmon has already collected. mode='semantic' ranks the "
-         "corpus by closeness to the query rather than filtering on its words, so it "
-         "finds papers that share no wording with it; the answer says which mode was "
+         "Search the papers resmon has already collected, in one collection: the "
+         "one named as 'collection', or the default one when it is omitted (the "
+         "answer's 'collection' says which). mode='semantic' ranks the collection by "
+         "closeness to the query rather than filtering on its words, so it finds "
+         "papers that share no wording with it; the answer says which mode was "
          "actually served."
      ),
      "schema": {"type": "object", "required": ["query"], "properties": {
@@ -1574,7 +1691,16 @@ TOOLS: list[dict] = [
          "date_from": {"type": "string"}, "date_to": {"type": "string"},
          "limit": {"type": "integer", "default": DEFAULT_LIMIT},
          "cursor": {"type": "string",
-                    "description": "next_cursor from the previous call"}}}},
+                    "description": "next_cursor from the previous call"},
+         "collection": _COLLECTION_ARG}}},
+
+    {"name": "list_collections", "fn": t_list_collections,
+     "description": (
+         "The user's collections: each one's id, name, and how many papers and "
+         "watches it has. A paper can be in more than one. The reads and the "
+         "starts of a run take one as 'collection'; without one they use the default."
+     ),
+     "schema": {"type": "object", "properties": {}}},
 
     {"name": "find_similar", "fn": t_find_similar,
      "description": (
@@ -1604,7 +1730,7 @@ TOOLS: list[dict] = [
          "routine_id": {"type": "integer"}}}},
 
     {"name": "list_executions", "fn": t_list_executions,
-     "description": "Past and running executions, newest first. status is one of running, completed, failed, cancelled, interrupted.",
+     "description": "Past and running executions, newest first. status is one of `running`, `completed`, `failed`, `cancelled`, `interrupted`.",
      "schema": {"type": "object", "properties": {
          "routine_id": {"type": "integer"}, "status": {"type": "string"},
          "limit": {"type": "integer", "default": DEFAULT_LIMIT},
@@ -1643,10 +1769,13 @@ TOOLS: list[dict] = [
          "doc_id": {"type": "integer"}}}},
 
     {"name": "get_analytics", "fn": t_get_analytics,
-     "description": "A summary view over the corpus and run history.",
+     "description": ("A summary view over one collection's papers and the runs that fed it: "
+                     "the one named as 'collection', or the default one when it is omitted "
+                     "(the answer's 'collection' says which)."),
      "schema": {"type": "object", "required": ["view"], "properties": {
          "view": {"type": "string", "enum": sorted(_ANALYTICS_VIEWS)},
-         "window": {"type": "string"}}}},
+         "window": {"type": "string"},
+         "collection": _COLLECTION_ARG}}},
 
     {"name": "get_watchdog_findings", "fn": t_get_watchdog_findings,
      "description": ("Silent-failure findings, each labeled broken (a recorded fact), "
@@ -1676,12 +1805,14 @@ TOOLS: list[dict] = [
          "'identifier' means the source returned this profile's ORCID; "
          "'name+affiliation' and 'name_only' are string matches and are NOT "
          "evidence of identity. Never present a 'name_only' match as this "
-         "person's paper."
+         "person's paper. Reads one collection: the one named as 'collection', "
+         "or the default one when it is omitted (the answer's 'collection' says which)."
      ),
      "schema": {"type": "object", "required": ["profile_id"], "properties": {
          "profile_id": {"type": "integer"},
          "limit": {"type": "integer", "default": DEFAULT_LIMIT},
-         "offset": {"type": "integer", "default": 0}}}},
+         "offset": {"type": "integer", "default": 0},
+         "collection": _COLLECTION_ARG}}},
 
     {"name": "export_references", "fn": t_export_references,
      "description": "Export references as BibTeX, RIS, CSV or JSON.",
@@ -1691,22 +1822,33 @@ TOOLS: list[dict] = [
          "format": {"type": "string", "enum": ["bibtex", "ris", "csv", "json"]}}}},
 
     {"name": "run_sweep", "fn": t_run_sweep, "requires_confirmation": True,
-     "description": "Search sources now and store what comes back. Returns immediately. Poll get_execution: a run whose backend was killed ends interrupted, not failed.",
+     "description": ("Search sources now and store what comes back in one collection: the one "
+                     "named as 'collection', or the default one when it is omitted (the answer's "
+                     "'collection' says which). Returns immediately. Poll get_execution: a run "
+                     "whose backend was killed ends interrupted, not failed."),
      "schema": {"type": "object", "required": ["query", "sources"], "properties": {
          "query": {"type": "string"},
          "sources": {"type": "array", "items": {"type": "string"}},
          "date_from": {"type": "string"}, "date_to": {"type": "string"},
          "max_results": {"type": "integer"},
-         "ai_enabled": {"type": "boolean"}}}},
+         "ai_enabled": {"type": "boolean"},
+         "collection": {**_COLLECTION_ARG, "description": (
+             "Optional. The one collection its papers land in, by name or by id as a "
+             "string. Without one, the default collection.")}}}},
 
     {"name": "create_routine", "fn": t_create_routine, "requires_confirmation": True,
-     "description": "Create a monitoring routine. It is created INACTIVE; the user activates it in resmon.",
+     "description": ("Create a monitoring routine whose runs' papers land in one collection: the one "
+                     "named as 'collection', or the default one when it is omitted (the answer's "
+                     "'collection' says which). It is created INACTIVE; the user activates it in resmon."),
      "schema": {"type": "object", "required": ["name", "keywords", "sources", "schedule"],
                 "properties": {
                     "name": {"type": "string"},
                     "keywords": {"type": "array", "items": {"type": "string"}},
                     "sources": {"type": "array", "items": {"type": "string"}},
                     "schedule": {"type": "string", "description": "cron expression"},
+                    "collection": {**_COLLECTION_ARG, "description": (
+                        "Optional. The one collection its runs' papers land in, by "
+                        "name or by id as a string. Without one, the default collection.")},
                     "intent": {"type": "string", "description": (
                         "Optional. What this routine is really looking for, in "
                         "the user's own words. The coverage audit compares "

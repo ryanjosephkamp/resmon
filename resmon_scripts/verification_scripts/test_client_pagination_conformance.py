@@ -9,9 +9,9 @@ requested at all. Deduplication downstream collapses the duplicates, so the
 only visible symptom is a result set quietly short of what the user asked for.
 
 ``api_zenodo.py`` documents that exact hazard and pins its page size for it.
-Nine of the twenty-six client modules paginate by page number. This row checks
+Nine of the twenty-four client modules paginate by page number. This row checks
 all of them on every run, with its denominator read from
-``api_registry.list_repositories()`` so a twenty-seventh source is covered on
+``api_registry.list_repositories()`` so a twenty-sixth source is covered on
 the day it is registered.
 
 **How a page is served.** Each client is driven against a transport that
@@ -278,12 +278,6 @@ _PAGE_SHAPES = {
         "numFound": _TOTAL,
         "docs": [{"bibcode": f"2024A&A...{s + i}", "title": [_marker(s + i)],
                   "pubdate": "2024-05-00"} for i in range(n)]}}).encode(),
-    "nist_rmm": lambda s, n: json.dumps(_wrap(
-        ("ResultData",), [{"ediid": f"nist-{s + i}", "title": _marker(s + i),
-                           "publication_date": "2024-05-01",
-                           "url": "https://data.nist.gov/x"}
-                          for i in range(n)],
-        {"ResultCount": _TOTAL})).encode(),
     "openalex": lambda s, n: json.dumps(_wrap(
         ("results",), [{"id": f"https://openalex.org/W{s + i}",
                         "display_name": _marker(s + i),
@@ -508,7 +502,7 @@ def test_every_registered_slug_is_either_served_or_excluded():
 
     This is the assertion that keeps the row honest. ``_PAGE_SHAPES`` is a
     hand-written table and a hand-written table goes stale: without this, a
-    twenty-seventh source would join the registry, have no page shape, be
+    twenty-sixth source would join the registry, have no page shape, be
     driven by nothing, and this file would still report every test passing.
 
     **What this row does not establish, in full.**
@@ -535,7 +529,7 @@ def test_every_registered_slug_is_either_served_or_excluded():
       that request the same way; that is what the weekly live suite is for.
     """
     assert SLUGS == api_registry.list_repositories()
-    assert len(SLUGS) >= 26, "the registry shrank; a source was retired silently"
+    assert len(SLUGS) >= 25, "the registry shrank; a source was retired silently"
 
     unaccounted = set(SLUGS) - set(_PAGE_SHAPES) - set(_NOT_SERVED)
     assert not unaccounted, (
@@ -550,7 +544,7 @@ def test_every_registered_slug_is_either_served_or_excluded():
 
     # Said out loud, with the denominator, because "every client paginates
     # correctly" is exactly the claim this project bans without one.
-    assert len(_SERVED) == 23
+    assert len(_SERVED) == 22
     assert len(_NOT_SERVED) == 3
     assert len(_SERVED) + len(_NOT_SERVED) == len(SLUGS)
 

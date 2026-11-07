@@ -19,8 +19,9 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
-import { launchEnv, FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, registerStateDir } from './fixtures/resmon-app';
+import { atlasEnv, launchEnv, FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, registerStateDir } from './fixtures/resmon-app';
 import { SCREEN_PATHS } from '../atlas/src/screenPaths';
+import { removeStateDir } from './fixtures/cleanup';
 
 const MOD = process.platform === 'darwin' ? 'Meta' : 'Control';
 
@@ -42,7 +43,7 @@ test('the app serves the Atlas shell, connected to its own backend', async () =>
     expect(port, 'the installed service port is never used').not.toBe('8742');
   } finally {
     await app.close().catch(() => { /* already gone */ });
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });
 
@@ -51,8 +52,10 @@ async function launchAtlas(name: string, width?: number): Promise<{ app: Electro
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `resmon-e2e-atlas-${name}-`)));
   const stateDir = path.join(root, 'state');
   fs.mkdirSync(stateDir);
-  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
-  if (width) env.RESMON_E2E_WIDTH = String(width);
+  const base: Record<string, string> = { ...launchEnv(stateDir, true) };
+  if (width) base.RESMON_E2E_WIDTH = String(width);
+  // Held to the screen `RESMON_E2E_SCREEN` names, as CI's macOS runner holds the window to its own.
+  const env = atlasEnv(base);
   const python = execFileSync(env.RESMON_PYTHON ?? 'python3', ['-c', 'import sys;print(sys.executable)'], { env, encoding: 'utf8' }).trim();
   const cli = path.join(root, 'claude');
   fs.writeFileSync(cli, `#!/bin/sh\nexec "${python}" "${path.join(REPO_ROOT, 'resmon_scripts/verification_scripts/fixtures/fake_claude.py')}" "$@"\n`, { mode: 0o755 });
@@ -77,7 +80,7 @@ async function launchAtlas(name: string, width?: number): Promise<{ app: Electro
     app, win, problems,
     done: async () => {
       await app.close().catch(() => { /* already gone */ });
-      fs.rmSync(root, { recursive: true, force: true });
+      removeStateDir(root);
     },
   };
 }
@@ -103,7 +106,7 @@ test('the top bar: its name goes home, and a click leaves no ring for the next k
     const bar = win.locator('header.bar');
     const library = win.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Library' });
     await library.click();
-    await expect(win.getByRole('heading', { name: 'Reading queue', level: 1 })).toBeVisible({ timeout: 30_000 });
+    await expect(win.getByRole('heading', { name: 'Library', level: 1 })).toBeVisible({ timeout: 30_000 });
     // A toolbar keeps no focus: Shift (part of the screenshot keys) then rings nothing in the bar.
     await win.keyboard.press('Shift');
     expect(await bar.evaluate((node) => node.querySelectorAll(':focus-visible').length)).toBe(0);
@@ -168,8 +171,8 @@ test('the keyboard: every section, Settings, back and forward, New conversation,
   test.setTimeout(240_000);
   const { app, win, problems, done } = await launchAtlas('keys');
   try {
-    // — the six sections and Settings, in the top bar's order ------------------------
-    const sections = ['#/today', '#/watches', '#/search', '#/library', '#/ask', '#/health'];
+    // — the seven sections and Settings, in the top bar's order ----------------------
+    const sections = ['#/today', '#/watches', '#/search', '#/runs', '#/library', '#/ask', '#/health'];
     for (const [index, expected] of sections.entries()) {
       await win.keyboard.press(`${MOD}+${index + 1}`);
       await expect.poll(() => hash(win)).toBe(expected);
@@ -185,8 +188,8 @@ test('the keyboard: every section, Settings, back and forward, New conversation,
     await win.keyboard.press(`${MOD}+BracketRight`);
     await expect.poll(() => hash(win)).toBe('#/health');
 
-    // — ⌘N: Ask, a new conversation, the caret in the composer --------------------------
-    await win.keyboard.press(`${MOD}+n`);
+    // — ⇧⌘N: Ask, a new conversation, the caret in the composer (⌘N is New Window) ----
+    await win.keyboard.press(`${MOD}+Shift+n`);
     await expect.poll(() => hash(win)).toBe('#/ask');
     const composer = win.getByRole('region', { name: 'Conversation' }).getByLabel('Message the assistant');
     await expect(win.getByRole('button', { name: 'New conversation' })).toHaveAttribute('aria-pressed', 'true');
@@ -219,7 +222,10 @@ test('the keyboard: every section, Settings, back and forward, New conversation,
     await expect(sheet).toBeVisible();
     const mac = process.platform === 'darwin';
     await expect(sheet.locator('[data-shortcut="new-sweep"] kbd')).toHaveText(mac ? '⇧⌘D' : 'Ctrl+Shift+D');
-    await expect(sheet.locator('[data-shortcut="section-4"] dt')).toHaveText('Library');
+    // ⌘1 to ⌘7 follow the bar from the left: Runs, after Search, is ⌘4.
+    await expect(sheet.locator('[data-shortcut="section-4"] dt')).toHaveText('Runs');
+    await expect(sheet.locator('[data-shortcut="section-7"] dt')).toHaveText('Health');
+    await expect(sheet.locator('[data-shortcut="section-7"] kbd')).toHaveText(mac ? '⌘7' : 'Ctrl+7');
     await expect(sheet.locator('[data-shortcut="back"] kbd')).toHaveText(mac ? ['⌘[', '⌘←'] : ['Ctrl+[', 'Alt+←']);
     await expect(sheet.locator('[data-shortcut="find"] dt')).toHaveText('Find in the file');
     await expect(sheet.locator('[data-shortcut="find"] kbd')).toHaveText(mac ? '⌘F' : 'Ctrl+F');
@@ -227,7 +233,7 @@ test('the keyboard: every section, Settings, back and forward, New conversation,
     // the screen behind it.
     await sheet.evaluate((node) => Promise.all(document.getAnimations()
       .filter((a) => (a.effect as KeyframeEffect | null)?.target === node)
-      .map((a) => a.finished)));
+      .map((a) => a.finished.catch(() => undefined))));
     fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
     await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-shell-shortcuts.png') });
     // A shortcut pressed in the sheet closes it and does what it says.
@@ -241,7 +247,8 @@ test('the keyboard: every section, Settings, back and forward, New conversation,
     await expect(palette).toBeVisible();
     const row = (label: string) => palette.getByRole('option', { name: new RegExp(`^${label}`) });
     await expect(row('New Deep Sweep').locator('kbd')).toHaveText(mac ? '⇧⌘D' : 'Ctrl+Shift+D');
-    await expect(row('Health').locator('kbd')).toHaveText(mac ? '⌘6' : 'Ctrl+6');
+    await expect(row('Health').locator('kbd')).toHaveText(mac ? '⌘7' : 'Ctrl+7');
+    await expect(row('Runs').locator('kbd')).toHaveText(mac ? '⌘4' : 'Ctrl+4');
     await win.getByRole('combobox', { name: 'Search commands' }).fill('calendar');
     await expect(palette.getByRole('option').first()).toHaveText(/^Calendar/);
     await win.keyboard.press('Enter');
@@ -261,10 +268,12 @@ test('the keyboard: every section, Settings, back and forward, New conversation,
 
     // — nothing while a dialog of a screen's own is open, not even the menu's keys -----
     await openForeignDialog(win);
-    for (const key of [`${MOD}+3`, `${MOD}+n`, `${MOD}+BracketLeft`, `${MOD}+k`]) await win.keyboard.press(key);
+    for (const key of [`${MOD}+3`, `${MOD}+Shift+n`, `${MOD}+n`, `${MOD}+BracketLeft`, `${MOD}+k`]) await win.keyboard.press(key);
     await win.waitForTimeout(500);
     expect(await hash(win)).toBe('#/search');
     await expect(palette).toBeHidden();
+    // ⌘N opened no window over it either.
+    expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
     await closeForeignDialog(win);
 
     // — the app menu carries the same keys, and its items reach the renderer -------------
@@ -273,7 +282,7 @@ test('the keyboard: every section, Settings, back and forward, New conversation,
       return found ? { label: found.label, accelerator: found.accelerator ?? null } : null;
     }, id);
     const click = (id: string) => app.evaluate(({ Menu }, which) => { Menu.getApplicationMenu()?.getMenuItemById(which)?.click(); }, id);
-    expect(await item('file-new-conversation')).toEqual({ label: 'New Conversation', accelerator: 'CmdOrCtrl+N' });
+    expect(await item('file-new-conversation')).toEqual({ label: 'New Conversation', accelerator: 'Shift+CmdOrCtrl+N' });
     expect(await item('file-new-dive')).toEqual({ label: 'New Deep Dive', accelerator: 'CmdOrCtrl+D' });
     expect(await item('file-new-sweep')).toEqual({ label: 'New Deep Sweep', accelerator: 'Shift+CmdOrCtrl+D' });
     expect((await item('app-settings'))?.accelerator).toBe('CmdOrCtrl+,');
@@ -302,7 +311,7 @@ test('the keyboard: every section, Settings, back and forward, New conversation,
 
 /** Every top-level screen and the places within them a person reaches from the bar. */
 const SCREENS = ['/today', '/watches', '/watches/calendar', '/watches/people', '/search', '/search/ask', '/search/saved',
-  '/search/wording', '/library', '/library/files', '/library/evidence', '/ask', '/health', '/health/watchdog',
+  '/search/wording', '/runs', '/library', '/library/files', '/library/evidence', '/ask', '/health', '/health/watchdog',
   '/health/analytics', '/health/engine', '/settings', '/settings/about', '/settings/ai'];
 
 test('no screen scrolls sideways, from the window\'s 960-pixel minimum up, and the bar gives way rather than spills', async () => {
@@ -334,7 +343,7 @@ test('no screen scrolls sideways, from the window\'s 960-pixel minimum up, and t
       await expect(trigger).toBeVisible();
       await expect(search).toBeVisible();
       expect(await trigger.locator('.newsearch-label').evaluate((n) => n.getBoundingClientRect().width > 1)).toBe(inner >= 1200);
-      expect(await search.locator('.cmdk-label').evaluate((n) => n.getBoundingClientRect().width > 1)).toBe(inner >= 1000);
+      expect(await search.locator('.cmdk-label').evaluate((n) => n.getBoundingClientRect().width > 1)).toBe(inner >= 1100);
       if (inner < 1200) {
         fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
         await win.screenshot({ path: path.join(SCREENSHOT_DIR, `atlas-shell-bar-${inner}.png`) });
@@ -350,6 +359,135 @@ test('no screen scrolls sideways, from the window\'s 960-pixel minimum up, and t
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(960);
     await win.keyboard.press('Escape');
+    expect(problems).toEqual([]);
+  } finally {
+    await done();
+  }
+});
+
+test('Ask the sources: a wheel over the source list scrolls the page, and nothing waits under the action bar', async () => {
+  test.setTimeout(240_000);
+  const { win, problems, done } = await launchAtlas('ask-scroll');
+  try {
+    await win.evaluate(() => { window.location.hash = '#/search/ask'; });
+    await win.getByRole('button', { name: 'Deep Sweep' }).click();
+    const rows = win.locator('.catalog-rows');
+    await expect(win.locator('.source').first()).toBeVisible({ timeout: 30_000 });
+    const column = win.locator('.ask');
+    const scrolled = () => column.evaluate((el) => el.scrollTop);
+    // The rows are not a box of their own that keeps the wheel.
+    expect(await rows.evaluate((el) => el.scrollHeight - el.clientHeight), 'the source list scrolls inside its own box').toBeLessThanOrEqual(1);
+    expect(await scrolled()).toBe(0);
+
+    // A wheel with the pointer over the list moves the page. Each try wheels again: the old list kept
+    // every wheel in its own box, however many came, so the page never moved.
+    await expect.poll(() => win.locator('.source').count()).toBeGreaterThan(20);
+    const box = await rows.boundingBox();
+    if (!box) throw new Error('the source list has no box');
+    await win.mouse.move(box.x + box.width / 2, box.y + Math.min(box.height / 2, 120));
+    await expect.poll(async () => { await win.mouse.wheel(0, 250); return scrolled(); },
+      { message: 'a wheel over the source list did not scroll the page' }).toBeGreaterThan(0);
+
+    // The column heads and the filter stay at the top of the column meanwhile.
+    await win.mouse.wheel(0, 500);
+    await expect.poll(scrolled).toBeGreaterThan(400);
+    const [top, heads] = await Promise.all([column.boundingBox(), win.locator('.catalog-top').boundingBox()]);
+    expect(Math.abs((heads?.y ?? -100) - (top?.y ?? 0)), 'the column heads scrolled away with the rows').toBeLessThanOrEqual(1);
+
+    // Everything the form holds below the list can be reached, and the bar is the form's last part, with Save and Watch in it.
+    await column.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    expect(await win.locator('form.ask > :last-child').evaluate((el) => el.classList.contains('ask-go'))).toBe(true);
+    for (const control of ['.cap input', '[data-ask="summaries"] input[type="checkbox"]', '[data-saved="keep"]', '[data-editor="watch-this"]']) {
+      const target = win.locator(control);
+      await target.scrollIntoViewIfNeeded();
+      const covered = await target.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return !(hit && (hit === el || el.contains(hit) || hit.contains(el)));
+      });
+      expect(covered, `${control} is under something`).toBe(false);
+    }
+    await expect(win.locator('.ask-go [data-saved="keep"]')).toBeVisible();
+    await expect(win.locator('.ask-go [data-editor="watch-this"]')).toBeVisible();
+
+    // The filter narrows the rows by name; what is chosen is named above them, and can be taken back there.
+    await column.evaluate((el) => { el.scrollTop = 0; });
+    const filter = win.getByLabel('Filter the sources by name');
+    await filter.fill('arx');
+    await expect(win.locator('.source')).toHaveCount(1);
+    await win.locator('.source[data-source="arxiv"] input').check();
+    await expect(win.locator('[data-catalog="chosen"]')).toContainText('arXiv');
+    await filter.fill('no such source');
+    await expect(win.locator('[data-catalog="no-match"]')).toHaveText('No source’s name matches “no such source”.');
+    await filter.press('Escape');
+    await expect(filter).toHaveValue('');
+    expect(await win.locator('.source').count()).toBeGreaterThan(10);
+    await win.locator('[data-catalog="chosen"]').getByRole('button', { name: 'Remove arXiv' }).click();
+    await expect(win.locator('.source[data-source="arxiv"] input')).not.toBeChecked();
+    await expect(win.locator('[data-catalog="chosen"]')).toHaveCount(0);
+    fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-shell-ask-scroll.png') });
+    expect(problems).toEqual([]);
+  } finally {
+    await done();
+  }
+});
+
+test('a search or a watch being written survives Settings › AI and Back', async () => {
+  test.setTimeout(240_000);
+  const { win, problems, done } = await launchAtlas('drafts');
+  try {
+    // Reached by links, as a person does: each visit is its own history entry.
+    const sections = win.getByRole('navigation', { name: 'Sections' });
+    const toAsk = async () => {
+      await sections.getByRole('link', { name: 'Search' }).click();
+      await win.getByRole('link', { name: 'Ask the sources' }).click();
+      await expect(win).toHaveURL(/#\/search\/ask$/);
+    };
+    // Ask the sources: terms, a source, a cap, and summaries on; then the summaries line's Settings › AI, and Back.
+    await toAsk();
+    await win.getByRole('button', { name: 'Deep Sweep' }).click();
+    await expect(win.locator('.source').first()).toBeVisible({ timeout: 30_000 });
+    const terms = win.getByLabel('Search terms');
+    await terms.fill('perovskite');
+    await terms.press('Enter');
+    await terms.fill('tandem');
+    await win.locator('.source[data-source="arxiv"] input').check();
+    await win.locator('.source[data-source="crossref"] input').check();
+    await win.getByLabel('Most papers per source').fill('40');
+    await win.locator('[data-ask="summaries"] input[type="checkbox"]').check();
+    await win.locator('[data-ask="summaries"]').getByRole('link', { name: 'Settings › AI' }).click();
+    await expect(win).toHaveURL(/#\/settings\/ai$/);
+    await win.keyboard.press(`${MOD}+BracketLeft`);
+    await expect(win).toHaveURL(/#\/search\/ask$/);
+    // Leaving the terms field kept what was typed in it as a term.
+    await expect(win.locator('.term')).toHaveText(['perovskite', 'tandem']);
+    await expect(win.locator('.source[data-source="arxiv"] input')).toBeChecked();
+    await expect(win.locator('.source[data-source="crossref"] input')).toBeChecked();
+    await expect(win.getByLabel('Most papers per source')).toHaveValue('40');
+    await expect(win.locator('[data-ask="summaries"] input[type="checkbox"]')).toBeChecked();
+    // A new visit is a new page, and starts empty.
+    await sections.getByRole('link', { name: 'Today' }).click();
+    await toAsk();
+    await expect(win.locator('.source').first()).toBeVisible();
+    await expect(win.locator('.term')).toHaveCount(0);
+
+    // The watch editor: the same walk, out by its summaries line and Back.
+    await sections.getByRole('link', { name: 'Watches' }).click();
+    await win.locator('[data-editor="new"]').click();
+    await expect(win).toHaveURL(/#\/watches\/new$/);
+    await win.getByLabel('Name', { exact: true }).fill('Tandem cells');
+    const watchTerms = win.getByLabel('Terms to watch for');
+    await watchTerms.fill('perovskite');
+    await watchTerms.press('Enter');
+    await win.locator('.source[data-source="arxiv"] input').check();
+    await win.locator('[data-editor="summaries"]').getByRole('link', { name: 'Settings › AI' }).click();
+    await expect(win).toHaveURL(/#\/settings\/ai$/);
+    await win.keyboard.press(`${MOD}+BracketLeft`);
+    await expect(win).toHaveURL(/#\/watches\/new$/);
+    await expect(win.getByLabel('Name', { exact: true })).toHaveValue('Tandem cells');
+    await expect(win.locator('.term')).toHaveText(['perovskite']);
+    await expect(win.locator('.source[data-source="arxiv"] input')).toBeChecked();
     expect(problems).toEqual([]);
   } finally {
     await done();
@@ -487,33 +625,73 @@ test('a two-finger swipe goes back and forward, once per swipe, and leaves alone
     const setting = await app.evaluate(({ systemPreferences }) => (process.platform === 'darwin'
       ? systemPreferences.getUserDefault('AppleEnableSwipeNavigateWithScrolls', 'string') : ''));
     const on = setting !== '0';
-    const swipe = async (dx: number, samples = 12, dy = 0) => {
-      for (let i = 0; i < samples; i += 1) await win.mouse.wheel(dx, dy);
+    // Each wheel sample is stamped as a trackpad stamps its stream, 16 ms after the one before, however slowly
+    // the runner sends them. Sent by the mouse's wheel, two samples landed more than 220 ms apart on a slow
+    // Linux runner, and the page read them, as it should, as two swipes: a pause that long ends one
+    // (`swipe.ts`), so the arrow's progress started again and the spec saw it fall back. A person whose fingers
+    // keep moving sends a sample every 8 to 16 ms.
+    const cdp = await win.context().newCDPSession(win);
+    const pointer = { x: 0, y: 0 };
+    const point = async (x: number, y: number) => {
+      pointer.x = x;
+      pointer.y = y;
+      await win.mouse.move(x, y);
     };
+    let stamp = 0;
+    /** Wheel samples, one gesture; `more` carries on the gesture the last call began, with no pause between. */
+    const wheel = async (deltas: readonly (readonly [number, number])[], more = false) => {
+      if (!more) stamp = Math.max(Date.now() / 1000, stamp + 0.5);
+      for (const [dx, dy] of deltas) {
+        stamp += 0.016;
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: pointer.x, y: pointer.y, deltaX: dx, deltaY: dy, timestamp: stamp });
+      }
+    };
+    const swipe = (dx: number, samples = 12, dy = 0, more = false) =>
+      wheel(Array.from({ length: samples }, () => [dx, dy] as const), more);
     const settle = () => win.waitForTimeout(450);
     const arrow = win.locator('.swipe-arrow');
     // The arrow lives only while a swipe does, so what it showed is recorded in
     // the page as it changes, not looked for afterwards, when on a slow machine
     // it may already have gone.
     await win.evaluate(() => {
-      const seen: { toward: string | null; swipe: number; transform: string }[] = [];
+      const seen: { toward: string | null; swipe: number; went: boolean; transform: string }[] = [];
       (window as unknown as { arrowSeen: typeof seen }).arrowSeen = seen;
       new MutationObserver(() => {
         const node = document.querySelector<HTMLElement>('.swipe-arrow');
-        if (node) seen.push({ toward: node.dataset.toward ?? null, swipe: Number(node.style.getPropertyValue('--swipe')), transform: getComputedStyle(node).transform });
-      }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['style', 'data-toward'] });
+        if (node) {
+          seen.push({
+            toward: node.dataset.toward ?? null, swipe: Number(node.style.getPropertyValue('--swipe')),
+            went: node.dataset.went !== undefined, transform: getComputedStyle(node).transform,
+          });
+        }
+      }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['style', 'data-toward', 'data-went'] });
+      // And how far the samples that reached the page traveled sideways, which the browser keeps when it
+      // merges samples that arrive within a frame: one sent outside the window reaches nothing, and proves nothing.
+      const reached = { travel: 0 };
+      (window as unknown as { wheelsReached: typeof reached }).wheelsReached = reached;
+      window.addEventListener('wheel', (event) => { reached.travel += Math.abs(event.deltaX); }, { capture: true, passive: true });
     });
-    const shown = () => win.evaluate(() => (window as unknown as { arrowSeen: { toward: string | null; swipe: number; transform: string }[] }).arrowSeen.splice(0));
+    type Seen = { toward: string | null; swipe: number; went: boolean; transform: string };
+    const shown = () => win.evaluate(() => (window as unknown as { arrowSeen: Seen[] }).arrowSeen.splice(0));
+    /** How far the samples since the last count traveled in the page; they reach it a frame after they are sent. */
+    const reached = async (travel: number) => {
+      await expect.poll(() => win.evaluate(() => Math.round((window as unknown as { wheelsReached: { travel: number } }).wheelsReached.travel)))
+        .toBe(travel);
+      await win.evaluate(() => { (window as unknown as { wheelsReached: { travel: number } }).wheelsReached.travel = 0; });
+    };
 
     await win.evaluate(() => { window.location.replace('#/settings'); });
     await expect(win.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible({ timeout: 30_000 });
     const title = win.getByRole('heading', { name: 'Settings', level: 1 });
     const box = (await title.boundingBox())!;
-    await win.mouse.move(box.x + box.width + 200, box.y + box.height / 2);
+    // On the page's heading, which takes no swipe itself, inside the window at every size: 200 pixels past
+    // its end was past the window's edge at 1024 by 684, CI's macOS screen, where no sample reached the page.
+    await point(box.x + Math.min(box.width, 120) / 2, box.y + box.height / 2);
 
-    // No page back: nothing is drawn, nothing happens.
+    // No page back: nothing is drawn, nothing happens, though the whole swipe reached the page.
     await swipe(-20);
     await settle();
+    await reached(240);
     expect(await shown()).toEqual([]);
     expect(await hash(win)).toBe('#/settings');
 
@@ -532,16 +710,20 @@ test('a two-finger swipe goes back and forward, once per swipe, and leaves alone
 
     // — back: the arrow at the left edge grows, then it goes, once, however long the tail ------
     await swipe(-20, 4);
+    await reached(80);
     const growing = await shown();
     expect(growing.length).toBeGreaterThan(0);
-    expect(growing.every((state) => state.toward === 'back' && state.swipe > 0 && state.swipe < 1)).toBe(true);
+    // Short of the threshold, at the back edge, and never smaller than it was while the fingers move on.
+    expect(growing.every((state) => state.toward === 'back' && state.swipe > 0 && state.swipe < 1 && !state.went)).toBe(true);
     expect(growing.map((state) => state.swipe)).toEqual([...growing.map((state) => state.swipe)].sort((a, b) => a - b));
-    await swipe(-20, 6);
+    await swipe(-20, 6, 0, true);
     await expect.poll(() => hash(win)).toBe('#/settings/about');
+    // It reached the threshold and went: the arrow whole, marked as gone.
+    expect((await shown()).some((state) => state.toward === 'back' && state.swipe === 1 && state.went)).toBe(true);
     // A three-finger `swipe` arriving just after is the same gesture, not a second.
     await app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0]?.emit('swipe', {}, 'left'); });
-    // The momentum tail, still arriving after the swipe went.
-    for (const dx of [-30, -25, -20, -16, -12, -9, -6, -4, -3, -2, -1]) await win.mouse.wheel(dx, 0);
+    // The momentum tail of the same swipe, still arriving after it went.
+    await wheel([-30, -25, -20, -16, -12, -9, -6, -4, -3, -2, -1].map((dx) => [dx, 0] as const), true);
     await settle();
     expect(await hash(win)).toBe('#/settings/about');
     await expect(arrow).toHaveCount(0);
@@ -566,7 +748,7 @@ test('a two-finger swipe goes back and forward, once per swipe, and leaves alone
       strip.scrollLeft = 300;
     });
     const strip = (await win.locator('#e2e-strip').boundingBox())!;
-    await win.mouse.move(strip.x + 150, strip.y + 40);
+    await point(strip.x + 150, strip.y + 40);
     await swipe(-20, 6);
     await settle();
     expect(await hash(win)).toBe('#/settings/tutorials');
@@ -581,7 +763,7 @@ test('a two-finger swipe goes back and forward, once per swipe, and leaves alone
     await win.evaluate(() => { window.location.hash = '#/search/ask'; });
     const terms = win.getByLabel('Search terms');
     const field = (await terms.boundingBox())!;
-    await win.mouse.move(field.x + 40, field.y + field.height / 2);
+    await point(field.x + 40, field.y + field.height / 2);
     await swipe(-20);
     await settle();
     expect(await hash(win)).toBe('#/search/ask');
@@ -589,7 +771,7 @@ test('a two-finger swipe goes back and forward, once per swipe, and leaves alone
     // — with reduced motion, the arrow does not slide -------------------------------------
     await win.emulateMedia({ reducedMotion: 'reduce' });
     const heading = (await win.getByRole('heading', { name: 'Ask the sources', level: 1 }).boundingBox())!;
-    await win.mouse.move(heading.x + heading.width / 2, heading.y + heading.height / 2);
+    await point(heading.x + heading.width / 2, heading.y + heading.height / 2);
     await shown();
     await swipe(-20, 3);
     await settle();

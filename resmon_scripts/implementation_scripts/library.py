@@ -3,6 +3,10 @@
 Descriptor-relative, no-follow operations are required. Platforms without these
 primitives refuse Library filesystem operations rather than follow an unsafe path.
 The local OS/user remains trusted; this is not hostile-local-process confinement.
+
+The folder holds ``vault.json``, ``files/`` and, once a file has been removed,
+``removed/``: a removed file's folder is renamed there whole, and Undo or Restore
+renames it back (``library_removal``). Nothing here deletes a retained file.
 """
 from __future__ import annotations
 
@@ -11,20 +15,79 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
 import json
+import logging
 import os
+import re
 from pathlib import Path
 import sqlite3
 import stat
+import threading
 import unicodedata
 import uuid
 from typing import Iterator
 
+from . import runtime_identity
+
 MAX_FILE_BYTES = 64 * 1024 * 1024
-MAX_BATCH_FILES = 20
-MAX_VAULT_BYTES = 1024 * 1024 * 1024
-MAX_ITEMS = 10_000
+#: One limit for keeping a file and for every reader of it: the PDF reader, the
+#: thumbnail drawn from its first page, and Evidence's page text. A file the
+#: Library accepts is a file every part of the Library can open.
+MAX_READ_BYTES = MAX_FILE_BYTES
+#: An import that would leave less than this free on the Library folder's disk is
+#: refused. The Library has no count or size cap of its own: the folder is the
+#: person's, on their disk, and the disk is the limit that matters.
+FREE_SPACE_FLOOR = 512 * 1000 * 1000
 MARKER_LIMIT = 4096
-MEDIA = {"pdf": "application/pdf", "txt": "text/plain", "md": "text/markdown"}
+MEDIA = {"pdf": "application/pdf", "txt": "text/plain", "md": "text/markdown", "tex": "text/x-tex"}
+#: The kinds read as UTF-8 text: everything but a PDF.
+TEXT_MEDIA = ("text/plain", "text/markdown", "text/x-tex")
+REMOVED = 'removed'
+#: What an operating system leaves in a folder without anyone putting it there:
+#: the Finder's ``.DS_Store``, the ``._`` files it writes beside a file on a disk
+#: that cannot hold its extra attributes, a custom folder icon's ``Icon\r``, and
+#: Windows' ``Thumbs.db`` and ``desktop.ini``. Opening the Library folder in the
+#: Finder writes one, so wherever the Library lists a folder it passes over them.
+OS_METADATA = frozenset({'.DS_Store', 'Icon\r'})
+OS_METADATA_FOLDED = frozenset({'thumbs.db', 'desktop.ini'})
+
+
+def os_metadata(name: str) -> bool:
+    return name in OS_METADATA or name.startswith('._') or name.lower() in OS_METADATA_FOLDED
+
+
+def listing(fd: int) -> list[str]:
+    """A folder's names, without the operating system's own metadata files."""
+    return [name for name in os.listdir(fd) if not os_metadata(name)]
+
+
+#: One change to where the Library folder is at a time, in this engine: a move
+#: or a relink. A relink in the middle of a move to another disk could record
+#: the half-made copy as the Library, and the move would then take that copy
+#: away again.
+_vault_change = threading.Lock()
+_vault_changing: str | None = None
+CHANGING_WORDS = {
+    'moving': 'The Library folder is being moved. Try again when the move has finished.',
+    'relinking': 'resmon is checking the Library folder you chose. Try again in a moment.',
+}
+
+
+@contextmanager
+def vault_change(kind: str) -> Iterator[None]:
+    global _vault_changing
+    if not _vault_change.acquire(blocking=False):
+        raise LibraryError('changing', CHANGING_WORDS.get(_vault_changing or '', CHANGING_WORDS['moving']))
+    _vault_changing = kind
+    try:
+        yield
+    finally:
+        _vault_changing = None
+        _vault_change.release()
+
+
+def vault_changing() -> str | None:
+    """``moving`` or ``relinking`` while one runs, else None."""
+    return _vault_changing
 
 
 class LibraryError(ValueError):
@@ -53,7 +116,7 @@ def name_and_media(name: str) -> tuple[str, str]:
         raise LibraryError("invalid_name", "Choose a basename of 1–255 characters without separators or controls.", 400)
     extension = name.rsplit('.', 1)[-1].lower() if '.' in name else ''
     if extension not in MEDIA:
-        raise LibraryError("unsupported_format", "Only PDF, TXT and MD files can be retained.", 415)
+        raise LibraryError("unsupported_format", "Only PDF, TXT, MD and TeX files can be retained.", 415)
     return extension, MEDIA[extension]
 
 
@@ -129,29 +192,52 @@ def checked_vault(conn: sqlite3.Connection, expected: str) -> Iterator[tuple[dic
         yield row, root
 
 
+def _table(conn: sqlite3.Connection, name: str) -> bool:
+    # The Library's own code also runs against a database a step behind (an
+    # upgrade test builds schema 16's rows with it), where a later table is absent.
+    return conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone() is not None
+
+
 def counts(conn: sqlite3.Connection) -> dict:
     row = conn.execute("SELECT count(*),coalesce(sum(byte_size),0) FROM library_files").fetchone()
-    return {'items': row[0], 'retained_bytes': row[1], 'basis': 'recorded_metadata'}
+    removed = conn.execute("SELECT count(*) FROM library_removed").fetchone()[0] if _table(conn, 'library_removed') else 0
+    return {'items': row[0], 'retained_bytes': row[1], 'basis': 'recorded_metadata', 'removed': removed}
+
+
+def limits() -> dict:
+    return {'file_bytes': MAX_FILE_BYTES, 'read_bytes': MAX_READ_BYTES, 'free_space_floor': FREE_SPACE_FLOOR}
 
 
 def status(conn: sqlite3.Connection) -> dict:
+    """The vault, where its folder is, and whether resmon can use it now.
+
+    ``missing`` is the folder not being where the database recorded it: moved or
+    deleted in the Finder, or on a disk that is not connected. It is recoverable
+    by pointing at the folder where it is now (``library_folder.relink``), and it
+    stops only the files: the reading queue does not live in the folder.
+    ``counts.missing`` is how many recorded files have no folder in ``files/``;
+    it is present only when the folder was read.
+    """
     row = conn.execute("SELECT * FROM library_vault WHERE singleton=1").fetchone()
-    result = {'version': 1, 'vault': None, 'status': 'unconfigured', 'counts': counts(conn),
-              'limits': {'file_bytes': MAX_FILE_BYTES, 'batch_files': MAX_BATCH_FILES,
-                         'vault_bytes': MAX_VAULT_BYTES, 'items': MAX_ITEMS}}
+    result = {'version': 1, 'vault': None, 'status': 'unconfigured', 'counts': counts(conn), 'limits': limits()}
+    if (changing := vault_changing()) is not None:
+        result['changing'] = changing
     if row:
         result['vault'] = {'vault_id': row['vault_id'], 'label': Path(row['root_path']).name,
-                           'created_at_utc': row['created_at_utc']}
+                           'path': row['root_path'], 'created_at_utc': row['created_at_utc']}
         try:
             with checked_vault(conn, row['vault_id']) as (_, root):
                 if '.import.lock' in os.listdir(root):
                     result['status'] = 'busy'
                 else:
-                    _catalog_tree(conn, root)
+                    result['counts']['missing'] = len(_catalog_tree(conn, root))
                     result['status'] = 'ready'
         except LibraryError as exc:
             result['status'] = 'mismatch' if exc.reason == 'mismatch' else 'needs_attention'
             result['reason'] = exc.reason
+        except FileNotFoundError:
+            result['status'] = 'missing'
+            result['reason'] = 'folder_missing'
         except OSError:
             result['status'] = 'unavailable'
     return result
@@ -212,32 +298,43 @@ def file_row(conn: sqlite3.Connection, file_id: str, expected_version: str | Non
     return row
 
 
-def _catalog_tree(conn: sqlite3.Connection, root: int, *, locked: bool = False) -> None:
-    """Bounded scan of this owned child only. Orphans are a stop, never adopted."""
-    expected_root = {'vault.json', 'files'} | ({'.import.lock'} if locked else set())
-    if set(os.listdir(root)) != expected_root:
+def _catalog_tree(conn: sqlite3.Connection, root: int, *, locked: bool = False) -> set[str]:
+    """This owned child's names against its catalog. Orphans are a stop, never adopted.
+
+    Returns the recorded files whose folder is not in ``files/``: deleted or moved
+    outside resmon. Those are said per file, as missing, rather than stopping the
+    whole Library; a folder in ``files/`` the catalog does not record is still a
+    stop, because publishing next to bytes nobody owns is how two files end up
+    under one name.
+
+    One directory listing, not a read of every file: at 10,000 files opening each
+    one took 0.6 s on every status read and every import, and 3 s at 30,000.
+    Each file's size and hash are checked when it is read (``retained``), which
+    is where a changed file can do harm.
+    """
+    names = set(listing(root))
+    allowed = {'vault.json', 'files', REMOVED} | ({'.import.lock'} if locked else set())
+    if not {'vault.json', 'files'} <= names or names - allowed:
         raise LibraryError('needs_attention', 'Unexpected vault entries; import requires an owner recovery decision.')
-    rows = conn.execute('SELECT file_id,version_id,relative_path FROM library_files').fetchall()
+    recorded = {r[0] for r in conn.execute('SELECT file_id FROM library_files')}
     files = _open_dir('files', root)
     try:
-        if set(os.listdir(files)) != {r['file_id'] for r in rows}:
-            raise LibraryError('needs_attention', 'Retained directories and catalog differ; no automatic recovery.')
-        for r in rows:
-            row = file_row(conn, r['file_id'])
-            folder = _open_dir(row['file_id'], files)
-            try:
-                if os.listdir(folder) != [Path(row['relative_path']).name]:
-                    raise LibraryError('needs_attention', 'Unexpected or missing retained bytes; no automatic recovery.')
-                fd = _regular(Path(row['relative_path']).name, folder)
-                try:
-                    if os.fstat(fd).st_size != row['byte_size']:
-                        raise LibraryError('needs_attention', 'Retained size and catalog differ; import cannot trust the recorded quota.')
-                finally:
-                    os.close(fd)
-            finally:
-                os.close(folder)
+        present = set(listing(files))
     finally:
         os.close(files)
+    if present - recorded:
+        raise LibraryError('needs_attention', 'Retained directories and catalog differ; no automatic recovery.')
+    return recorded - present
+
+
+def present_files(conn: sqlite3.Connection, expected: str) -> set[str]:
+    """The file ids with a folder in ``files/`` now: one listing, for marking missing ones."""
+    with checked_vault(conn, expected) as (_, root):
+        files = _open_dir('files', root)
+        try:
+            return set(listing(files))
+        finally:
+            os.close(files)
 
 
 def links(conn: sqlite3.Connection, file_id: str) -> list[dict]:
@@ -247,10 +344,12 @@ def links(conn: sqlite3.Connection, file_id: str) -> list[dict]:
         WHERE l.file_id=? ORDER BY l.document_id''', (file_id,))]
 
 
-def projection(conn: sqlite3.Connection, row: dict) -> dict:
+def projection(conn: sqlite3.Connection, row: dict, availability: str = 'not_checked') -> dict:
+    projects = conn.execute('SELECT count(*) FROM evidence_project_files WHERE file_id=?', (row['file_id'],)).fetchone()[0] \
+        if _table(conn, 'evidence_project_files') else 0
     return {**{k: row[k] for k in ('id', 'file_id', 'version_id', 'vault_id', 'sha256',
                                   'byte_size', 'media_type', 'original_name', 'relative_path', 'created_at_utc')},
-            'paper_links': links(conn, row['file_id']), 'availability': 'not_checked'}
+            'paper_links': links(conn, row['file_id']), 'project_count': projects, 'availability': availability}
 
 
 def detail(conn: sqlite3.Connection, expected: str, file_id: str) -> dict:
@@ -261,19 +360,43 @@ def detail(conn: sqlite3.Connection, expected: str, file_id: str) -> dict:
         return {'version': 1, 'vault_id': expected, 'file': projection(conn, row)}
 
 
+#: How a file list can be ordered. ``newest`` is the keyset order, by id; the others page by offset.
+FILE_SORTS = {
+    'newest': 'id DESC',
+    'oldest': 'id ASC',
+    'name': 'lower(original_name) ASC, id DESC',
+    'size': 'byte_size DESC, id DESC',
+}
+MAX_PAGE = 500
+
+
 def list_files(conn: sqlite3.Connection, expected: str, q: str = '', through_id: int | None = None,
-               before_id: int | None = None, limit: int = 50) -> dict:
-    if len(q) > 200 or not 1 <= limit <= 100 or any(x is not None and x < 0 for x in (through_id, before_id)):
-        raise LibraryError('invalid_page', 'Use a name filter up to 200 characters and a page size of 1–100.', 400)
-    with checked_vault(conn, expected):
-        ceiling = through_id if through_id is not None else conn.execute('SELECT coalesce(max(id),0) FROM library_files').fetchone()[0]
-        rows = conn.execute('''SELECT * FROM library_files WHERE vault_id=? AND id<=? AND id<?
-            AND instr(lower(original_name),lower(?))>0 ORDER BY id DESC LIMIT ?''',
-                            (expected, ceiling, before_id if before_id is not None else ceiling + 1, q, limit + 1)).fetchall()
-        more = len(rows) > limit
-        items = [projection(conn, dict(r)) for r in rows[:limit]]
-        return {'version': 1, 'vault_id': expected, 'files': items, 'through_id': ceiling,
-                'next_before_id': items[-1]['id'] if more else None, 'has_more': more}
+               before_id: int | None = None, limit: int = 50, sort: str = 'newest', offset: int = 0) -> dict:
+    """One page of the files, under a fixed ceiling, ``through_id``.
+
+    ``newest`` pages by ``before_id`` as it always has; every sort also pages by
+    ``offset`` under the same ceiling, so a list read from the top in one order
+    cannot gain a file halfway down. Each file says ``missing`` when its folder
+    is not in ``files/`` now, from one listing of that folder.
+    """
+    if (len(q) > 200 or not 1 <= limit <= MAX_PAGE or sort not in FILE_SORTS or offset < 0
+            or any(x is not None and x < 0 for x in (through_id, before_id))
+            or (before_id is not None and (sort != 'newest' or offset))):
+        raise LibraryError('invalid_page', f'Use a name filter up to 200 characters, a page size of 1–{MAX_PAGE}, '
+                           'and before_id only with the newest-first order.', 400)
+    present = present_files(conn, expected)
+    ceiling = through_id if through_id is not None else conn.execute('SELECT coalesce(max(id),0) FROM library_files').fetchone()[0]
+    rows = conn.execute(f'''SELECT * FROM library_files WHERE vault_id=? AND id<=? AND id<?
+        AND instr(lower(original_name),lower(?))>0 ORDER BY {FILE_SORTS[sort]} LIMIT ? OFFSET ?''',
+                        (expected, ceiling, before_id if before_id is not None else ceiling + 1, q,
+                         limit + 1, offset)).fetchall()
+    more = len(rows) > limit
+    items = [projection(conn, dict(r), 'not_checked' if r['file_id'] in present else 'missing') for r in rows[:limit]]
+    total = conn.execute('''SELECT count(*) FROM library_files WHERE vault_id=? AND id<=?
+        AND instr(lower(original_name),lower(?))>0''', (expected, ceiling, q)).fetchone()[0]
+    return {'version': 1, 'vault_id': expected, 'files': items, 'through_id': ceiling,
+            'next_before_id': items[-1]['id'] if more and sort == 'newest' else None, 'has_more': more,
+            'sort': sort, 'offset': offset, 'total': total}
 
 
 def document_exists(conn: sqlite3.Connection, document_id: int) -> None:
@@ -303,7 +426,7 @@ def add_link(conn: sqlite3.Connection, expected: str, file_id: str, document_id:
 @contextmanager
 def retained(conn: sqlite3.Connection, expected: str, file_id: str, expected_version: str,
              max_bytes: int = MAX_FILE_BYTES) -> Iterator[tuple[dict, int, str]]:
-    """One resolver for Open, duplicate comparison and bounded text reading."""
+    """One resolver for Open, reading, removal, duplicate comparison and thumbnails."""
     with checked_vault(conn, expected) as (vault, root):
         row = file_row(conn, file_id, expected_version)
         if row['vault_id'] != expected:
@@ -312,8 +435,12 @@ def retained(conn: sqlite3.Connection, expected: str, file_id: str, expected_ver
         folder = None
         fd = None
         try:
-            folder = _open_dir(file_id, files)
-            fd = _regular(Path(row['relative_path']).name, folder)
+            try:
+                folder = _open_dir(file_id, files)
+                fd = _regular(Path(row['relative_path']).name, folder)
+            except FileNotFoundError:
+                raise LibraryError('missing_file', 'This file is no longer in the Library folder: it was moved or '
+                                   'deleted outside resmon. Remove it here to take it off the list.', 404) from None
             before = os.fstat(fd)
             if before.st_size > max_bytes or row['byte_size'] > max_bytes:
                 raise LibraryError('too_large', 'This file exceeds the read limit; its full contents were not verified.', 413)
@@ -348,11 +475,161 @@ def open_request(conn: sqlite3.Connection, expected: str, file_id: str, version:
         return {'version': 1, 'vault_id': expected, 'file_id': row['file_id'], 'version_id': row['version_id'], 'path': path}
 
 
+def read_bytes(conn: sqlite3.Connection, expected: str, file_id: str, version: str,
+               media: tuple[str, ...] = ('application/pdf',)) -> tuple[dict, bytes]:
+    """A kept file's whole bytes, verified against its recorded size and hash, up to the read limit.
+
+    For the PDF reader outside Evidence: the same resolver and the same limit as
+    every other read, and the bytes checked once more after they are read.
+    """
+    with retained(conn, expected, file_id, version, MAX_READ_BYTES) as (row, fd, _):
+        if row['media_type'] not in media:
+            raise LibraryError('unsupported', 'This reader opens PDF files only.', 415)
+        data = bytearray()
+        while len(data) <= MAX_READ_BYTES:
+            chunk = os.read(fd, min(1024 * 1024, MAX_READ_BYTES + 1 - len(data)))
+            if not chunk:
+                break
+            data.extend(chunk)
+        if len(data) != row['byte_size'] or hashlib.sha256(data).hexdigest() != row['sha256']:
+            raise LibraryError('changed_content', 'Retained bytes changed during the read.')
+        return row, bytes(data)
+
+
+logger = logging.getLogger(__name__)
+
+#: The Library's one lock: an import, a removal, and a move of its folder each
+#: hold it, created exclusively in the vault's root.
+LOCK_NAME = '.import.lock'
+#: An import's unpublished bytes in the vault's root: ``.staging-<pid>-<uuid>``.
+#: A name with no pid in it was written by an earlier build.
+_STAGING_WITH_PID = re.compile(r'^\.staging-(\d+)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+
+#: How many imports hold the Library's lock in this process now.
+_imports_running = 0
+_imports_lock = threading.Lock()
+
+
+def imports_running() -> int:
+    """How many imports this process is in the middle of."""
+    with _imports_lock:
+        return _imports_running
+
+
+def lock_owner() -> str:
+    """Who takes a lock or writes staging bytes here: ``<pid>:<runtime id>``, as a PDF download's claim says it."""
+    return f"{os.getpid()}:{runtime_identity.current_runtime_id()}"
+
+
+def take_lock(root: int) -> int:
+    """Create the Library's lock in *root*, exclusively, with its owner written in it. Its descriptor.
+
+    ``FileExistsError`` when another operation holds it. The owner is what lets
+    an engine that starts tell a lock a stopped engine left from one another
+    engine on the same Library holds now (``recover_stale_import_lock``).
+    """
+    fd = _regular(LOCK_NAME, root, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
+    try:
+        os.write(fd, lock_owner().encode('ascii'))
+    except BaseException:
+        os.close(fd)
+        os.unlink(LOCK_NAME, dir_fd=root)
+        raise
+    return fd
+
+
+def _staging_name() -> str:
+    return f'.staging-{os.getpid()}-{uuid.uuid4()}'
+
+
+def _owner_gone(owner: str) -> bool | None:
+    """Whether the engine named ``<pid>:<runtime id>`` is gone; None when *owner* names none.
+
+    The rule a PDF download's claim keeps (``full_text._claimant_is_gone``):
+    this engine's own is not gone, and a pid that answers is taken as alive,
+    because another engine may be using the same Library folder.
+    """
+    pid_text, sep, runtime = owner.strip().partition(':')
+    if not sep or not pid_text.isdigit() or not runtime_identity.valid_runtime_id(runtime):
+        return None
+    if runtime == runtime_identity.current_runtime_id():
+        return False
+    return not runtime_identity.process_is_alive(int(pid_text))
+
+
+def recover_stale_import_lock(conn: sqlite3.Connection, started_at: float) -> list[str]:
+    """At an engine's start: remove a lock, and unpublished bytes, that an engine that stopped left.
+
+    An import, a removal or a move that was stopped (resmon quit or crashed in
+    the middle of one) leaves ``.import.lock`` behind, and the Library then
+    reads busy for good. Another engine on the same Library folder (the
+    background service beside a window's engine, a checkout beside the service)
+    may hold the lock now, for minutes in a move to another disk, so a lock is
+    removed only when it is established to be stale:
+
+    * a lock that names its owner (``<pid>:<runtime id>``) is stale when that
+      pid no longer answers; one that answers is left, a reused pid included;
+    * a lock that names none, from an earlier build, is stale when it is older
+      than this engine's start (*started_at*, as ``time.time()``) and this
+      process is not importing.
+
+    A ``.staging-<pid>-…`` file is removed when its pid no longer answers, with
+    a lock or without; one whose name has no pid only with a lock judged stale,
+    and only when it is older than this engine's start. Returns the names
+    removed; nothing when there is no Library folder, or none can be read.
+    """
+    try:
+        vault = vault_row(conn)
+    except LibraryError:
+        return []
+    removed: list[str] = []
+    try:
+        with checked_vault(conn, vault['vault_id']) as (_, root):
+            names = os.listdir(root)
+            stale_lock = False
+            if LOCK_NAME in names:
+                fd = _regular(LOCK_NAME, root)
+                try:
+                    owner = os.read(fd, 256).decode('ascii', 'replace')
+                finally:
+                    os.close(fd)
+                gone = _owner_gone(owner)
+                if gone is None:
+                    stale_lock = (not imports_running() and os.stat(
+                        LOCK_NAME, dir_fd=root, follow_symlinks=False).st_mtime < started_at)
+                else:
+                    stale_lock = gone
+            for name in sorted(n for n in names if n.startswith('.staging-')):
+                info = os.stat(name, dir_fd=root, follow_symlinks=False)
+                if not stat.S_ISREG(info.st_mode):
+                    continue
+                named = _STAGING_WITH_PID.match(name)
+                if named:
+                    pid = int(named.group(1))
+                    stale = pid != os.getpid() and not runtime_identity.process_is_alive(pid)
+                else:
+                    stale = stale_lock and info.st_mtime < started_at
+                if stale:
+                    os.unlink(name, dir_fd=root)
+                    removed.append(name)
+            if stale_lock:
+                os.unlink(LOCK_NAME, dir_fd=root)
+                removed.append(LOCK_NAME)
+    except (LibraryError, OSError):
+        logger.warning("The Library's lock could not be checked at the start", exc_info=True)
+        return removed
+    if removed:
+        logger.warning("Removed what an engine that stopped left in the Library folder: %s", ", ".join(removed))
+    return removed
+
+
 class Import:
     """One streamed upload owns a lock, temp file, and publication transaction.
 
-    A crash can strand its lock/bytes. Caught failures remove only this operation's
-    unpublished bytes. Committed copies are never removed or overwritten.
+    A crash can strand its lock/bytes; the next engine's start removes them
+    (``recover_stale_import_lock``). Caught failures remove only this
+    operation's unpublished bytes. Committed copies are never removed or
+    overwritten.
     """
     def __init__(self, conn: sqlite3.Connection, expected: str, filename: str, document_id: int | None = None):
         self.conn, self.expected, self.filename, self.document_id = conn, expected, filename, document_id
@@ -361,7 +638,7 @@ class Import:
         self.decoder = codecs.getincrementaldecoder('utf-8')('strict') if self.extension != 'pdf' else None
         self.size = 0
         self.prefix = b''
-        self.temp_name = '.staging-' + str(uuid.uuid4())
+        self.temp_name = _staging_name()
         self.temp = None
         self.lock = None
         self.folder = None
@@ -374,10 +651,14 @@ class Import:
         self.vault_context = checked_vault(self.conn, self.expected)
         _, self.root = self.vault_context.__enter__()
         try:
-            try:
-                self.lock = _regular('.import.lock', self.root, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
-            except FileExistsError:
-                raise LibraryError('busy', 'An import lock exists. No stale-lock recovery is automatic.') from None
+            global _imports_running
+            with _imports_lock:
+                try:
+                    self.lock = take_lock(self.root)
+                except FileExistsError:
+                    raise LibraryError('busy', 'An import lock exists: another import is under way, or one that '
+                                      'stopped left it, which resmon removes when it next starts.') from None
+                _imports_running += 1
             self.conn.execute('BEGIN IMMEDIATE')
             _catalog_tree(self.conn, self.root, locked=True)
             if self.document_id is not None:
@@ -431,9 +712,10 @@ class Import:
             if row['media_type'] != self.media:
                 raise LibraryError('media_conflict', 'Identical bytes already have another media interpretation.')
         else:
-            totals = counts(self.conn)
-            if totals['items'] >= MAX_ITEMS or totals['retained_bytes'] + self.size > MAX_VAULT_BYTES:
-                raise LibraryError('vault_limit', 'The retained vault capacity is reached; nothing was replaced.', 413)
+            disk = os.statvfs(self.root)
+            if disk.f_bavail * disk.f_frsize < FREE_SPACE_FLOOR:
+                raise LibraryError('disk_full', 'Keeping this file would leave less than 512 MB free on the Library '
+                                   "folder's disk; nothing was kept.", 507)
             file_id, version_id = str(uuid.uuid4()), str(uuid.uuid4())
             self.files = _open_dir('files', self.root)
             os.mkdir(file_id, 0o700, dir_fd=self.files)
@@ -464,6 +746,12 @@ class Import:
         self.committed = True
         return result
 
+    def _released(self) -> None:
+        global _imports_running
+        with _imports_lock:
+            _imports_running -= 1
+        self.lock = None
+
     def __exit__(self, exc_type, exc, tb) -> None:
         try:
             if not self.committed:
@@ -477,8 +765,11 @@ class Import:
                 if self.temp_name in os.listdir(self.root):
                     os.unlink(self.temp_name, dir_fd=self.root)
             if self.lock is not None:
-                os.close(self.lock)
-                os.unlink('.import.lock', dir_fd=self.root)
+                try:
+                    os.close(self.lock)
+                    os.unlink(LOCK_NAME, dir_fd=self.root)
+                finally:
+                    self._released()
         finally:
             if self.folder is not None:
                 os.close(self.folder)

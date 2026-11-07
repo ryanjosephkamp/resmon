@@ -214,6 +214,8 @@ __all__ = [
     "OnboardingDismissed",
     "OnboardingState",
     "OnboardingStep",
+    "ReadingQueueBatchSaved",
+    "ReadingQueueBatchUndone",
     "ReadingQueueCounts",
     "ReadingQueueDocument",
     "ReadingQueueEntry",
@@ -664,6 +666,18 @@ class ExecutionSettings(LosslessModel):
     routine_fire_queue_limit: int
 
 
+class SourceSettings(LosslessModel):
+    """``GET`` and ``PUT /api/settings/sources`` — the contact address resmon gives the sources that ask for one.
+
+    ``contact_email`` is null when none is set, and then nothing is sent.
+    ``sent_to`` names the sources it goes to, and no other source is sent it
+    (``source_contact``).
+    """
+
+    contact_email: Optional[str]
+    sent_to: list[str]
+
+
 class SettingsSaved(LosslessModel):
     """What the six plain settings PUTs answer: ``{"success": true}``.
 
@@ -686,6 +700,43 @@ class Appearance(LosslessModel):
 
     theme: Literal["system", "light", "dark"]
     accent: Optional[str]
+    run_monitor: bool
+
+
+# The top bar's seven sections, by the name the engine keeps them under, in
+# their default order.
+TopBarSection = Literal["today", "watches", "search", "runs", "library", "ask", "health"]
+
+# Every page a window can open on, and the resmon name in the bar can go to: each
+# section's own address, and each tab within one. A page that needs an id (a run,
+# a paper, a watch) or that starts something (a new watch) is not here, and
+# neither is Settings.
+TopBarPage = Literal[
+    "/today",
+    "/watches", "/watches/calendar", "/watches/people",
+    "/search", "/search/ask", "/search/saved", "/search/wording",
+    "/runs",
+    "/library", "/library/files", "/library/evidence",
+    "/ask",
+    "/health", "/health/watchdog", "/health/analytics", "/health/engine",
+]
+
+
+class TopBar(LosslessModel):
+    """``GET`` and ``PUT /api/top-bar``: how the top bar is arranged.
+
+    ``order`` names all seven sections, always: one an older build's stored
+    order lacked is put back after the section it follows by default.
+    ``hidden`` is the ones the bar leaves out, in that order; a hidden section
+    still has its address and its shortcut. ``start`` is the page a launch and
+    a new window open on, and ``lockup`` is where the resmon name goes, null
+    when it goes to the start page.
+    """
+
+    order: list[TopBarSection]
+    hidden: list[TopBarSection]
+    start: TopBarPage
+    lockup: Optional[TopBarPage]
 
 
 class ExecutionSettingsSaved(LosslessModel):
@@ -1040,8 +1091,11 @@ class TodayWatch(LosslessModel):
 
 
 class TodayPaper(LosslessModel):
-    """A paper resmon first collected since the last look.
+    """A paper a run put in the collection since its last look.
 
+    ``first_seen_at`` is when resmon first collected the paper, and
+    ``arrived_at`` when it arrived in this collection; the two differ for a
+    paper resmon held elsewhere before a watch found it for this one.
     ``abstract_lede`` is the opening of the abstract as the source gave it,
     never a summary; resmon does not keep summaries per paper.
     """
@@ -1052,6 +1106,7 @@ class TodayPaper(LosslessModel):
     source: str
     publication_date: Optional[str]
     first_seen_at: Optional[str]
+    arrived_at: Optional[str]
     abstract_lede: Optional[str]
     url: Optional[str]
     doi: Optional[str]
@@ -1060,12 +1115,15 @@ class TodayPaper(LosslessModel):
 
 
 class Today(LosslessModel):
-    """``GET /api/today``.
+    """``GET /api/today``: one collection's new papers and its watches.
 
-    ``window`` is ``since_last_look`` when a look is recorded and
+    ``window`` is ``since_last_look`` when a look at this collection is recorded and
     ``first_look`` when none is, in which case ``since`` is seven days before
-    ``now`` and the interface says so. ``papers`` holds at most 1,000, newest
-    first; ``total`` counts them all.
+    ``now`` and the interface says so. ``papers`` is the first page of them, up
+    to 1,000, newest first; ``total`` counts them all, and ``next_cursor``
+    (``None`` when the page holds every one) reads the next page from
+    ``GET /api/today/papers``. ``watches`` are the watches that put their
+    papers in this collection, and any other whose papers are new here.
     """
 
     now: str
@@ -1073,8 +1131,17 @@ class Today(LosslessModel):
     window: Literal["since_last_look", "first_look"]
     total: int
     papers: list[TodayPaper]
+    next_cursor: Optional[str]
     from_searches: int
     watches: list[TodayWatch]
+
+
+class TodayPapersPage(LosslessModel):
+    """``GET /api/today/papers``: the page of Today's new papers after a cursor,
+    in the same order and shape, and the cursor after it (``None`` at the end)."""
+
+    papers: list[TodayPaper]
+    next_cursor: Optional[str]
 
 
 class DocumentBrief(LosslessModel):
@@ -1089,7 +1156,7 @@ class DocumentBrief(LosslessModel):
 
 
 class TodayLooked(LosslessModel):
-    """``POST /api/today/looked``: the moment recorded."""
+    """``POST /api/today/looked``: the moment recorded, for one collection's Today."""
 
     looked_at: str
 
@@ -1208,6 +1275,32 @@ class ReadingQueueEntry(LosslessModel):
     updated_at: str
     read_at: Optional[str]
     document: Optional[ReadingQueueDocument] = None
+    pdf: Optional["ReadingQueuePdf"] = None
+    found_by: Optional["ReadingQueueFoundBy"] = None
+
+
+class ReadingQueuePdf(LosslessModel):
+    """The Library PDF most recently linked to the paper: the person's association."""
+
+    vault_id: str
+    file_id: str
+    version_id: str
+    sha256: str
+    byte_size: int
+    original_name: str
+
+
+class ReadingQueueFoundBy(LosslessModel):
+    """The first run that collected the paper. ``watch_name`` is ``None`` once the watch is deleted."""
+
+    execution_id: int
+    kind: str
+    watch_id: Optional[int]
+    watch_name: Optional[str]
+    at: str
+
+
+ReadingQueueEntry.model_rebuild()
 
 
 class ReadingQueueCounts(LosslessModel):
@@ -1232,13 +1325,51 @@ class ReadingQueuePage(LosslessModel):
     offset: int
     status: Optional[str]
     counts: ReadingQueueCounts
+    sort: str
+    q: str
 
 
 class ReadingQueueRemoval(LosslessModel):
-    """``DELETE /api/reading-queue/{document_id}``. The paper is not touched."""
+    """``DELETE /api/reading-queue/{document_id}``. The paper is not touched;
+    ``entry`` is the entry as it was, for Undo."""
 
     removed: bool
     document_id: int
+    entry: ReadingQueueEntry
+
+
+class ReadingQueueRestored(LosslessModel):
+    """``POST /api/reading-queue/{document_id}/restore``. ``restored`` is false when
+    the paper was saved again since, and ``entry`` is then its entry as it is."""
+
+    restored: bool
+    entry: ReadingQueueEntry
+
+
+class ReadingQueueBatchSaved(LosslessModel):
+    """``POST /api/reading-queue/batch`` and ``/batch/all``: a save of many papers.
+
+    ``asked`` is how many distinct papers the request named or described;
+    ``saved`` were added now, ``already`` were in the queue and are as they
+    were, and ``missing`` are not in the collection. ``saved_ids`` and
+    ``saved_at`` (``None`` when nothing was added) are what an Undo names."""
+
+    asked: int
+    saved: int
+    already: int
+    missing: int
+    saved_at: Optional[str]
+    saved_ids: list[int]
+    counts: ReadingQueueCounts
+
+
+class ReadingQueueBatchUndone(LosslessModel):
+    """``POST /api/reading-queue/batch/undo``. ``kept`` are still in the queue:
+    changed since the save, so its Undo left them."""
+
+    removed: int
+    kept: int
+    counts: ReadingQueueCounts
 
 
 # ===========================================================================
@@ -1428,7 +1559,9 @@ class Health(LosslessModel):
     ``embeddings`` is attempted against a real connection on every call rather
     than read from a cached probe: it is a ``dlopen`` of a 165 KB library, and
     a health endpoint answering from memory would keep reporting a capability
-    the process had lost.
+    the process had lost. ``build`` names the build of the app that started
+    this engine (``RESMON_BUILD_ID``), null for an engine started otherwise:
+    every build of a version gives the same ``version``.
     """
 
     status: str
@@ -1436,6 +1569,7 @@ class Health(LosslessModel):
     pid: int
     started_at: str
     version: str
+    build: Optional[str] = None
     embeddings: VectorExtensionStatus
 
 
@@ -1455,6 +1589,22 @@ class RepositoryEntitySearch(LosslessModel):
     returns_affiliation: bool
     author_syntax: str
     identifier_syntax: str
+    established: str
+
+
+class RepositoryPaperLookup(LosslessModel):
+    """Whether a source can be asked for one paper (Find a paper), and by what.
+
+    ``kinds`` are the queries it can be asked by: ``doi``, ``arxiv``, ``pmid``,
+    ``title``. ``syntax`` maps a kind to the field syntax put into the
+    source's ordinary search (``{value}`` where the query goes); a kind with no
+    syntax is asked through the client's own lookup endpoint. ``established``
+    is the dated observation behind the row, or why the source is asked by
+    nothing.
+    """
+
+    kinds: list[str]
+    syntax: dict[str, str]
     established: str
 
 
@@ -1532,6 +1682,7 @@ class RepositoryCatalogEntry(LosslessModel):
     upstream_policy: str
     parallel_safe: str
     notes: str
+    service_notice: str
     keyword_combination: str
     keyword_combination_notes: str
     attribution: str
@@ -1542,6 +1693,7 @@ class RepositoryCatalogEntry(LosslessModel):
     result_order_established: str
     entity_search: RepositoryEntitySearch
     constraints: RepositoryConstraints
+    paper_lookup: RepositoryPaperLookup
 
 
 class CredentialPresence(LosslessModel):
@@ -1741,10 +1893,20 @@ class RunStarted(LosslessModel):
     ``duplicate`` is present only when ``request_id`` matched a submission
     already made, and the id is that earlier run's: a retried click starts
     nothing new. Absent rather than ``false`` on a first submission.
+
+    At the run limit the run waits for a free slot (HTTP 202): there is no
+    ``execution_id`` yet, ``queued`` is true, ``queue_position`` is its place
+    (1 for next), and ``ticket`` names it in ``GET /api/executions/active``'s
+    ``waiting`` and in the ``request_id`` its row carries once it starts.
+    ``detail`` says so in a sentence.
     """
 
-    execution_id: int
+    execution_id: Optional[int]
     duplicate: Optional[bool] = None
+    queued: Optional[bool] = None
+    queue_position: Optional[int] = None
+    ticket: Optional[str] = None
+    detail: Optional[str] = None
 
 
 class RunCoverageCounts(LosslessModel):
@@ -1936,10 +2098,84 @@ class Run(RunColumns):
     ai_lanes: list[RunAiLane]
 
 
+class ActiveRun(LosslessModel):
+    """A run this engine is running now, with its search and its events so far.
+
+    ``events`` is the run's progress events with the repeating ones folded to
+    their latest: each source's newest heartbeat, and the newest count of the
+    papers linked, embedded or summarized. Every event that changes a source's
+    or the run's state is kept, in order, so a reader folds them as it folds
+    the whole list (``/progress/events``).
+    """
+
+    id: int
+    execution_type: str
+    routine_id: Optional[int]
+    saved_configuration_id: Optional[int]
+    query: Optional[str]
+    keywords: Optional[list[str]]
+    repositories: Optional[list[str]]
+    start_time: Optional[str]
+    current_stage: Optional[str]
+    restarted_from: Optional[int]
+    request_id: Optional[str]
+    events: list[dict]
+
+
+class WaitingRun(LosslessModel):
+    """A run waiting for a free slot, in the order it will start.
+
+    ``kind`` is ``watch`` (a watch's fire, scheduled or Run now) or ``manual``
+    (a Deep Dive, a Deep Sweep, a restart, or a run asked for again).
+    ``queued_at`` is when it joined the queue (for a scheduled fire, when it
+    came due). ``run_now`` is set for a watch's fire only. A manual run also
+    says its search: ``execution_type``, ``query``, ``keywords`` and
+    ``repositories``, and ``restarted_from`` when it repeats a run.
+    """
+
+    ticket: str
+    kind: Literal["watch", "manual"]
+    position: int
+    queued_at: str
+    routine_id: Optional[int]
+    run_now: Optional[bool]
+    execution_type: Optional[str] = None
+    query: Optional[str] = None
+    keywords: Optional[list[str]] = None
+    repositories: Optional[list[str]] = None
+    restarted_from: Optional[int] = None
+
+
 class ActiveRuns(LosslessModel):
-    """``GET /api/executions/active``: the runs this backend is running now."""
+    """``GET /api/executions/active``: the runs this backend is running now, and those waiting.
+
+    ``active_ids`` is the running runs' ids, as it always was. ``running`` is
+    each of them in the order it started; ``waiting`` the queue, next first.
+    ``max_concurrent`` and ``queue_limit`` are the limits Settings › In the
+    background sets, as this engine holds them. ``failed_unseen`` is the runs
+    that failed since the run monitor's panel was last opened (``seen_at``,
+    null before it ever was; failures since this engine started count then),
+    newest first, at most 20. ``newest_run_id`` and ``last_ended_at`` are the
+    newest run's id and the latest any run ended (null with no runs): a
+    reader that lists runs reads again when either changes, which catches a
+    run that started and ended between two reads of this route.
+    """
 
     active_ids: list[int]
+    running: list[ActiveRun]
+    waiting: list[WaitingRun]
+    max_concurrent: int
+    queue_limit: int
+    failed_unseen: list[int]
+    seen_at: Optional[str]
+    newest_run_id: Optional[int]
+    last_ended_at: Optional[str]
+
+
+class RunsSeen(LosslessModel):
+    """``POST /api/executions/seen``: when the run monitor's panel was opened, as stored."""
+
+    seen_at: str
 
 
 class RunReport(LosslessModel):
@@ -1961,14 +2197,29 @@ class RunCancelRequested(LosslessModel):
     status: Literal["cancellation_requested"]
 
 
+class WaitingWithdrawn(LosslessModel):
+    """``DELETE /api/executions/waiting/{ticket}``: the run is out of the queue and will not start."""
+
+    withdrawn: bool
+    ticket: str
+
+
 class RunRestarted(LosslessModel):
     """``POST /api/executions/{exec_id}/restart``: a new run with the old one's
-    parameters, linked back to it. ``duplicate`` as on ``RunStarted``."""
+    parameters, linked back to it. ``duplicate`` as on ``RunStarted``; and
+    at the run limit, as there, no ``execution_id`` yet, ``queued``, its
+    ``queue_position``, its ``ticket``, and a ``detail``. ``routine_id`` only
+    for a watch's run, which runs as its watch's Run now."""
 
-    execution_id: int
+    execution_id: Optional[int]
     restarted_from: Optional[int]
     ai_enabled: bool
+    routine_id: Optional[int] = None
     duplicate: Optional[bool] = None
+    queued: Optional[bool] = None
+    queue_position: Optional[int] = None
+    ticket: Optional[str] = None
+    detail: Optional[str] = None
 
 
 # ===========================================================================
@@ -2009,12 +2260,18 @@ class ExplorerPaper(PaperColumns):
 class ExplorerPage(LosslessModel):
     """``POST /api/explorer/search``.
 
-    ``total`` is the count of every match, capped at ``count_cap`` when
-    ``total_is_capped``. Under ``sort == "similarity"`` the phrase ranks the
-    filtered set rather than filtering it, and ``ranked_count``,
-    ``unranked_count`` and ``model`` say how; ``similarity_unavailable`` says
-    why a requested ranking was refused and the page fell back to newest.
-    Each of those four is absent when it does not apply.
+    ``total`` is the count of every match when ``total_is_exact``; when it is
+    false, counting ran out of its time budget (``count_budget_ms``) and
+    ``total`` is how many it had counted, which the matches are at least. Under
+    ``sort == "similarity"`` the phrase ranks the filtered set rather than
+    filtering it, and ``ranked_count``, ``unranked_count`` and ``model`` say how;
+    ``similarity_unavailable`` says why a requested ranking was refused and the
+    page fell back to newest. Each of those four is absent when it does not
+    apply.
+
+    ``start_date``, ``newer_count`` and ``newer_count_is_exact`` are present
+    when the request jumped to a date: the page starts at the newest match
+    published on or before it, and ``newer_count`` matches were published after.
 
     ``links``, ``matches`` and ``lifecycle`` are present only when the request's
     ``include`` named them: what ``/api/links/for-documents``,
@@ -2026,11 +2283,14 @@ class ExplorerPage(LosslessModel):
     next_cursor: Optional[Any]
     has_more: bool
     total: int
-    total_is_capped: bool
-    count_cap: int
+    total_is_exact: bool
+    count_budget_ms: int
     used_full_text_index: bool
     page_size: int
     sort: str
+    start_date: Optional[str] = None
+    newer_count: Optional[int] = None
+    newer_count_is_exact: Optional[bool] = None
     ranked_count: Optional[int] = None
     unranked_count: Optional[int] = None
     model: Optional[str] = None
@@ -2040,11 +2300,124 @@ class ExplorerPage(LosslessModel):
     lifecycle: Optional[LifecycleForDocuments] = None
 
 
+class PaperCollection(LosslessModel):
+    """One collection a paper is in: when it arrived there, and how (``run``,
+    ``move``, ``copy``, ``upgrade`` for a paper there since before collections,
+    or ``kept`` for one left in no other when its collection was deleted), and
+    the run that put it there where a run did."""
+
+    id: int
+    name: str
+    added_at: Optional[str]
+    added_by: str
+    execution_id: Optional[int]
+
+
 class Paper(PaperColumns):
-    """``GET /api/documents/{doc_id}``: one paper as stored, and its place in the
-    reading queue (``to_read``, ``read``, or ``None`` when it is not saved)."""
+    """``GET /api/documents/{doc_id}``: one paper as stored, its place in the
+    reading queue (``to_read``, ``read``, or ``None`` when it is not saved),
+    and every collection it is in, the default first."""
 
     queue_status: Optional[str]
+    collections: list[PaperCollection]
+
+
+class CollectionSummary(LosslessModel):
+    """One collection: how many papers it holds, and how many watches put
+    their papers there. The default collection (``is_default``) can be renamed
+    and never deleted."""
+
+    id: int
+    name: str
+    is_default: bool
+    papers: int
+    watches: int
+    created_at: Optional[str]
+
+
+class CollectionList(LosslessModel):
+    """``GET /api/collections``: every collection, the default first and the rest
+    in the order they were made; the one the app shows (``current_id``), which
+    the engine remembers; and the default one's id."""
+
+    collections: list[CollectionSummary]
+    current_id: int
+    default_id: int
+
+
+class CollectionWatch(LosslessModel):
+    id: int
+    name: str
+
+
+class CollectionDetail(CollectionSummary):
+    """``GET /api/collections/{collection_id}``: one collection, and what deleting
+    it would do. ``only_here`` papers are in no other collection and would be
+    kept in the default one; ``also_elsewhere`` papers stay where else they are;
+    the watches in ``watch_list`` would put their papers in the default one."""
+
+    only_here: int
+    also_elsewhere: int
+    watch_list: list[CollectionWatch]
+
+
+class CollectionCurrent(LosslessModel):
+    """``PUT /api/collections/current``: the collection the app now shows."""
+
+    current_id: int
+
+
+class CollectionDeleted(LosslessModel):
+    """``DELETE /api/collections/{collection_id}``: what went, and where its
+    papers and watches are now. No paper left the database."""
+
+    id: int
+    name: str
+    papers: int
+    kept_in_default: int
+    still_elsewhere: int
+    watches_moved: int
+    default_id: int
+
+
+class CollectionMembership(LosslessModel):
+    """A paper's place in a collection as a move found it, for an undo to put back."""
+
+    document_id: int
+    added_at: str
+    added_by: str
+    execution_id: Optional[int]
+
+
+class CollectionPapersChanged(LosslessModel):
+    """``POST /api/collections/{collection_id}/papers``: a move or a copy.
+
+    ``added`` are the papers that arrived in the collection; ``already_there``
+    counts those it held already. A move also lists, in ``removed``, each
+    paper's place in the collection it left, as it was; ``not_in_source``
+    counts papers named that were not in that collection, and ``missing`` ids
+    that are no paper. Send ``added``, ``from_collection_id`` and ``removed``
+    back to ``/papers/undo`` to undo it."""
+
+    mode: Literal["move", "copy"]
+    collection_id: int
+    from_collection_id: Optional[int]
+    added: list[int]
+    already_there: int
+    removed: list[CollectionMembership]
+    not_in_source: int
+    missing: int
+
+
+class CollectionPapersUndone(LosslessModel):
+    """``POST /api/collections/{collection_id}/papers/undo``. ``left_in_place``
+    counts papers kept in the collection because they are in no other."""
+
+    collection_id: int
+    from_collection_id: Optional[int]
+    taken_out: int
+    put_back: int
+    left_in_place: int
 
 
 class RunPaper(PaperColumns):
@@ -2066,7 +2439,8 @@ class RunPapersPage(LosslessModel):
 
 class RunDocumentIds(LosslessModel):
     """``GET /api/executions/{exec_id}/document-ids``: every paper the run
-    stored that is still in the collection, by id, for the run's map."""
+    stored that is in the collection named (the default one where none is),
+    by id, for the run's map, which is that collection's."""
 
     ids: list[int]
 
@@ -2159,10 +2533,15 @@ class CollapsePreview(LosslessModel):
 class EmbeddingStatus(EmbeddingJobStatus):
     """``GET /api/embeddings/status``: the backfill, the coverage, the vector
     extension and index, the configured lane, and whether ranking by meaning
-    is available now (and if not, why)."""
+    is available now (and if not, why).
+
+    ``coverage`` counts every paper resmon holds, which is what a backfill
+    embeds. ``collection_coverage``, present when a ``collection`` is named,
+    counts that collection's papers alone."""
 
     lane: Optional[EmbeddingLaneView]
     capability: EmbeddingCapability
+    collection_coverage: Optional[EmbeddingCoverage] = None
 
 
 # ===========================================================================
@@ -2230,7 +2609,8 @@ class RoutineRow(LosslessModel):
     sent rather than as meant, so neither body changes. ``parameters``,
     ``ai_settings`` and ``storage_settings`` are the stored JSON text, not
     parsed objects. ``last_execution`` repeats ``last_executed_at`` under the
-    name the renderer reads.
+    name the renderer reads. ``collection_id`` is the collection its runs'
+    papers land in.
     """
 
     id: int
@@ -2249,6 +2629,8 @@ class RoutineRow(LosslessModel):
     created_at: str
     updated_at: str
     last_executed_at: Optional[str]
+    collection_id: Optional[int]
+    download_full_text: int
     last_execution: Optional[str]
     last_status: Optional[str]
     missed_fires: MissedFires
@@ -2258,7 +2640,8 @@ class Routine(LosslessModel):
     """``GET /api/routines/{routine_id}``: one routine, its switches as
     booleans, and every fire it missed, oldest first. ``date_window_next`` is
     present only for a watch whose window moves (``date_window`` in its
-    parameters): the dates a run starting now would ask for."""
+    parameters): the dates a run starting now would ask for. ``collection_id``
+    is the collection its runs' papers land in."""
 
     id: int
     name: str
@@ -2276,6 +2659,8 @@ class Routine(LosslessModel):
     created_at: str
     updated_at: str
     last_executed_at: Optional[str]
+    collection_id: Optional[int]
+    download_full_text: bool
     missed_fires: MissedFires
     missed_fire_details: list[MissedFire]
     date_window_next: Optional[DateWindowComputed] = None
@@ -2311,6 +2696,8 @@ class RoutineUpdated(LosslessModel):
     ai_settings: Optional[str] = None
     storage_settings: Optional[str] = None
     notify_on_complete: Optional[int] = None
+    collection_id: Optional[int] = None
+    download_full_text: Optional[int] = None
 
 
 class RoutineActivation(LosslessModel):
@@ -2346,14 +2733,15 @@ class RoutineDocuments(LosslessModel):
     """``GET /api/routines/{routine_id}/documents``: the papers this routine's
     runs collected, newest run first, each once.
 
-    ``total`` counts every one; ``document_ids`` stops at ``limit``. Only ids:
+    ``total`` counts every one; ``document_ids`` holds every one, or stops at
+    ``limit`` where the request set one (``None`` when it did not). Only ids:
     what a screen marks on the collection map, not a page of records.
     """
 
     routine_id: int
     document_ids: list[int]
     total: int
-    limit: int
+    limit: Optional[int]
 
 
 class DeliveryTarget(LosslessModel):
@@ -2559,6 +2947,10 @@ class ServiceStatus(LosslessModel):
     engine), or ``null`` when there is no unit or it names neither.
     ``app_available`` is true when this engine was started by the packaged app, so
     a unit written now would run the app.
+
+    On macOS, ``loaded`` is whether launchd holds the service's label, and
+    ``blocked`` whether macOS's Allow in the Background has turned it off, so
+    launchd will not start it whatever resmon does. Both are absent elsewhere.
     """
 
     installed: bool
@@ -2566,6 +2958,8 @@ class ServiceStatus(LosslessModel):
     platform: str
     runs: Optional[Literal["app", "engine"]]
     app_available: bool
+    loaded: Optional[bool] = None
+    blocked: Optional[bool] = None
 
 
 class DaemonStatus(LosslessModel):
@@ -2594,10 +2988,16 @@ class DaemonStatus(LosslessModel):
 
 
 class ServiceInstalled(LosslessModel):
-    """``POST /api/service/install`` — the unit written, and where."""
+    """``POST /api/service/install`` — the unit written, and where.
+
+    ``restarting`` is true when the request came from the service's own engine:
+    the service is stopped and started again from the new unit by a process
+    outside it once this answer has gone, and the app opens again on it.
+    """
 
     installed: bool
     unit_path: str
+    restarting: Optional[bool] = None
 
 
 class ServiceUninstalled(LosslessModel):
@@ -2605,12 +3005,16 @@ class ServiceUninstalled(LosslessModel):
 
     ``removed`` is whether a file was there to remove: uninstalling a service
     that was never installed answers ``installed: false`` and ``removed:
-    false`` rather than an error.
+    false`` rather than an error. ``restarting`` is true when the request came
+    from the service's own engine: a process outside it stops the service,
+    removes the unit, and opens the app again, once this answer has gone, so
+    ``removed`` is still false here.
     """
 
     installed: bool
     unit_path: str
     removed: bool
+    restarting: Optional[bool] = None
 
 
 class TestEmailSent(LosslessModel):
@@ -2777,22 +3181,28 @@ class DiscoveryLagRow(LosslessModel):
     median_days: Optional[float]
     fastest_days: Optional[float]
     slowest_days: Optional[float]
+    not_a_day: int
 
 
 class DiscoveryLag(LosslessModel):
-    """``GET /api/analytics/discovery-lag``."""
+    """``GET /api/analytics/discovery-lag``. ``not_a_day`` counts papers left out because their date is not a whole day."""
 
     sources: list[DiscoveryLagRow]
     sample_size: int
+    not_a_day: int
     sufficient: bool
     minimum_sample: int
     insufficient_reason: Optional[str]
 
 
 class RoutineHealthRun(LosslessModel):
+    """One completed run of a watch, oldest first."""
+
+    execution_id: int
     start_time: Optional[str]
-    new_results: int
-    total_results: int
+    # None where the run did not record the count, never 0.
+    new_results: Optional[int]
+    total_results: Optional[int]
 
 
 class RoutineHealthRow(LosslessModel):
@@ -2809,6 +3219,7 @@ class RoutineHealthRow(LosslessModel):
     runs_since_new: int
     last_new_result_at: Optional[str]
     total_new: int
+    unrecorded_runs: int
     status: str
     sample_size: int
     sufficient: bool
@@ -2834,12 +3245,13 @@ class PublicationVolumeMonth(LosslessModel):
 
 
 class PublicationVolume(LosslessModel):
-    """``GET /api/analytics/publication-volume``, by ``source`` or ``category``."""
+    """``GET /api/analytics/publication-volume``, by ``source`` or ``category``; ``not_a_day`` counts papers whose date no month's range takes in."""
 
     group_by: str
     groups: list[str]
     series: list[PublicationVolumeMonth]
     sample_size: int
+    not_a_day: int
     sufficient: bool
     insufficient_reason: Optional[str]
 
@@ -2894,41 +3306,53 @@ class KeywordContribution(LosslessModel):
 # The owned Library
 # ---------------------------------------------------------------------------
 #
-# Every Library body carries ``version: 1`` and the vault it was read from, and
-# none carries an absolute path except ``open``'s, which exists to hand one to
-# the desktop's own opener. ``availability: not_checked`` says a listing reads
-# recorded metadata and did not hash the files.
+# Every Library body carries ``version: 1`` and the vault it was read from. An
+# absolute path appears where it is the point: the Library folder's own, which
+# Settings shows, and a verified file's, for the desktop's opener and its Trash.
+# ``availability: not_checked`` says a listing reads recorded metadata and did
+# not hash the files; ``missing`` says the file's folder is not in ``files/``.
 
 
 class LibraryCounts(LosslessModel):
-    """What the database records the vault holding; ``basis`` says it was not re-measured."""
+    """What the database records the vault holding; ``basis`` says it was not re-measured.
+
+    ``removed`` counts removed files still on record. ``missing`` is how many
+    recorded files have no folder in the Library folder now; it is present only
+    when the folder was read.
+    """
 
     items: int
     retained_bytes: int
     basis: str
+    removed: int
+    missing: Optional[int] = None
 
 
 class LibraryLimits(LosslessModel):
+    """One size for keeping a file and reading it, and the free space an import leaves."""
+
     file_bytes: int
-    batch_files: int
-    vault_bytes: int
-    items: int
+    read_bytes: int
+    free_space_floor: int
 
 
 class LibraryVault(LosslessModel):
-    """The vault by its id and folder name: never its absolute root."""
+    """The vault by its id, its folder's name, and where that folder is recorded to be."""
 
     vault_id: str
     label: str
+    path: str
     created_at_utc: str
 
 
 class LibraryStatus(LosslessModel):
-    """``GET /api/library`` and ``POST /api/library/vault``.
+    """``GET /api/library``, ``POST /api/library/vault`` and ``.../vault/relink``.
 
-    ``status`` is ``unconfigured``, ``ready``, ``busy``, ``mismatch``,
-    ``needs_attention`` or ``unavailable``; ``reason`` is present only for the
-    two that came from a refusal.
+    ``status`` is ``unconfigured``, ``ready``, ``busy``, ``missing`` (the folder
+    is not where it was recorded), ``mismatch``, ``needs_attention`` or
+    ``unavailable``; ``reason`` is present only for those that came from a
+    refusal, and for ``missing``. ``changing`` is ``moving`` or ``relinking``
+    while the folder's place is being changed, and absent otherwise.
     """
 
     version: int
@@ -2936,6 +3360,7 @@ class LibraryStatus(LosslessModel):
     status: str
     counts: LibraryCounts
     limits: LibraryLimits
+    changing: Optional[str] = None
     reason: Optional[str] = None
 
 
@@ -2960,11 +3385,15 @@ class LibraryFile(LosslessModel):
     relative_path: str
     created_at_utc: str
     paper_links: list[LibraryPaperLink]
+    project_count: int
     availability: str
 
 
 class LibraryFiles(LosslessModel):
-    """``GET /api/library/files``: a descending page under a fixed ceiling, ``through_id``."""
+    """``GET /api/library/files``: a page under a fixed ceiling, ``through_id``, in ``sort`` order.
+
+    ``total`` counts the files under the ceiling that match the name filter.
+    """
 
     version: int
     vault_id: str
@@ -2972,6 +3401,9 @@ class LibraryFiles(LosslessModel):
     through_id: int
     next_before_id: Optional[int]
     has_more: bool
+    sort: str
+    offset: int
+    total: int
 
 
 class LibraryImported(LosslessModel):
@@ -3021,8 +3453,125 @@ class LibraryInventory(LosslessModel):
     text: str
 
 
+class LibraryMoved(LosslessModel):
+    """Where a move took the Library folder. ``old_folder_kept`` is the old folder's path
+    when the move copied across disks and left it where it was, else ``None``."""
+
+    previous: str
+    path: str
+    same_disk: bool
+    old_folder_kept: Optional[str]
+
+
+class LibraryMovedStatus(LibraryStatus):
+    """``POST /api/library/vault/move``: the status after the move, and the move itself."""
+
+    moved: LibraryMoved
+
+
+class LibraryPicture(LosslessModel):
+    """``PUT /api/library/files/{file_id}/picture``: the picture kept for this version."""
+
+    version: int
+    vault_id: str
+    file_id: str
+    version_id: str
+    media_type: str
+    byte_size: int
+
+
+class LibraryRemovalLink(LosslessModel):
+    document_id: int
+    title: Optional[str]
+
+
+class LibraryRemovalProject(LosslessModel):
+    """A project the file is in (``member``) or has notes in, with how many of each."""
+
+    project_id: str
+    name: str
+    member: bool
+    notes: int
+    passages: int
+
+
+class LibraryRemoval(LosslessModel):
+    """``GET /api/library/files/{file_id}/removal``: what would go with the file."""
+
+    version: int
+    vault_id: str
+    file_id: str
+    version_id: str
+    original_name: str
+    links: list[LibraryRemovalLink]
+    projects: list[LibraryRemovalProject]
+    needs_confirmation: bool
+
+
+class LibraryRemovedProject(LosslessModel):
+    project_id: str
+    name: Optional[str]
+    notes: int
+
+
+class LibraryRemovedFile(LosslessModel):
+    """A removed file on record. ``bytes`` is ``held``, ``missing`` (none to hold when it
+    was removed) or ``gone`` (no longer in the removed folder)."""
+
+    file_id: str
+    version_id: str
+    original_name: str
+    media_type: str
+    byte_size: int
+    sha256: str
+    removed_at_utc: str
+    bytes: str
+    links: int
+    projects: list[LibraryRemovedProject]
+    notes: int
+
+
+class LibraryRemoved(LosslessModel):
+    """``DELETE /api/library/files/{file_id}``: the file as it is now held."""
+
+    version: int
+    vault_id: str
+    removed: LibraryRemovedFile
+
+
+class LibraryRemovedList(LosslessModel):
+    """``GET /api/library/removed``: every removed file on record, and the bytes still held."""
+
+    version: int
+    vault_id: str
+    removed: list[LibraryRemovedFile]
+    bytes: int
+
+
+class LibraryReleased(LosslessModel):
+    """``POST /api/library/removed/{file_id}/release``: the held file's path, for the Trash only."""
+
+    version: int
+    vault_id: str
+    file_id: str
+    path: str
+
+
+class LibraryForgotten(LosslessModel):
+    """``DELETE /api/library/removed/{file_id}``: the record is gone; its bytes had already left."""
+
+    version: int
+    vault_id: str
+    file_id: str
+    forgotten: bool
+
+
 class LibraryText(LosslessModel):
-    """``GET /api/library/files/{file_id}/text``: a retained TXT or MD file's bytes as literal text."""
+    """``GET /api/library/files/{file_id}/text``: a retained TXT, MD, or TeX file's bytes as literal text.
+
+    With ``lines``, ``text`` is only the file's first lines and ``shown_lines``
+    says how many; the file was still read and verified whole.
+    """
 
     version: int
     kind: str
@@ -3036,6 +3585,7 @@ class LibraryText(LosslessModel):
     byte_size: int
     line_count: int
     text: str
+    shown_lines: Optional[int] = None
 
 
 # ---------------------------------------------------------------------------
@@ -3061,6 +3611,21 @@ class EvidenceProject(LosslessModel):
     updated_at_utc: str
     file_count: int
     note_count: int
+    passage_count: int
+    cover_files: list["EvidenceCoverFile"]
+
+
+class EvidenceCoverFile(LosslessModel):
+    """One of a project's first three PDFs, for its cover in the Library's gallery."""
+
+    file_id: str
+    version_id: str
+    sha256: str
+    byte_size: int
+    media_type: str
+
+
+EvidenceProject.model_rebuild()
 
 
 class EvidenceFileRecord(LosslessModel):
@@ -4006,7 +4571,7 @@ class AssistantPermissionDecision(LosslessModel):
     Called by ``assistant_permission_server.py``, not the renderer, and held
     open until the person answers or five minutes pass. ``decision`` is
     ``allow`` or ``deny``; a timeout, a panel that was not open to ask, and a
-    cancelled conversation all deny, and ``message`` says which.
+    canceled conversation all deny, and ``message`` says which.
     """
 
     decision: str
@@ -4253,6 +4818,21 @@ class BackupSummary(LosslessModel):
     fk_violations_rows: Optional[int]
 
 
+class PreUpgradeCopy(LosslessModel):
+    """The copy of the database kept beside it before the last schema upgrade, read from the file.
+
+    ``schema_version`` is the schema the database was at when it was copied,
+    from the file's name. ``written_at_utc`` is the file's modification time,
+    which is when the copy was finished unless something has written to the
+    file since. ``bytes`` is its size. Nothing is opened or checked here.
+    """
+
+    path: str
+    schema_version: int
+    written_at_utc: str
+    bytes: int
+
+
 # ---------------------------------------------------------------------------
 # Restore
 # ---------------------------------------------------------------------------
@@ -4425,6 +5005,8 @@ class BackupLast(LosslessModel):
     while this database still has the removed upload to Google Drive after
     each run switched on, until ``POST
     /api/backup/drive-upload-notice/acknowledge``; nothing uploads either way.
+    ``pre_upgrade_copy`` is the copy of the database kept beside it before the
+    last schema upgrade, ``None`` when there is none there.
 
     A pointer or record edited by hand into a shape no resmon wrote matches
     neither model of its union, and this route then answers 500 rather than a
@@ -4439,6 +5021,7 @@ class BackupLast(LosslessModel):
     last_restore: Optional[Union[RestoreSucceeded, RestoreFailed]]
     undo_copies: list[str]
     drive_upload_retired: bool
+    pre_upgrade_copy: Optional[PreUpgradeCopy]
 
 
 class RestoreCancelled(LosslessModel):
@@ -4602,7 +5185,10 @@ class SettingsReset(LosslessModel):
 
 
 class FactoryReset(LosslessModel):
-    """``POST /api/admin/factory-reset``: papers, configurations, runs, settings, and AI, repository and SMTP keys.
+    """``POST /api/admin/factory-reset``: papers, configurations, runs, settings, collections, and AI, repository and SMTP keys.
+
+    ``collections_removed`` counts the collections deleted; the default one is
+    kept, empty, under its first name.
 
     The counts are as the single-purpose routes and ``SettingsReset`` count
     them, so the key counts are of keys found and removed. It does not clear a
@@ -4619,6 +5205,7 @@ class FactoryReset(LosslessModel):
     ai_keys_removed: int
     repo_keys_removed: int
     smtp_credentials_removed: int
+    collections_removed: int
 
 
 # ===========================================================================
@@ -5077,3 +5664,206 @@ class SharedWordingLibrary(LosslessModel):
     result: Optional[SharedWordingFileResult] = None
     error: Optional[str] = None
     reason: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Full text: Find a paper and Get the PDF (schema 27)
+# ---------------------------------------------------------------------------
+
+
+class FindPlanSource(LosslessModel):
+    """One source a find would not ask, and why, in a sentence."""
+
+    source: str
+    why: str
+
+
+class FindPlan(LosslessModel):
+    """``GET /api/find/plan``: what a typed query reads as, and which sources it would ask.
+
+    ``kind`` is ``doi``, ``arxiv``, ``pmid`` or ``title``; ``value`` is the
+    identifier as resmon will send it (a DOI lowercased, an arXiv id without
+    its version). ``asked`` keeps the order the sources were named in.
+    """
+
+    kind: str
+    value: str
+    typed: str
+    asked: list[str]
+    not_asked: list[FindPlanSource]
+
+
+class FindOpenCopy(LosslessModel):
+    """The open copy of a found record resmon would get, or the first one a source named.
+
+    ``downloadable`` is resmon's rule (a stated open license, never NASA ADS,
+    Springer or CORE). ``license_to_be_read`` is an arXiv copy whose license
+    is read from arXiv when its PDF is asked for.
+    """
+
+    downloadable: bool
+    license: Optional[str]
+    license_words: Optional[str]
+    host: Optional[str]
+    pdf_url: Optional[str]
+    license_to_be_read: bool
+
+
+class FindDifference(LosslessModel):
+    """One field where a copy differs from the reference copy: ``title``, ``year``,
+    ``doi``, ``first_author`` or ``author_count``."""
+
+    field: str
+    this: Any
+    reference: Any
+
+
+class FindSourceResult(LosslessModel):
+    """What one source said to a find.
+
+    ``outcome`` is ``found``, ``not_found`` (it answered, and no record was the
+    paper), ``did_not_answer``, or ``not_asked`` (with ``why_not_asked``).
+    ``matched_by`` says how the copy kept was matched: ``doi``, ``arxiv``,
+    ``pmid``, ``exact_title`` or ``close_title``, with ``title_similarity``
+    for a title. ``candidates`` is how many records the source returned.
+    ``reference`` marks the copy the others are compared with.
+    """
+
+    source: str
+    name: str
+    outcome: str
+    matched_by: Optional[str]
+    title_similarity: Optional[float]
+    document_id: Optional[int]
+    candidates: Optional[int]
+    differences: list[FindDifference]
+    reference: bool
+    why_not_asked: Optional[str]
+    open_copy: Optional[FindOpenCopy]
+
+
+class FindQuery(LosslessModel):
+    kind: Optional[str]
+    value: Optional[str]
+    typed: Optional[str]
+
+
+class FindResult(LosslessModel):
+    """``GET /api/executions/{exec_id}/find``: a find's question and every source's answer.
+
+    Empty ``sources`` while the run is going: each row is written when every
+    source has answered. ``counts`` totals the outcomes.
+    """
+
+    execution_id: int
+    status: str
+    query: FindQuery
+    reference_document_id: Optional[int]
+    sources: list[FindSourceResult]
+    counts: dict[str, int]
+
+
+class FullTextRequest(LosslessModel):
+    """One PDF asked for, and what came of it.
+
+    ``state`` is ``waiting``, ``downloading``, ``stored``, ``skipped`` (with
+    the ``reason`` no request was sent) or ``failed`` (with why). ``words`` is
+    the reason in a sentence. A stored request carries the Library ``file_id``,
+    ``final_url`` (where the PDF came from after every redirect), its
+    ``license``, and ``finished_at_utc``, when it was retrieved. ``id`` is null
+    only for the answer that the Library already holds the paper's PDF, which
+    records nothing new. ``file_held``, on a run's list only, says for a stored
+    request whether the Library holds its file still: false once it was removed.
+    """
+
+    id: Optional[int]
+    document_id: int
+    execution_id: Optional[int]
+    requested_by: str
+    state: str
+    reason: Optional[str]
+    words: Optional[str]
+    url: Optional[str]
+    final_url: Optional[str]
+    host: Optional[str]
+    license: Optional[str]
+    license_words: Optional[str]
+    version: Optional[str]
+    reported_by: Optional[str]
+    file_id: Optional[str]
+    byte_size: Optional[int]
+    requested_at_utc: str
+    finished_at_utc: Optional[str]
+    file_held: Optional[bool] = None
+
+
+class FullTextCopy(LosslessModel):
+    """One open copy a source reported, as stored."""
+
+    reported_by: str
+    pdf_url: Optional[str]
+    landing_url: Optional[str]
+    host: Optional[str]
+    license: Optional[str]
+    license_words: Optional[str]
+    license_basis: Optional[str]
+    version: Optional[str]
+    license_to_be_read: bool
+
+
+class FullTextLibraryFile(LosslessModel):
+    file_id: str
+    version_id: str
+    vault_id: str
+    byte_size: int
+
+
+class FullTextStatus(LosslessModel):
+    """A paper's full text: its open copies (its own and its stored copies'), the
+    one resmon would get, why there is none to get, its latest request, and the
+    PDF the Library holds for it."""
+
+    document_id: int
+    downloadable: bool
+    why_not: Optional[str]
+    why_not_words: Optional[str]
+    best: Optional[FullTextCopy]
+    copies: list[FullTextCopy]
+    download: Optional[FullTextRequest]
+    in_library: Optional[FullTextLibraryFile]
+
+
+class RunFullText(LosslessModel):
+    """``GET /api/executions/{exec_id}/full-text``: every PDF a run asked for, and the counts."""
+
+    execution_id: int
+    requests: list[FullTextRequest]
+    counts: dict[str, int]
+    per_run_cap: int
+
+
+class FullTextLicense(LosslessModel):
+    license: str
+    words: str
+
+
+class FullTextRefusedSource(LosslessModel):
+    """A provider resmon never downloads from: a source it asks, or a site other sources link to."""
+
+    source: str
+    name: str
+    why: str
+
+
+class FullTextRules(LosslessModel):
+    """``GET /api/full-text/rules``: the limits and the license rule, as Settings states them."""
+
+    per_run_cap: int
+    daily_cap: int
+    host_interval_seconds: float
+    one_at_a_time_per_host: bool
+    max_bytes: int
+    https_only: bool
+    open_licenses: list[FullTextLicense]
+    refused_sources: list[FullTextRefusedSource]
+

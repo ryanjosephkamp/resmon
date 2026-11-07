@@ -231,6 +231,9 @@ def test_run_returns_false_on_filenotfound():
         ("deep_dive", False, "all", False, False),
         ("deep_sweep", True, "none", False, True),
         ("deep_sweep", False, "all", False, False),
+        # Find a paper is a search started by hand too.
+        ("find_paper", True, "none", False, True),
+        ("find_paper", False, "all", True, False),
         # Automated runs: per-routine flag wins.
         ("automated_sweep", False, "none", True, True),
         ("automated_sweep", False, "selected", True, True),
@@ -339,8 +342,9 @@ def test_notification_fires_for_manual_dive_when_enabled(mock_notify):
 
     assert mock_notify.call_count == 1, mock_notify.call_args_list
     title, body = mock_notify.call_args.args
-    assert "resmon" in title.lower()
-    assert "Deep Dive" in body
+    # The app's words: a run finishes, and nothing says "Execution".
+    assert title == "resmon: Deep Dive finished"
+    assert "xecution" not in title + body
     # The run it is about, so the app can open that run when it is clicked.
     assert mock_notify.call_args.kwargs == {"execution_id": exec_id}
 
@@ -381,7 +385,8 @@ def test_notification_fires_for_routine_when_per_routine_optin(mock_notify):
 
     assert mock_notify.call_count == 1, mock_notify.call_args_list
     title, body = mock_notify.call_args.args
-    assert body.startswith("notify-hook-test: ")
+    assert title.startswith("resmon: Watch \u201cnotify-hook-test\u201d ")
+    assert "notify-hook-test" not in body
 
 
 @patch("resmon.SweepEngine.run_prepared", _fast_run_prepared)
@@ -425,6 +430,87 @@ def test_notification_failure_does_not_fail_execution(mock_notify):
 
 
 # ---------------------------------------------------------------------------
+# Find a paper: a search started by hand, so it notifies as one does, and says
+# whether the sources it asked hold the paper.
+# ---------------------------------------------------------------------------
+
+_FIND_DOI = "10.1000/find.1"
+
+
+def _find_run_prepared(outcomes: list[tuple[str, str]]):
+    """A find's ``run_prepared`` that leaves what each source said, as a real find records it."""
+
+    def _run(self, exec_id: int) -> dict:
+        for position, (slug, outcome) in enumerate(outcomes):
+            self.db.execute(
+                "INSERT INTO execution_find_results (execution_id, source, position, outcome, matched_by) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (exec_id, slug, position, outcome, "doi" if outcome == "found" else None))
+        found = sum(1 for _, outcome in outcomes if outcome == "found")
+        database.update_execution_status(self.db, exec_id, "completed", result_count=found, new_result_count=found)
+        progress_store.mark_complete(exec_id)
+        return {"execution_id": exec_id, "status": "completed"}
+
+    return _run
+
+
+def _finish_a_find(outcomes: list[tuple[str, str]], *, notify_manual: bool = True):
+    """Run a find to its end through the completion hook; the notifier's calls, and the run's id."""
+    _reset_state()
+    _set_notify_settings(notify_manual=notify_manual, mode="none")
+    conn = resmon_mod._get_db()
+    from implementation_scripts.sweep_engine import SweepEngine
+
+    engine = SweepEngine(db_conn=conn, config={"ai_enabled": False, "ai_settings": None})
+    asked = [slug for slug, outcome in outcomes if outcome != "not_asked"]
+    exec_id = engine.prepare_execution("find_paper", asked, {
+        "query": _FIND_DOI, "find": {"kind": "doi", "value": _FIND_DOI, "typed": _FIND_DOI}})
+    with patch("resmon.SweepEngine.run_prepared", _find_run_prepared(outcomes)), \
+         patch("implementation_scripts.desktop_notifier.notify", return_value=True) as mock_notify:
+        progress_store.register(exec_id)
+        resmon_mod._launch_execution(engine, exec_id, conn)
+        _wait_for_completion(exec_id)
+        deadline = time.monotonic() + 5
+        while notify_manual and not mock_notify.call_count and time.monotonic() < deadline:
+            time.sleep(0.05)
+    return mock_notify, exec_id
+
+
+def test_a_finished_find_notifies_how_many_of_the_sources_asked_hold_the_paper():
+    notify, exec_id = _finish_a_find([
+        ("crossref", "found"), ("openalex", "found"), ("europepmc", "not_found"),
+        ("semantic_scholar", "did_not_answer"), ("arxiv", "not_asked"),
+    ])
+    assert notify.call_count == 1, notify.call_args_list
+    title, body = notify.call_args.args
+    assert title == "resmon: Find a paper finished"
+    # As the Find a paper page says it; a source not asked is not counted.
+    assert body == f"2 of 4 sources asked hold the DOI {_FIND_DOI}; 1 did not answer."
+    # The run it is about, so a click opens it in the window that started it.
+    assert notify.call_args.kwargs == {"execution_id": exec_id}
+
+
+def test_a_find_no_source_holds_says_so():
+    notify, _ = _finish_a_find([("crossref", "not_found")])
+    assert notify.call_args.args == (
+        "resmon: Find a paper finished", f"None of the 1 source asked holds the DOI {_FIND_DOI}.")
+
+
+def test_a_find_is_quiet_when_searches_i_start_do_not_notify():
+    notify, _ = _finish_a_find([("crossref", "found")], notify_manual=False)
+    assert notify.call_count == 0
+
+
+def test_a_find_names_what_it_asked_for_by_kind():
+    from implementation_scripts import paper_find
+
+    assert paper_find.asked_words("doi", "10.1000/x") == "the DOI 10.1000/x"
+    assert paper_find.asked_words("arxiv", "1706.03762") == "the arXiv id 1706.03762"
+    assert paper_find.asked_words("pmid", "123") == "the PMID 123"
+    assert paper_find.asked_words("title", "A paper") == "the title \u201cA paper\u201d"
+
+
+# ---------------------------------------------------------------------------
 # What the notification says. The tests above check that one fires; these
 # check its sentence, end to end from the row the hook really reads. Before
 # they existed every completed run's background notification said "0 results
@@ -459,7 +545,7 @@ def _recording_run_prepared(
     return _run
 
 
-def _fire_named_routine_and_read_body(run_prepared, *, repositories=None) -> str:
+def _fire_named_routine_and_read(run_prepared, *, repositories=None, name="daily_agents") -> tuple[str, str]:
     _reset_state()
     _set_notify_settings(notify_manual=False, mode="all")
     params = json.dumps({
@@ -468,7 +554,7 @@ def _fire_named_routine_and_read_body(run_prepared, *, repositories=None) -> str
     })
     conn = resmon_mod._get_db()
     rid = database.insert_routine(conn, {
-        "name": "daily_agents",
+        "name": name,
         "schedule_cron": "0 16 * * *",
         "parameters": params,
         "is_active": 1,
@@ -483,7 +569,12 @@ def _fire_named_routine_and_read_body(run_prepared, *, repositories=None) -> str
         assert len(rows) == 1
         _wait_for_completion(rows[0]["id"])
     assert mock_notify.call_count == 1, mock_notify.call_args_list
-    return mock_notify.call_args.args[1]
+    title, body = mock_notify.call_args.args
+    return title, body
+
+
+def _fire_named_routine_and_read_body(run_prepared, *, repositories=None) -> str:
+    return _fire_named_routine_and_read(run_prepared, repositories=repositories)[1]
 
 
 def test_completed_routine_body_names_routine_counts_and_coverage():
@@ -492,7 +583,7 @@ def test_completed_routine_body_names_routine_counts_and_coverage():
         sources=[("arxiv", "ok", 900, None), ("crossref", "ok", 400, None),
                  ("openalex", "ok", 200, None), ("pubmed", "ok", 0, "answered_empty")],
     ))
-    assert body == "daily_agents: 6 new of 1,500 results; all 4 sources answered."
+    assert body == "6 new papers of 1,500 found; all 4 sources answered."
 
 
 def test_completed_routine_body_counts_a_source_that_did_not_answer():
@@ -502,9 +593,8 @@ def test_completed_routine_body_counts_a_source_that_did_not_answer():
                  ("openalex", "ok", 0, "upstream_failure"),
                  ("pubmed", "ok", 0, "answered_empty")],
     ))
-    assert body == (
-        "daily_agents: 6 new of 1,500 results; 1 of 4 sources did not answer."
-    )
+    # One or two sources that did not answer are named.
+    assert body == "6 new papers of 1,500 found; 3 of 4 sources answered; OpenAlex did not."
 
 
 def test_completed_body_says_unrecorded_sources_are_unknown_not_failed():
@@ -515,7 +605,7 @@ def test_completed_body_says_unrecorded_sources_are_unknown_not_failed():
         sources=[("arxiv", "ok", 12, None), ("crossref", "ok", 0, "upstream_failure")],
     ))
     assert body == (
-        "daily_agents: 3 new of 12 results; 1 of 4 sources did not answer; "
+        "3 new papers of 12 found; 1 of 4 sources did not answer; "
         "whether 2 answered is unknown."
     )
 
@@ -532,16 +622,26 @@ def test_completed_body_never_prints_an_absent_count_as_zero():
     }
     body = resmon_mod._desktop_notification_body(conn, row, None)
     assert body == (
-        "Deep Dive: result count not recorded; whether the source answered is unknown."
+        "The paper count was not recorded; whether arXiv answered is unknown."
     )
 
 
-def test_failed_routine_body_says_failed_and_why():
-    body = _fire_named_routine_and_read_body(_recording_run_prepared(
+def test_failed_routine_says_failed_in_its_title_and_why_in_its_body():
+    title, body = _fire_named_routine_and_read(_recording_run_prepared(
         status="failed", result_count=None, new_result_count=None,
         sources=[(slug, "ok", 0, "upstream_failure") for slug in _FOUR_SOURCES],
     ))
-    assert body == "daily_agents failed; 4 of 4 sources did not answer."
+    assert title == "resmon: Watch \u201cdaily_agents\u201d failed"
+    assert body == "4 of 4 sources did not answer."
+
+
+def test_a_watch_on_one_source_names_the_source_that_failed_it():
+    title, body = _fire_named_routine_and_read(_recording_run_prepared(
+        status="failed", result_count=None, new_result_count=None,
+        sources=[("arxiv", "ok", 0, "upstream_failure")],
+    ), repositories=["arxiv"], name="midnight_agents_arxiv_ai")
+    assert title == "resmon: Watch \u201cmidnight_agents_arxiv_ai\u201d failed"
+    assert body == "arXiv did not answer."
 
 
 @pytest.mark.parametrize(
@@ -563,6 +663,21 @@ def test_failed_routine_body_says_failed_and_why():
          "all 3 recorded sources answered"),
         ({"total": 3, "counts": {"answered": 3, "partial": 1}, "selection_known": True},
          "all 3 sources answered (1 only in part)"),
+        # Named, when the record names them and there are one or two.
+        ({"total": 1, "counts": {"non_answer": 1}, "selection_known": True,
+          "sources": [{"source": "arxiv", "category": "non_answer"}]},
+         "arXiv did not answer"),
+        ({"total": 2, "counts": {"non_answer": 2}, "selection_known": True,
+          "sources": [{"source": "arxiv", "category": "non_answer"}, {"source": "pubmed", "category": "non_answer"}]},
+         "arXiv and PubMed did not answer"),
+        ({"total": 4, "counts": {"answered": 2, "non_answer": 2}, "selection_known": True,
+          "sources": [{"source": "arxiv", "category": "non_answer"}, {"source": "pubmed", "category": "non_answer"},
+                      {"source": "zenodo", "category": "answered"}, {"source": "plos", "category": "answered"}]},
+         "2 of 4 sources answered; arXiv and PubMed did not"),
+        ({"total": 4, "counts": {"answered": 1, "non_answer": 3}, "selection_known": True,
+          "sources": [{"source": s, "category": "non_answer"} for s in ("arxiv", "crossref", "pubmed")]
+          + [{"source": "plos", "category": "answered"}]},
+         "3 of 4 sources did not answer"),
     ],
 )
 def test_coverage_phrase(coverage, expected):

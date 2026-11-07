@@ -72,11 +72,12 @@ def compose_notification(
     start_time = execution_data.get("start_time", "—")
     end_time = execution_data.get("end_time", "—")
 
-    subject = f"[resmon] {routine_name} - {status}"
+    status_word = "canceled" if status == "cancelled" else status
+    subject = f"[resmon] {routine_name} - {status_word}"
 
     body_lines = [
         f"Watch: {routine_name}",
-        f"Status: {status}",
+        f"Status: {status_word}",
         f"Start: {start_time}",
         f"End: {end_time}",
         f"Total results: {result_count}",

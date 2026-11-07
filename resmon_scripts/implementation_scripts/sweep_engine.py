@@ -14,6 +14,7 @@ from typing import Optional
 from . import zero_reason as zero_reason_module
 from .api_base import (
     EntityUnsupported,
+    LookupUnsupported,
     note_entity_unsupported,
     reset_search_outcome,
     search_outcome,
@@ -37,7 +38,7 @@ from .database import (
     get_execution_sources,
     record_execution_source,
 )
-from . import source_coverage
+from . import paper_collections, paper_find, source_contact, source_coverage
 from .logger import TaskLogger
 from .embedding_job import embed_documents, pending_ids
 from .near_duplicates import links_map
@@ -77,7 +78,7 @@ _HEARTBEAT_SECONDS = 2.0
 _SENT_QUERY_KEYS = ("author_queries", "queries_sent", "default_starts")
 
 
-class _ExecutionCancelled(Exception):
+class _ExecutionCanceled(Exception):
     """Raised internally when cooperative cancellation is detected mid-query."""
 
 
@@ -111,6 +112,24 @@ def required_credential_for_sweep(repo_name: str) -> str | None:
 # nothing broke. A run made entirely of those completed; it simply had nowhere
 # to look.
 _ASKED_AND_DID_NOT_ANSWER = frozenset({"upstream_failure", "parse_failure"})
+
+
+def _utc_clock(stamp: object) -> str:
+    """A UTC time as ``YYYY-MM-DD HH:MM:SS``, so SQLite's and ISO's shapes compare as times.
+
+    ``documents.first_seen_at`` is SQLite's ``datetime('now')``
+    (``2026-11-05 10:00:00``) and a run's start is ``now_iso()``
+    (``2026-11-05T10:00:00Z``). Compared as they are, the space sorts before
+    the ``T``, so a paper a run stored that same day read as older than the run
+    and was linked as not new.
+    """
+    return str(stamp or "").replace("T", " ").rstrip("Z")[:19]
+
+
+def find_query(find: dict) -> dict:
+    """The kind, value and typed text of a find, from its stored parameters."""
+    return {"kind": str(find.get("kind")), "value": str(find.get("value")),
+            "typed": str(find.get("typed") or find.get("value"))}
 
 
 class SweepEngine:
@@ -167,6 +186,8 @@ class SweepEngine:
         execution_type: str,
         repositories: list[str],
         query_params: dict,
+        request_id: Optional[str] = None,
+        routine_id: Optional[int] = None,
     ) -> int:
         """Create the execution record and return exec_id without running the pipeline.
 
@@ -185,6 +206,8 @@ class SweepEngine:
             "execution_type": execution_type,
             "parameters": params_json,
             "start_time": start_time,
+            "request_id": request_id,
+            "routine_id": routine_id,
         })
 
         # Stash metadata so run_prepared can retrieve it
@@ -297,7 +320,7 @@ class SweepEngine:
         # into the report's footer.
         zero_notes: list[dict] = []
         # Records each source returned, for every source whose search finished.
-        # Only a cancelled run's report needs it: a finished report lists the
+        # Only a canceled run's report needs it: a finished report lists the
         # papers themselves.
         source_counts: dict[str, int] = {}
         # A person watch: what each source's author query sent, by slug.
@@ -309,8 +332,12 @@ class SweepEngine:
         # A source that cannot usefully be asked without a start date, in a run
         # that set none: the start its client gave it, and why, by slug.
         default_starts: dict[str, dict] = {}
+        # Find a paper: each asked source's copy of the paper, or None, by
+        # slug, and how many candidates it returned.
+        find_matches: dict[str, Optional[paper_find.Match]] = {}
+        find_candidates: dict[str, int] = {}
 
-        def cancelled(
+        def canceled(
             stage: str,
             *,
             report_docs: Optional[list[dict]] = None,
@@ -318,13 +345,15 @@ class SweepEngine:
             linked: Optional[list[int]] = None,
             ai_model: Optional[str] = None,
         ) -> dict:
-            """Finalize a cancelled run, leaving a report of what it collected.
+            """Finalize a canceled run, leaving a report of what it collected.
 
             ``stage`` is where the cancel took effect: ``querying`` (sources
             still being asked), ``collected`` (every source finished, nothing
-            stored yet) or ``summarizing`` (papers stored and linked). A report
-            that cannot be written is logged and the run is still cancelled;
-            the report is never allowed to turn a cancel into a failure.
+            stored yet), ``summarizing`` (papers stored and linked) or
+            ``reporting`` (papers stored, the run about to be recorded as
+            finished). A report that cannot be written is logged and the run
+            is still canceled; the report is never allowed to turn a cancel
+            into a failure.
             """
             report_path: Optional[Path] = None
             try:
@@ -360,7 +389,7 @@ class SweepEngine:
                 report_path = (REPORTS_DIR / "markdowns"
                                / f"report_{execution_type}_{exec_id}_{ts_slug}.md")
                 save_report(text, report_path)
-                task_log.log(f"Report of the cancelled run saved: {report_path}")
+                task_log.log(f"Report of the canceled run saved: {report_path}")
                 store.emit(exec_id, {
                     "type": "report_saved",
                     "report_path": str(report_path),
@@ -368,10 +397,10 @@ class SweepEngine:
                 })
             except Exception as exc:
                 logger.warning(
-                    "Could not write the cancelled run's report (exec_id=%s): %s",
+                    "Could not write the canceled run's report (exec_id=%s): %s",
                     exec_id, exc,
                 )
-                task_log.log(f"The cancelled run's report could not be written: {exc}")
+                task_log.log(f"The canceled run's report could not be written: {exc}")
                 report_path = None
             return self._handle_cancellation(
                 exec_id, task_log, all_results, wall_start,
@@ -388,9 +417,9 @@ class SweepEngine:
             entity_mode = query_params.get("entity_mode")
             if entity_mode and query_params.get("entity_profile") is None:
                 raise ValueError(
-                    f"The watch profile this routine follows (id "
+                    f"The person this watch follows (id "
                     f"{query_params.get('entity_profile_id')}) no longer exists. "
-                    f"Point the routine at another profile, or delete it."
+                    f"Point the watch at another person, or delete it."
                 )
             if entity_mode == "retractions":
                 return self._run_retractions(
@@ -427,6 +456,8 @@ class SweepEngine:
                 author_queries=author_queries,
                 queries_sent=queries_sent,
                 default_starts=default_starts,
+                find_matches=find_matches,
+                find_candidates=find_candidates,
             )
             # Filled as each source answered; kept, and reported, in the order
             # the sources were selected, as the run's other records are.
@@ -440,7 +471,7 @@ class SweepEngine:
                 default_starts or None,
             )
             if stopped:
-                return cancelled("querying")
+                return canceled("querying")
 
             store.emit(exec_id, {
                 "type": "log_entry",
@@ -452,7 +483,7 @@ class SweepEngine:
             # 4. Normalize + deduplicate + insert
             # Cancellation checkpoint
             if store.should_cancel(exec_id):
-                return cancelled("collected")
+                return canceled("collected")
 
             store.emit(exec_id, {
                 "type": "stage",
@@ -462,11 +493,18 @@ class SweepEngine:
             })
             update_current_stage(self.db, exec_id, "dedup")
 
-            dedup_stats = deduplicate_batch(self.db, all_results)
+            # Where this run's papers land: the collection it was started in,
+            # or the one its watch names, carried in its parameters. One deleted
+            # while the run went is the default collection's.
+            target = query_params.get("collection_id")
+            if not isinstance(target, int) or not paper_collections.exists(self.db, target):
+                target = paper_collections.DEFAULT_COLLECTION_ID
+            dedup_stats = deduplicate_batch(self.db, all_results, collection_id=target,
+                                            execution_id=exec_id)
 
             # The match rows, written **after** the documents exist
             # because a match points at a document id. Written for every
-            # verified candidate, including the ones dedup recognised as
+            # verified candidate, including the ones dedup recognized as
             # already in the corpus: a paper you already had is still this
             # person's paper, and a watch routine that only ever surfaced brand
             # new documents would go quiet for anyone whose work you already
@@ -522,7 +560,7 @@ class SweepEngine:
                     self.db, nr.source_repository, nr.external_id
                 )
                 if doc_row:
-                    is_new = doc_row.get("first_seen_at", "") >= start_time
+                    is_new = _utc_clock(doc_row.get("first_seen_at")) >= _utc_clock(start_time)
                     link_execution_document(self.db, exec_id, doc_row["id"], is_new=is_new)
                     linked_ids.append(int(doc_row["id"]))
                     if is_new:
@@ -535,6 +573,17 @@ class SweepEngine:
                         "new_count": new_count,
                         "timestamp": now_iso(),
                     })
+
+            # Every paper the run found is in its collection, including one
+            # resmon already held elsewhere; a paper already there is left as
+            # it arrived. A collection deleted while the run went is the
+            # default one's, decided as each paper is written.
+            paper_collections.file_run_papers(self.db, target, linked_ids, execution_id=exec_id)
+
+            # Find a paper: what each source said, and links between the copies.
+            if query_params.get("find"):
+                self._record_find(exec_id, query_params, repositories, find_matches,
+                                  find_candidates, task_log)
 
             # 5b. Embed what this run touched.
             #
@@ -571,7 +620,7 @@ class SweepEngine:
             ai_possible = bool(ai_lanes) or self.llm_client is not None
             if ai_possible and self.config.get("ai_enabled") and report_docs:
                 if store.should_cancel(exec_id):
-                    return cancelled("summarizing", report_docs=report_docs,
+                    return canceled("summarizing", report_docs=report_docs,
                                      dedup=dedup_stats, linked=linked_ids)
 
                 store.emit(exec_id, {
@@ -640,16 +689,16 @@ class SweepEngine:
                     # *during* a slice, which is why the slice also announces
                     # itself before it starts.
                     total_chars = 0
-                    cancelled_mid_summary = False
+                    canceled_mid_summary = False
                     total_docs = len(doc_texts)
                     batch_size = max(1, int(getattr(ai_lanes[0], "batch_size", 1) or 1))
                     completed = 0
 
                     for start in range(0, total_docs, batch_size):
                         if store.should_cancel(exec_id):
-                            cancelled_mid_summary = True
+                            canceled_mid_summary = True
                             task_log.log(
-                                f"AI summarization cancelled after "
+                                f"AI summarization canceled after "
                                 f"{completed}/{total_docs} documents."
                             )
                             break
@@ -684,10 +733,10 @@ class SweepEngine:
                                 last=last,
                                 total=total_docs,
                             )
-                        except _ExecutionCancelled:
-                            cancelled_mid_summary = True
+                        except _ExecutionCanceled:
+                            canceled_mid_summary = True
                             task_log.log(
-                                f"AI summarization cancelled after "
+                                f"AI summarization canceled after "
                                 f"{completed}/{total_docs} documents."
                             )
                             break
@@ -772,8 +821,8 @@ class SweepEngine:
                             "timestamp": now_iso(),
                         })
 
-                    if cancelled_mid_summary:
-                        return cancelled("summarizing", report_docs=report_docs,
+                    if canceled_mid_summary:
+                        return canceled("summarizing", report_docs=report_docs,
                                          dedup=dedup_stats, linked=linked_ids,
                                          ai_model=chain.active_label or None)
 
@@ -862,6 +911,13 @@ class SweepEngine:
                 "report_path": str(report_path),
                 "timestamp": now_iso(),
             })
+
+            # The last check. A stop the engine accepted before this point
+            # ends the run canceled; one that comes after it is refused (the
+            # stop route answers 409), never accepted and then ignored.
+            if not store.begin_finishing(exec_id):
+                return canceled("reporting", report_docs=report_docs,
+                                 dedup=dedup_stats, linked=linked_ids)
 
             # 7. Finalize
             store.emit(exec_id, {
@@ -991,7 +1047,7 @@ class SweepEngine:
         state most installs are in and is not a failure.
 
         **Three separate skip reasons, and each is recorded rather than
-        summarised.** No lane configured, the extension will not load, and the
+        summarized.** No lane configured, the extension will not load, and the
         lane refused are different conditions with different remedies, and a run
         that said only "embedding skipped" would leave the user to guess which.
         The extension case still writes vectors: they are in
@@ -1010,13 +1066,13 @@ class SweepEngine:
 
         try:
             todo = pending_ids(self.db, lane.model, within=linked_ids)
-        except Exception as exc:  # pragma: no cover - defence around an optional step
+        except Exception as exc:  # pragma: no cover - defense around an optional step
             logger.warning("could not determine what to embed: %s", exc)
             return
 
         # ``pending_ids`` rather than "the new ones". A document this run
         # returned that is already in the corpus but has no vector -- because it
-        # predates the lane, or a backfill was cancelled -- is embedded here, and
+        # predates the lane, or a backfill was canceled -- is embedded here, and
         # one that already has a vector is not re-embedded. The set is bounded by
         # this execution either way, and it is self-healing rather than merely
         # correct for new rows.
@@ -1232,10 +1288,12 @@ class SweepEngine:
         this function adds on top of ``build`` is only the narrowing the
         verdict needs:
 
-        * **Every** selected source must have failed. One source answering
-          makes this a graded question -- how much of the field was actually
-          searched -- and grading it needs a status this schema cannot hold
-          yet. 26 of 27 failing is still ``completed`` here.
+        * At least one source must have been asked, and **every** asked source
+          must have failed. Sources never asked do not count either way.
+          One source answering makes this a graded question -- how much of
+          the field was actually searched -- and grading it needs a status
+          this schema cannot hold yet. 26 of 27 failing is still
+          ``completed`` here.
         * A source whose outcome was never recorded is ``unknown``, and
           ``unknown`` is not evidence. ``zero_reason`` refuses to call an
           unexplained zero an answer and this refuses to call it a failure;
@@ -1263,16 +1321,12 @@ class SweepEngine:
             # A source answered in part is among the answered: it answered
             # every page resmon asked for, and resmon stopped. A run whose only
             # shortfalls are those completes, and its coverage says what was read.
-            if coverage["total"] == 0 or coverage["counts"]["answered"]:
+            if coverage["counts"]["answered"] or coverage["counts"]["unknown"]:
                 return None
             # A raised query counts: resmon asked and the call did not come
-            # back. A *retired* source also lands on ``status == 'error'`` --
-            # the engine catches the registry's ValueError and records the
-            # withdrawal reason there (see the except branch in ``_run``) --
-            # and that one is not a failure, it is a source resmon declined to
-            # ask. Without this exclusion a dive on a retired source plus one
-            # that answered 503 recorded ``failed``; the single-retired case
-            # was hidden because ``all_repos_errored`` already fires on it.
+            # back. A retired source also has status "error", but resmon
+            # declined to ask it. Neither it nor a keyless source can hide
+            # the failure of every source that was actually asked.
             asked_and_failed = sum(
                 source["category"] == "non_answer"
                 and source["zero_reason"] != "retired"
@@ -1280,7 +1334,7 @@ class SweepEngine:
                      or source["zero_reason"] in _ASKED_AND_DID_NOT_ANSWER)
                 for source in coverage["sources"]
             )
-            if asked_and_failed != coverage["total"]:
+            if not asked_and_failed:
                 return None
             return str(coverage["summary"])
         except Exception as exc:  # pragma: no cover - defensive
@@ -1369,17 +1423,17 @@ class SweepEngine:
         start = time.monotonic()
         thread.start()
 
-        cancelled = False
+        canceled = False
         while thread.is_alive():
             thread.join(timeout=heartbeat_interval)
             if not thread.is_alive():
                 break
-            if not cancelled and store.should_cancel(exec_id):
+            if not canceled and store.should_cancel(exec_id):
                 # Terminate the CLI, then wait for the worker to unwind rather
                 # than abandoning it: the temporary working directory holding
                 # the constitution is cleaned up on the way out, and a thread
-                # left holding it would leak one per cancelled batch.
-                cancelled = True
+                # left holding it would leak one per canceled batch.
+                canceled = True
                 try:
                     chain.cancel()
                 except Exception:  # pragma: no cover - defensive
@@ -1401,8 +1455,8 @@ class SweepEngine:
                 "timestamp": now_iso(),
             })
 
-        if cancelled:
-            raise _ExecutionCancelled()
+        if canceled:
+            raise _ExecutionCanceled()
         if "error" in holder:
             raise holder["error"]
         return holder.get("results", [("", None)] * len(texts))
@@ -1437,7 +1491,7 @@ class SweepEngine:
         """
         from . import lifecycle as lifecycle_module
         from . import watch_profiles as watch_profiles_module
-        from .report_generator import generate_cancelled_watch_report, generate_watch_report
+        from .report_generator import generate_canceled_watch_report, generate_watch_report
 
         store = progress_store
         profile = query_params["entity_profile"]
@@ -1456,21 +1510,22 @@ class SweepEngine:
             f"Watch profile '{name}': {len(document_ids)} matched paper(s) in "
             f"the corpus")
 
-        # The one cancellation checkpoint this branch has, and it is honestly
+        # The one cancellation point this branch has, and it is honestly
         # placed: everything above reads the local database, and everything below
         # is a single bounded lifecycle pass that makes batched HTTP calls and
-        # cannot be interrupted part-way. `check_corpus` has the same shape.
-        # Cancelling after this point takes effect at the end of the pass, and
-        # the log says so rather than leaving a Cancel button that looks broken.
-        if store.should_cancel(exec_id):
+        # cannot be interrupted part-way. `begin_finishing` is the run's last
+        # check: a stop accepted before it ends the run canceled, and from here
+        # a stop is refused (the stop route answers 409) rather than accepted
+        # and ignored.
+        if not store.begin_finishing(exec_id):
             report_path: Optional[Path] = None
             try:
                 report_path = REPORTS_DIR / "markdowns" / f"report_{execution_type}_{exec_id}_{ts_slug}.md"
-                save_report(generate_cancelled_watch_report(profile, len(document_ids)), report_path)
-                task_log.log(f"Report of the cancelled run saved: {report_path}")
+                save_report(generate_canceled_watch_report(profile, len(document_ids)), report_path)
+                task_log.log(f"Report of the canceled run saved: {report_path}")
             except Exception as exc:
                 logger.warning(
-                    "Could not write the cancelled run's report (exec_id=%s): %s",
+                    "Could not write the canceled run's report (exec_id=%s): %s",
                     exec_id, exc,
                 )
                 report_path = None
@@ -1479,13 +1534,13 @@ class SweepEngine:
                 report_path=report_path, log_path=log_path,
             )
         task_log.log(
-            "Checking now. A cancel from here takes effect when this pass ends: "
-            "the lifecycle check runs in one bounded batch and is not "
-            "interruptible part-way.")
+            "Checking now. From here the check runs to its end: it is one "
+            "bounded batch that cannot be interrupted part-way, and a stop now "
+            "is refused.")
 
         # Bounded, and bounded by the routine's own `max_results` so the same
         # dial that limits a keyword sweep limits this. A daily routine over a
-        # large back catalogue walks it: `documents_due` orders never-checked
+        # large back catalog walks it: `documents_due` orders never-checked
         # first, so each run advances rather than re-reading the head.
         limit = int(query_params.get("max_results") or 100)
         check = lifecycle_module.check_documents(
@@ -1525,10 +1580,12 @@ class SweepEngine:
         # lifecycle row's own `first_seen_at` rather than from the count moving.
         # A run that checked nothing and a run that found nothing new report the
         # same zero here, which is why the task log carries the coverage sentence
-        # above and the report repeats it.
+        # above and the report repeats it. The finding's time is SQLite's
+        # ``datetime('now')`` and the run's is ``now_iso()``, so both are read
+        # through ``_utc_clock``, as a run's papers are.
         new_count = sum(
             1 for f in findings["findings"]
-            if str(f.get("first_seen_at") or "") >= start_time
+            if _utc_clock(f.get("first_seen_at")) >= _utc_clock(start_time)
         )
 
         end_time = now_iso()
@@ -1656,6 +1713,8 @@ class SweepEngine:
         author_queries: dict[str, dict],
         queries_sent: dict[str, dict | None],
         default_starts: Optional[dict[str, dict]] = None,
+        find_matches: Optional[dict] = None,
+        find_candidates: Optional[dict] = None,
     ) -> bool:
         """Ask the selected sources, up to ``_SOURCE_CONCURRENCY`` at a time.
 
@@ -1675,7 +1734,7 @@ class SweepEngine:
         deduplication, the report and the search record come out as a
         one-at-a-time run wrote them whichever source happened to answer first.
 
-        Returns True when the run was cancelled. The collections then hold what
+        Returns True when the run was canceled. The collections then hold what
         the sources that finished contributed, and ``zero_notes`` also names
         each search the cancel interrupted and each source it was never sent
         to, so the caller's report can account for every selected source.
@@ -1772,7 +1831,9 @@ class SweepEngine:
                     credential_name=cred_name,
                 )
             try:
-                client = get_client(repo_name)
+                # Crossref and OpenAlex get the contact address set in
+                # Settings › Sources, when there is one (``source_contact``).
+                client = get_client(repo_name, **source_contact.client_options(repo_name, self.db))
                 # Thread the exec_id onto the client so that any
                 # ephemeral (per-execution) credentials are honored by
                 # credential_manager.get_credential_for.
@@ -1794,15 +1855,18 @@ class SweepEngine:
                 return
 
             holder: dict = {}
+            # The search's own channel, once its thread has one: the heartbeat
+            # reads what it is doing from it.
+            live: dict = {}
 
             def work() -> None:
                 try:
-                    holder.update(self._search_source(client, repo_name, query_params))
+                    holder.update(self._search_source(client, repo_name, query_params, live))
                 finally:
                     finished.put(i)
 
             started = time.monotonic()
-            in_flight[i] = {"repo": repo_name, "holder": holder, "started": started,
+            in_flight[i] = {"repo": repo_name, "holder": holder, "live": live, "started": started,
                             "beat": started + _HEARTBEAT_SECONDS}
             threading.Thread(
                 target=work, daemon=True, name=f"search-{repo_name}-{exec_id}"
@@ -1977,6 +2041,18 @@ class SweepEngine:
                     zero_reason=zero_reason_value,
                     zero_detail=zero_detail_value,
                 )
+                # Find a paper: the source's answer is recorded as it came, a
+                # count of candidates; only the one that is the paper is kept.
+                find = query_params.get("find")
+                if find and find_matches is not None:
+                    match = paper_find.best_match(results, paper_find.PaperQuery(**find_query(find)))
+                    find_matches[repo_name] = match
+                    if find_candidates is not None:
+                        find_candidates[repo_name] = len(results)
+                    results_by[i] = [match.record] if match else []
+                    task_log.log(
+                        f"    {'the paper, by ' + match.matched_by.replace('_', ' ') if match else 'not the paper'}"
+                        f" ({len(results)} candidate{'s' if len(results) != 1 else ''})")
             except Exception as exc:
                 fail(i, repo_name, exc)
 
@@ -1991,6 +2067,11 @@ class SweepEngine:
                     break
             for i in sorted(in_flight):
                 repo_name = in_flight[i]["repo"]
+                # Tell the search the run is over, so a client in a long wait
+                # ends it rather than asking its source again for nothing.
+                outcome = in_flight[i]["live"].get("outcome")
+                if outcome is not None:
+                    outcome.stop.set()
                 # Mark each in-flight repo as errored for UI clarity, then
                 # short-circuit to the cancellation handler. Their worker
                 # threads are daemons and are abandoned; each exits when its
@@ -2007,12 +2088,12 @@ class SweepEngine:
                     exec_id, repo_name, "cancelled",
                     error_message="cancelled by user",
                 )
-                task_log.log(f"  {repo_name}: CANCELLED by user")
+                task_log.log(f"  {repo_name}: CANCELED by user")
                 name = _source_display_name(repo_name)
                 notes_by.setdefault(i, []).append({
                     "source": name, "slug": repo_name, "reason": "cancelled",
                     "sentence": (
-                        f"{name} was still being asked when the run was cancelled, "
+                        f"{name} was still being asked when the run was canceled, "
                         "and nothing it sent was kept. This is not a zero — the "
                         "source did not finish answering."
                     ),
@@ -2022,12 +2103,12 @@ class SweepEngine:
             # there is no outcome to record. The report still names it, so the
             # reader can see every selected source accounted for.
             for i, repo_name in waiting:
-                task_log.log(f"  {repo_name}: not asked; the run was cancelled first")
+                task_log.log(f"  {repo_name}: not asked; the run was canceled first")
                 name = _source_display_name(repo_name)
                 notes_by.setdefault(i, []).append({
                     "source": name, "slug": repo_name, "reason": "not_reached",
                     "sentence": (
-                        f"{name} was not asked: the run was cancelled before "
+                        f"{name} was not asked: the run was canceled before "
                         "resmon reached it."
                     ),
                 })
@@ -2065,25 +2146,38 @@ class SweepEngine:
                 if flight["beat"] > now:
                     continue
                 elapsed = now - flight["started"]
-                store.emit(exec_id, {
+                beat = {
                     "type": "query_progress",
                     "repository": flight["repo"],
                     "phase": "searching",
                     "message": f"still querying {flight['repo']} ({elapsed:.0f}s elapsed)",
                     "elapsed": round(elapsed, 1),
-                    "timestamp": now_iso(),
-                })
+                }
+                # What the search has done so far: requests sent, retries, and
+                # what it is waiting for, if anything. A search whose thread
+                # has not reached its channel yet says nothing about them.
+                outcome = flight["live"].get("outcome")
+                if outcome is not None:
+                    beat.update(outcome.live())
+                beat["timestamp"] = now_iso()
+                store.emit(exec_id, beat)
                 flight["beat"] = now + _HEARTBEAT_SECONDS
 
         assemble()
         return False
 
-    def _search_source(self, client, repo_name: str, query_params: dict) -> dict:
+    def _search_source(self, client, repo_name: str, query_params: dict,
+                       live: Optional[dict] = None) -> dict:
         """One source's search, on whichever thread runs it. Never raises.
 
         Returns ``results`` or ``error``, and always ``outcome``: the snapshot
         of the search's outcome channel, taken here because the channel is
         thread-local and the caller cannot reach this thread's.
+
+        ``live``, when given, is handed this thread's channel itself as
+        ``live["outcome"]``, so the run's heartbeat can say what the search is
+        doing while it runs (``SearchOutcome.live``): requests sent, retries,
+        and a wait. Only the heartbeat reads it, and only those fields.
         """
         holder: dict = {}
         # The outcome channel is thread-local and this thread is fresh per
@@ -2092,9 +2186,14 @@ class SweepEngine:
         # thread that is ever reused would carry that value in as if it
         # were this source's answer.
         reset_search_outcome()
+        if live is not None:
+            live["outcome"] = search_outcome()
         # What each request carried is recorded as it goes out, in this
         # client's own words for its requests.
         search_outcome().describe_request = getattr(client, "describe_request", None)
+        # A watch's scheduled run, which nobody is waiting on: a source that
+        # answers "busy" may be waited out longer (see ``api_arxiv._Patience``).
+        search_outcome().unattended = bool((self.config or {}).get("unattended"))
         try:
             # A watch routine asks the source about a *person*, and a
             # source that cannot be asked is not called at all. The zero
@@ -2107,7 +2206,17 @@ class SweepEngine:
             # record is re-checked against the profile downstream; a source's
             # author search is a generator.
             profile = query_params.get("entity_profile")
-            if profile is not None:
+            find = query_params.get("find")
+            if find:
+                # Find a paper: the source is asked for one paper, by the kind
+                # its catalog capability names (``paper_find.plan`` chose it).
+                query = find_query(find)
+                try:
+                    holder["results"] = client.lookup(
+                        query["kind"], query["value"], max_results=paper_find.CANDIDATES)
+                except LookupUnsupported:
+                    holder["results"] = []
+            elif profile is not None:
                 try:
                     holder["results"] = client.search_entity(
                         profile,
@@ -2134,6 +2243,30 @@ class SweepEngine:
             holder["outcome"] = search_outcome().snapshot()
         return holder
 
+    def _record_find(self, exec_id: int, query_params: dict, repositories: list[str],
+                     matches: dict, candidates: dict, task_log: TaskLogger) -> None:
+        """Write what each source said to Find a paper, and the links between its copies. Never raises."""
+        try:
+            query = paper_find.PaperQuery(**find_query(query_params["find"]))
+            answered = {}
+            for row in get_execution_sources(self.db, exec_id):
+                reason = row.get("zero_reason")
+                answered[row["source"]] = not (
+                    row.get("status") in ("error", "cancelled", "skipped_missing_key")
+                    or reason in zero_reason_module.DID_NOT_ANSWER)
+            found = {slug: match for slug, match in matches.items() if match is not None}
+            outcome = paper_find.record(
+                self.db, exec_id, query, list(repositories),
+                list(query_params.get("find", {}).get("not_asked") or []),
+                found, dict(candidates), answered)
+            task_log.log(
+                f"Find a paper: {len(found)} of {len(repositories)} source(s) asked hold it"
+                + (f"; reference copy from {outcome['reference']}" if outcome["reference"] else "")
+                + (f"; {outcome['links']} link(s) between copies" if outcome["links"] else ""))
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Could not record the find for exec_id=%s: %s", exec_id, exc)
+            task_log.log(f"The find's per-source record could not be written: {exc}")
+
     def _handle_cancellation(
         self,
         exec_id: int,
@@ -2146,7 +2279,7 @@ class SweepEngine:
     ) -> dict:
         """Clean up and finalize after cooperative cancellation is detected.
 
-        The cancelled run's report, when one was written, and its task log are
+        The canceled run's report, when one was written, and its task log are
         stored where a finished run's are, so the run's Report and Log read
         them the same way.
         """
@@ -2160,7 +2293,7 @@ class SweepEngine:
             log_path=str(log_path) if log_path else None,
             result_path=str(report_path) if report_path else None,
         )
-        task_log.finalize(status="CANCELLED", stats={"partial_results": len(partial_results)})
+        task_log.finalize(status="CANCELED", stats={"partial_results": len(partial_results)})
 
         store.emit(exec_id, {
             "type": "cancelled",

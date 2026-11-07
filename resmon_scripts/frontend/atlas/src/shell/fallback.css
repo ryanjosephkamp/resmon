@@ -1,0 +1,3 @@
+/* A page that could not be drawn: what happened, and a way back. */
+.page-failed .page-failed-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
+.page-failed .form-hint { margin-top: 18px; max-width: 70ch; overflow-wrap: anywhere; }

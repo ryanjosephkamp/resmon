@@ -22,6 +22,7 @@ import * as path from 'path';
 import { test, expect, _electron as electron, type Locator, type Page } from '@playwright/test';
 import { launchEnv, registerStateDir, FRONTEND_ROOT, SCREENSHOT_DIR } from './fixtures/resmon-app';
 import { resize } from './fixtures/maps';
+import { removeStateDir } from './fixtures/cleanup';
 
 const LONG = 'a_deliberately_long_watch_name_that_checks_wrapping_in_lists_headers_and_the_calendar';
 
@@ -124,14 +125,21 @@ test('at about 1,024 points wide: the run log, the source table, the Source wall
     await resize(app, 1026, 684);
     await expect.poll(() => win.evaluate(() => window.innerWidth)).toBeLessThanOrEqual(1026);
 
-    // Ask the sources: the run log's outcomes, and every source's facts, whole.
-    await win.evaluate(() => { window.location.hash = '#/search/ask'; });
-    await expect(win.locator('.run-row')).toHaveCount(12, { timeout: 60_000 });
-    const log = win.getByRole('region', { name: 'Runs' });
+    // The Runs tab: the history's outcomes, whole.
+    await win.evaluate(() => { window.location.hash = '#/runs'; });
+    const log = win.getByRole('region', { name: 'History' });
+    await expect(log.locator('.run-row')).toHaveCount(12, { timeout: 60_000 });
     expect(await whole(log.locator('.run-row .meta > span'))).toEqual([]);
     const logBox = await log.boundingBox();
     const outcomes = await log.locator('.run-row .run-status').evaluateAll((nodes) => nodes.map((n) => n.getBoundingClientRect().right));
     for (const right of outcomes) expect(right).toBeLessThanOrEqual((logBox?.x ?? 0) + (logBox?.width ?? 0));
+    await shot(win, 'runs');
+
+    // Ask the sources: the newest runs beside it, and every source's facts, whole.
+    await win.evaluate(() => { window.location.hash = '#/search/ask'; });
+    const latest = win.getByRole('region', { name: 'Runs' });
+    await expect(latest.locator('.run-row')).toHaveCount(5, { timeout: 60_000 });
+    expect(await whole(latest.locator('.run-row .meta > span'))).toEqual([]);
     await win.locator('.source[data-source="arxiv"]').waitFor({ timeout: 60_000 });
     expect(await whole(win.locator('.source .source-fact'))).toEqual([]);
     await expect(win.locator('.source[data-source="arxiv"] .source-fact').last()).toHaveText('to the day');
@@ -195,6 +203,6 @@ test('at about 1,024 points wide: the run log, the source table, the Source wall
     expect(problems, 'the page reported errors').toEqual([]);
   } finally {
     await app.close().catch(() => { /* already gone */ });
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });

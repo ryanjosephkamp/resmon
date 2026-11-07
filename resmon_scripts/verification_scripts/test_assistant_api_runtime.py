@@ -134,7 +134,7 @@ def test_the_constitution_arrives_on_the_system_channel_and_not_in_the_turn(fami
 
 
 def test_every_family_has_a_transmission_case():
-    """The denominator behind the parametrisation above.
+    """The denominator behind the parametrization above.
 
     ``FAMILIES`` is the list the runtime dispatches on, so a fourth request
     shape cannot arrive without a case here — the same guard shape as
@@ -176,8 +176,9 @@ def test_every_tool_converts_for_every_family(family, tool):
         converted = converted[0]["function_declarations"]
         entry = next(c for c in converted if c["name"] == tool)
         # Gemini rejects JSON-Schema keywords it does not know rather than
-        # ignoring them, and several resmon schemas carry ``default``.
-        assert "default" not in json.dumps(entry["parameters"])
+        # ignoring them, and several resmon schemas carry ``default``. The
+        # keyword, not the word: a description may say "the default collection".
+        assert '"default":' not in json.dumps(entry["parameters"])
     elif family == "anthropic":
         entry = next(c for c in converted if c["name"] == tool)
         assert entry["input_schema"]["type"] == "object"
@@ -202,7 +203,7 @@ def test_a_default_the_model_cannot_see_is_still_applied_by_the_tool():
 
 
 # ---------------------------------------------------------------------------
-# P14c — the events are the same normalised set
+# P14c — the events are the same normalized set
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("family", FAMILIES)

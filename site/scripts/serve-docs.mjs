@@ -38,6 +38,7 @@ const TYPES = {
   '.webp': 'image/webp',
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
+  '.mp4': 'video/mp4',
 };
 
 const server = createServer((request, response) => {
@@ -73,10 +74,28 @@ const server = createServer((request, response) => {
     return;
   }
 
-  response.writeHead(200, {
-    'Content-Type': TYPES[extname(file)] ?? 'application/octet-stream',
-  });
-  response.end(readFileSync(file));
+  const body = readFileSync(file);
+  const type = TYPES[extname(file)] ?? 'application/octet-stream';
+  // A byte range, as Pages answers one: a video seeks by asking for the part it needs, and a server
+  // that sends the whole file instead leaves it playing from the start.
+  const range = /^bytes=(\d*)-(\d*)$/.exec(request.headers.range ?? '');
+  if (range && (range[1] || range[2])) {
+    const start = range[1] ? Number(range[1]) : Math.max(0, body.length - Number(range[2]));
+    const end = range[1] && range[2] ? Math.min(Number(range[2]), body.length - 1) : body.length - 1;
+    if (start > end || start >= body.length) {
+      response.writeHead(416, { 'Content-Range': `bytes */${body.length}` });
+      response.end();
+      return;
+    }
+    response.writeHead(206, {
+      'Content-Type': type, 'Accept-Ranges': 'bytes',
+      'Content-Range': `bytes ${start}-${end}/${body.length}`, 'Content-Length': end - start + 1,
+    });
+    response.end(body.subarray(start, end + 1));
+    return;
+  }
+  response.writeHead(200, { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Content-Length': body.length });
+  response.end(body);
 });
 
 // 127.0.0.1 only. Nothing here should be reachable from the network.

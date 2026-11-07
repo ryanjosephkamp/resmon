@@ -5,11 +5,17 @@ import calendar
 import logging
 import re
 
+from urllib.parse import quote
+
 from .api_base import (
     BaseAPIClient,
     NormalizedResult,
     RateLimiter,
+    either,
+    note_not_found,
     note_parse_failure_unless_transport,
+    path_after,
+    read_json_body,
     safe_request,
     sent_params,
 )
@@ -90,10 +96,30 @@ def _inside_requested_window(
 class DataCiteClient(BaseAPIClient):
     """Search Findable DataCite DOI metadata without authentication."""
 
-    describe_request = staticmethod(sent_params("query", "published", "sort"))
+    describe_request = staticmethod(either(sent_params("query", "published", "sort"),
+                                           path_after(_DATACITE_API_URL)))
 
     def get_name(self) -> str:
         return "DataCite"
+
+    def lookup(self, kind: str, value: str, max_results: int = 5) -> list[NormalizedResult]:
+        """A DOI at ``/dois/{doi}``, one record or 404; a title through ``search()``'s field syntax."""
+        if kind != "doi":
+            return super().lookup(kind, value, max_results)
+        try:
+            response = safe_request("GET", f"{_DATACITE_API_URL}/{quote(value.strip(), safe='/')}",
+                                    rate_limiter=_RATE_LIMITER)
+        except Exception:
+            logger.exception("DataCite lookup failed")
+            return []
+        if response.status_code == 404:
+            note_not_found()
+            return []
+        if response.status_code != 200:
+            return []
+        data = read_json_body(response, "DataCite")
+        parsed = self._parse_record((data or {}).get("data"))
+        return [parsed] if parsed is not None else []
 
     def search(
         self,

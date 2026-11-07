@@ -261,7 +261,7 @@ def test_update_types_map_to_the_intended_severity(update_type, severity):
     assert findings[0].severity == severity
 
 
-def test_an_unrecognised_update_type_is_informational_and_kept_verbatim():
+def test_an_unrecognized_update_type_is_informational_and_kept_verbatim():
     """A new Crossref type must not silently become a retraction, and must not
     be discarded either — the label still tells the user something."""
     findings = lifecycle.findings_from_crossref({

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { answer, engine } from '../api/client';
+import { answer, engine, EngineError } from '../api/client';
+import { ChartTip, tipWords, type TipAnchor, type TipContent } from '../charts/ChartTip';
 import type { components } from '../api/schema';
 import { useAppearance } from '../theme/appearance';
 import { useMinute } from '../lib/useMinute';
@@ -14,13 +15,25 @@ import { emptiestCorner, epochDay, gridCell, watchShape, type Sky } from './toda
 import { collectionSky } from './sky/collectionSky';
 import { ColorKey, DimKey, MapBar } from './sky/MapControls';
 import { MapPaper } from './sky/MapPaper';
+import { SaveLit } from './sky/SaveLit';
 import { filterCount } from './sky/look';
 import { useMapLook } from './sky/useMapLook';
-import { MAP_KEY, TODAY_KEY, invalidateFor, useRunsEnded } from './today/freshness';
+import { invalidateFor, mapKey, readMap, todayKey, useRunsEnded } from './today/freshness';
+import { collectionParam, useCollection, useCollectionWords } from '../collections/current';
+import type { CollectionWords } from '../collections/words';
 
 type CollectionMap = components['schemas']['CollectionMap'];
 type TodayData = components['schemas']['Today'];
 type Brief = components['schemas']['DocumentBrief'];
+type TodayPaper = components['schemas']['TodayPaper'];
+
+/** New papers read after the first page, and where the next read starts. */
+interface Earlier {
+  /** The first page's end these pages continue from; pages read from another end are not used. */
+  after: string;
+  papers: TodayPaper[];
+  cursor: string | null;
+}
 
 /**
  * Today, the morning edition: where last night's papers landed in the whole
@@ -30,13 +43,21 @@ type Brief = components['schemas']['DocumentBrief'];
  * paper sits (and on what basis), `/api/today` for what is new since the last
  * Mark all read, and `/api/scheduler/status` for whether the next run will
  * actually happen.
+ *
+ * `/api/today` answers the newest 1,000 new papers; the index's List earlier
+ * papers reads the ones before them from `/api/today/papers`, a page at a time,
+ * until every new paper is listed. Pages read are kept while the first page
+ * ends where it did; when new papers move its end, the list starts again from
+ * the first page, and the earlier papers are listed again on request.
  */
 export function Today() {
   const client = useQueryClient();
   const { theme, shown } = useAppearance();
+  const { id: collection } = useCollection();
+  const place = useCollectionWords();
   const map = useQuery({
-    queryKey: MAP_KEY,
-    queryFn: () => answer(engine().GET('/api/map')),
+    queryKey: mapKey(collection),
+    queryFn: () => readMap(collection),
     // A map being fitted, or refitted, is asked for again until it is done;
     // otherwise once a minute and on returning to the window, like Today.
     refetchInterval: (query) => {
@@ -49,8 +70,8 @@ export function Today() {
   // read again once a minute and on returning to the window. Read once, it
   // went on saying "nothing collected" over a collection that had grown.
   const today = useQuery({
-    queryKey: TODAY_KEY,
-    queryFn: () => answer(engine().GET('/api/today')),
+    queryKey: todayKey(collection),
+    queryFn: () => answer(engine().GET('/api/today', { params: { query: collectionParam(collection) } })),
     refetchInterval: 60_000,
     refetchOnWindowFocus: true,
   });
@@ -107,19 +128,40 @@ export function Today() {
   );
   const mapLook = useMapLook('today', sky, sourceName);
 
-  // Numbers follow the order papers were collected: 1 is the first to arrive.
+  // The pages read before the first page's papers. Kept only while the first
+  // page ends where they continue from: a read answered after new papers moved
+  // that end is set aside rather than leaving a gap between the two.
+  const [earlier, setEarlier] = useState<Earlier | null>(null);
+  const firstEnd = today.data ? `${today.data.since ?? ''}|${today.data.next_cursor ?? ''}` : null;
+  const read = earlier && earlier.after === firstEnd ? earlier : null;
+  const nextCursor = read ? read.cursor : today.data?.next_cursor ?? null;
+  const readEarlier = useMutation({
+    mutationFn: async ({ after, cursor }: { after: string; cursor: string }) => ({
+      after, page: await answer(engine().GET('/api/today/papers', { params: { query: { cursor, ...collectionParam(collection) } } })),
+    }),
+    onSuccess: ({ after, page }) => setEarlier((was) => ({
+      after,
+      papers: [...(was && was.after === after ? was.papers : []), ...page.papers],
+      cursor: page.next_cursor ?? null,
+    })),
+  });
+
+  // Numbers follow the order papers were collected: 1 is the first to arrive,
+  // counted over every new paper, so a paper keeps its number as earlier ones are read.
   const papers = useMemo<IndexPaper[]>(() => {
-    const list = [...(today.data?.papers ?? [])].reverse();
-    return list.map((paper, k) => {
+    const newest = [...(today.data?.papers ?? []), ...(read?.papers ?? [])];
+    const total = today.data?.total ?? newest.length;
+    return newest.map((paper, k) => {
       const at = sky?.indexOf.get(paper.id);
       return {
         ...paper,
-        n: k + 1,
+        n: total - k,
         cell: sky && at !== undefined ? gridCell(sky.x[at] ?? 0, sky.y[at] ?? 0, sky.bounds) : null,
         regionId: sky && at !== undefined ? (sky.region[at] ?? null) : null,
       };
-    });
-  }, [today.data, sky]);
+    }).reverse();
+  }, [today.data, read, sky]);
+  const firstNumber = papers[0]?.n ?? 1;
   const arrivals = useMemo(() => {
     if (!sky) return [];
     const out: number[] = [];
@@ -143,7 +185,7 @@ export function Today() {
   const opening = useOpening(sky && today.data ? answerKey(today.data.papers[0]) : null, still);
 
   const looked = useMutation({
-    mutationFn: () => answer(engine().POST('/api/today/looked')),
+    mutationFn: () => answer(engine().POST('/api/today/looked', { params: { query: collectionParam(collection) } })),
     onSuccess: () => invalidateFor(client, 'looked'),
   });
   const save = useMutation({
@@ -199,11 +241,14 @@ export function Today() {
   };
 
   if (map.isError || today.isError) {
+    const failure = map.error ?? today.error;
     return (
       <section className="page page-narrow" aria-labelledby="page-title">
         <h1 id="page-title" className="page-title">Today</h1>
         <p className="page-lede" role="alert">
-          The engine did not answer: {(map.error ?? today.error)?.message}. Nothing here is shown from memory.
+          {/* The engine's own sentence where it answered with one; otherwise what failed. */}
+          {failure instanceof EngineError && failure.detail ? failure.detail : `The engine did not answer: ${failure?.message}.`}
+          {' '}Nothing here is shown from memory.
         </p>
       </section>
     );
@@ -240,7 +285,8 @@ export function Today() {
         {sky && ready && (
           <MapBar name="today" view={mapLook.view} onView={mapLook.setView} look={look} facts={mapLook.facts}
             facetsError={mapLook.facetsError} total={sky.count} names={sourceName} find={mapLook.find}
-            findAt={findPosition(sky, look?.found, selectedId)} onStep={step} onWant={mapLook.wantFacets} keepError={mapLook.saveError} />
+            findAt={findPosition(sky, look?.found, selectedId)} onStep={step} onWant={mapLook.wantFacets} keepError={mapLook.saveError}
+            save={<SaveLit sky={sky} look={look} finding={mapLook.find.finding} waiting={mapLook.find.waiting} />} />
         )}
         {sky && field && ready ? (
           <Plate
@@ -250,13 +296,15 @@ export function Today() {
             shapes={shapes}
             field={field}
             arrivals={arrivals}
+            firstNumber={firstNumber}
             opening={opening}
             selected={selectedIndex}
             pointed={pointedIndex}
             onSelect={(index) => setSelectedId(index === null ? null : sky.ids[index] ?? null)}
             onHover={setHover}
+            onKeyed={setHover}
             paletteKey={`${theme}:${shown.accent ?? ''}`}
-            label={`Map of your ${number(sky.count)} papers in ${count(ready.regions.length, 'region')}${papers.length ? `; ${count(papers.length, 'new paper')} ringed and numbered` : ''}. Choose any paper to open it beside the map.`}
+            label={`Map of ${place.papers(sky.count)}${place.named ? ',' : ''} in ${count(ready.regions.length, 'region')}${papers.length ? `; ${count(papers.length, 'new paper')} ringed and numbered` : ''}. Choose any paper to open it beside the map.`}
             onAway={setAway}
             toolsAt={corner === 'bl' ? 'right' : 'left'}
             look={mapLook.plateLook}
@@ -268,15 +316,24 @@ export function Today() {
             {hover && (
               <Tip hover={hover} paper={hovered !== null ? listed.get(hovered) : undefined}
                 brief={brief.data ?? undefined} now={now} cell={gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds)}
-                sourceName={sourceName} />
+                sourceName={sourceName}
+                opens={hover.via === 'keyboard' || hovered === selectedId ? undefined
+                  : hovered !== null && listed.has(hovered) ? 'Chooses it in the list beside the map' : 'Opens it beside the map'} />
             )}
           </Plate>
         ) : (
           <div className="plate plate-waiting">
-            <p role="status">{waitingSentence(map.data, map.isPending)}</p>
+            <p role="status">{waitingSentence(map.data, map.isPending, place)}</p>
             <FirstRun />
           </div>
         )}
+        {/* The paper the keyboard chose, said as its tip says it: the map itself is one picture to a screen reader. */}
+        <p className="sr-only" aria-live="polite" data-map-said="">
+          {hover?.via === 'keyboard' && sky ? tipWords(paperTip({
+            paper: hovered !== null ? listed.get(hovered) : undefined, brief: brief.data ?? undefined, now, sourceName,
+            cell: gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds),
+          })) : ''}
+        </p>
         <PlateKey newLabel={heading.replace(/^New/, 'new')} showWatches={shapes.length > 0}
           colors={look && look.legend.length > 0 ? <ColorKey look={look} /> : undefined}
           extra={<DimKey look={look} finding={mapLook.find.finding} filtered={filterCount(mapLook.view) > 0} />} />
@@ -310,10 +367,20 @@ export function Today() {
           lifecycle={lifecycle.data?.events}
           marking={looked.isPending}
           busy={today.isFetching}
+          earlier={nextCursor && firstEnd ? {
+            reading: readEarlier.isPending,
+            failed: readEarlier.isError ? readEarlier.error.message : null,
+            read: () => readEarlier.mutate({ after: firstEnd, cursor: nextCursor }),
+          } : null}
           onSelect={(id) => { setSelectedId(id); zoomTo({ paperId: id }); }}
           onPoint={setPointedId}
           onZoomTo={zoomTo}
           onToggleSave={(paper) => save.mutate({ id: paper.id, on: !(saved.get(paper.id) ?? paper.queue_status !== null) })}
+          onSavedMany={(ids) => setSaved((prev) => {
+            const next = new Map(prev);
+            for (const id of ids) next.delete(id);
+            return next;
+          })}
           onMarkRead={() => looked.mutate()}
           by={mapLook.view.list_by}
           onBy={(by) => mapLook.setView({ ...mapLook.view, list_by: by })}
@@ -352,11 +419,15 @@ function basisSentence(ready: CollectionMap | null, map: CollectionMap | undefin
   return `placed by how much wording they share, worked out on this computer.${pending}`;
 }
 
-function waitingSentence(map: CollectionMap | undefined, pending: boolean): string {
-  if (pending || !map) return 'Reading the map of your collection…';
-  if (map.state === 'empty') return 'Your collection is empty. Papers your watches and searches find will appear here, placed by how similar their text is.';
+function waitingSentence(map: CollectionMap | undefined, pending: boolean, place: CollectionWords): string {
+  if (pending || !map) return `Reading the map of ${place.name}…`;
+  if (map.state === 'empty') {
+    return place.named
+      ? `${place.Name} holds no papers yet. Papers its watches and searches find, and papers you move or copy there, will appear here, placed by how similar their text is.`
+      : 'Your collection is empty. Papers your watches and searches find will appear here, placed by how similar their text is.';
+  }
   if (map.state === 'failed') return `The map could not be drawn: ${map.error ?? 'the engine gave no reason'}.`;
-  return 'Drawing the map of your collection. The first map of a large collection takes up to half a minute; later ones are kept.';
+  return `Drawing the map of ${place.name}. The first map of a large collection takes up to half a minute; later ones are kept.`;
 }
 
 function Cartouche({ data, now, away, corner, basis, skyCount, unplaced, sinceWord }: {
@@ -390,38 +461,42 @@ function Cartouche({ data, now, away, corner, basis, skyCount, unplaced, sinceWo
   );
 }
 
-/** The most room a tip takes: its CSS's widest, and three lines of it. */
-const TIP_WIDTH = 300;
-const TIP_HEIGHT = 96;
-
-/** What the pointer is over on a map: the paper's line, or its grid cell while that is read. */
-export function Tip({ hover, paper, brief, now, cell, sourceName }: {
+/**
+ * What the pointer is over on a map, in the charts' tip: the paper's title,
+ * its authors, and where it came from, or its grid cell while those are read.
+ * The tip is set beside a small box drawn at the paper, so it never covers the
+ * paper it names, and over the page, so a map's edge never cuts it off.
+ */
+export function Tip({ hover, paper, brief, now, cell, sourceName, opens }: {
   hover: PlateHover; paper?: IndexPaper; brief?: Brief; now: Date; cell: string;
   sourceName: (slug: string) => string;
+  /** What a click on the paper does on this map, said only where it does something. */
+  opens?: string;
 }) {
-  const info = paper ?? brief;
-  const ago = daysAgo(info?.first_seen_at, now);
-  // Beside the paper, below and to the right, unless that runs off a small plate's edge.
-  const flipX = hover.width !== undefined && hover.screenX + 14 + TIP_WIDTH > hover.width;
-  const flipY = hover.height !== undefined && hover.screenY + 14 + TIP_HEIGHT > hover.height;
-  const place = {
-    ...(flipX ? { right: (hover.width ?? 0) - hover.screenX + 14 } : { left: hover.screenX + 14 }),
-    ...(flipY ? { bottom: (hover.height ?? 0) - hover.screenY + 14 } : { top: hover.screenY + 14 }),
-  };
+  const [at, setAt] = useState<HTMLSpanElement | null>(null);
+  // The box moves with the pointer's paper; the tip is placed beside it again on each render.
+  const anchor = useMemo<TipAnchor | null>(() => (at ? { element: at, pointer: null } : null), [at]);
   return (
-    <div className="tip" style={place} role="tooltip">
-      {info ? (
-        <>
-          <b>{paper ? `${paper.n}. ` : ''}{info.title}</b>
-          <span>{authors(info.authors)}</span>
-          <span>
-            {sourceName(info.source)} · {cell}
-            {ago !== null && ` · collected ${ago === 0 ? 'today' : ago === 1 ? 'yesterday' : `${number(ago)} days ago`}`}
-          </span>
-        </>
-      ) : <span>{cell}</span>}
-    </div>
+    <>
+      <span ref={setAt} className="plate-tip-at" style={{ left: hover.screenX, top: hover.screenY }} aria-hidden="true" />
+      <ChartTip anchor={anchor} content={paperTip({ paper, brief, now, cell, sourceName, opens })} />
+    </>
   );
+}
+
+/** A paper's tip on a map: its number and title, its authors, its source, its cell, and when it was collected. */
+export function paperTip({ paper, brief, now, cell, sourceName, opens }: {
+  paper?: IndexPaper; brief?: Brief; now: Date; cell: string; sourceName: (slug: string) => string; opens?: string;
+}): TipContent {
+  const info = paper ?? brief;
+  if (!info) return { value: cell, opens };
+  const ago = daysAgo(info.first_seen_at, now);
+  const collected = ago === null ? '' : ` · collected ${ago === 0 ? 'today' : ago === 1 ? 'yesterday' : `${number(ago)} days ago`}`;
+  return {
+    value: `${paper ? `${paper.n}. ` : ''}${info.title}`,
+    notes: [authors(info.authors), `${sourceName(info.source)} · ${cell}${collected}`].filter(Boolean),
+    opens,
+  };
 }
 
 const WILL_NOT_RUN: Record<string, string> = {

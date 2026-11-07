@@ -1,52 +1,58 @@
 ---
 title: "Contributing"
-summary: "Reporting issues, the blog, the Danger Zone, submitting pull requests, commit messages and the code of conduct."
-order: 15
-readmeLines:
-  - "1521-1566"
+summary: "Reporting a problem, opening a pull request, the checks to run, and how docs and tests move with a change."
+order: 18
 ---
-## Contributing
+Contributions are welcome. resmon is a single-maintainer project, so please open an issue before starting substantial work, so the scope can be agreed first. [CONTRIBUTING.md](CONTRIBUTING.md) is the full version; this page is the short one. To add a scholarly source, read [`docs/adding-a-source.md`](docs/adding-a-source.md).
 
-Contributions are welcome — see **[CONTRIBUTING.md](CONTRIBUTING.md)** for the short version, **[docs/adding-a-source.md](docs/adding-a-source.md)** for adding a scholarly source. resmon is a single-maintainer project, so the workflow below is deliberately lightweight; please open an issue before starting substantial work so the scope can be agreed first.
+## Reporting a problem
 
-### Reporting Issues
+Open an issue at [github.com/ryanjosephkamp/resmon/issues](https://github.com/ryanjosephkamp/resmon/issues). **Settings › About resmon** has a button that opens that page. resmon never sends a report itself: you write the issue and submit it from your own account.
 
-The fastest path is the in-app **About resmon → Issues** tab, which builds either a pre-populated `mailto:` link to the maintainer or a pre-populated GitHub issue deep link from a single form (no credentials are stored or transmitted by the app — the user reviews and sends in their own email client or on GitHub). Alternatively, open a GitHub issue directly at [`https://github.com/ryanjosephkamp/resmon/issues/new`](https://github.com/ryanjosephkamp/resmon/issues/new) with:
+Include:
 
 1. A short, specific title.
-2. The resmon version (git commit hash or packaged build number), host OS, Python version (`python3 --version`), and Node.js version (`node --version`).
-3. Reproduction steps — the page, the operation, the exact form input, and the observed error.
-4. Relevant log excerpts. Per-execution logs live under `resmon_reports/logs/`; the background service writes `resmon-daemon.err.log` and `resmon-daemon.out.log` in the `logs/` folder of resmon's state directory (`~/Library/Application Support/resmon/logs` on macOS), each capped at 5 MB with two older copies. Redact any API keys or personal data before pasting.
-5. A screenshot of the UI state when the bug is visual.
+2. The resmon version, which **Settings › About resmon** shows, and your operating system.
+3. The steps that reproduce it: the screen, what you did, and what happened.
+4. The relevant lines of the log. A run's log is on its page, under the **Log** tab. The background service writes `resmon-daemon.out.log` and `resmon-daemon.err.log` to a `logs` folder in resmon's state directory, each capped at 5 MB with two older copies. Redact API keys and personal data before pasting.
 
-Security-sensitive reports (credential handling, SQL injection, OAuth flow, keyring access) should not be filed as public issues. Email the maintainer directly instead.
+Security-sensitive reports, such as credential handling or keyring access, should not be public issues. Contact the maintainer privately through the links at [ryanjosephkamp.github.io](https://ryanjosephkamp.github.io/).
 
-### Blog
+## Running the app and the tests
 
-Per-update release notes are republished verbatim to the public resmon blog at [`https://ryanjosephkamp.github.io/resmon/`](https://ryanjosephkamp.github.io/resmon/) (source under `docs/_posts/`, served by GitHub Pages). The same posts are also readable inside the app from the **About resmon → Blog** tab, which fetches the Atom feed and renders each post in an origin-locked Electron `<webview>`.
+From a clone, with Python 3.10, 3.11, or 3.12 and Node.js 22.13 or newer. See [Install and launch](/resmon/guide/install/) for setup.
 
-### Maintenance / Danger Zone
+```bash
+# Backend, from the root of the clone. Tests that reach the network are marked live_network and left out.
+.venv/bin/python -m pytest -q
 
-The **Settings → Advanced → Danger Zone** section centralizes every destructive maintenance action behind a two-tier confirmation gate: the two API-key wipes (repository keys, AI provider keys) use a simple OK / Cancel modal because they are recoverable by re-entering the keys, while the six data / settings destructions (delete all executions, delete all saved configurations, delete all routines, reset all settings, full reset, factory reset) require typing the literal word `CONFIRM` into a text input before the destructive button enables.
+# Interface, from resmon_scripts/frontend
+npm run typecheck && npm run lint && npm test
+npm run build
 
-### Submitting Pull Requests
+# The real app, after npm run build
+npm run e2e         # Playwright specs that launch the Electron app and its engine
+npm run journeys    # one test per user journey, through a driver
+```
 
-1. Fork the repository and create a topic branch off `main` (`feat/<short-slug>`, `fix/<short-slug>`, or `docs/<short-slug>`).
-2. Keep the change focused — one logical unit per pull request.
-3. Match the existing code style. Python follows PEP 8 with 4-space indentation; TypeScript/TSX follows the repository's Prettier defaults. Do not reformat unrelated files.
-4. Run the verification suites before pushing:
-   - Backend: `pytest resmon_scripts/verification_scripts/`
-   - Frontend type check: `cd resmon_scripts/frontend && npm run typecheck`
-   - Frontend renderer tests: `cd resmon_scripts/frontend && npm test`
-   - Journey suite (the real app, one test per user journey): `cd resmon_scripts/frontend && npm run build && npm run journeys`. It can also be pointed at another build; see `resmon_scripts/frontend/journeys/README.md`.
-5. If the change touches a repository client, add or update the corresponding test under `resmon_scripts/verification_scripts/` and the matching fixture. New repositories additionally require a row in `repo_catalog.py` and a registration in `api_registry.py`.
-6. If the change alters user-visible behavior, update the affected page info document under `resmon_reports/info_docs/` and, where relevant, this README.
-7. Open the pull request against `main`. The description must explain **what** changed, **why** it changed, and how the change was verified. Link the originating issue.
+CI runs the backend suite on Python 3.10, 3.11, and 3.12, and the interface checks on Node.js 22. `npm run e2e:review` runs the e2e suite on your own display and writes screenshots and a summary outside the repository. Screenshots are never committed.
 
-### Commit Messages
+## Pull requests
 
-Commit messages follow a concise, imperative style (`Add OpenAlex rate-limit fallback`, not `Added` or `Adds`). Multi-line bodies are encouraged for non-trivial changes; reference the issue number in the body rather than the subject line.
+1. Branch from `main` as `feat/<slug>`, `fix/<slug>`, `perf/<slug>`, `test/<slug>`, `docs/<slug>`, or `chore/<slug>`.
+2. Keep the change to one deliverable that can be reviewed in a sitting.
+3. Match the surrounding code. Python needs type hints on new code and nothing newer than 3.10. TypeScript has no `any` in new code.
+4. Run the checks above for what you changed.
+5. Update the guide page that covers a user-visible change, in the same pull request. The site is built from `site/` and published out of `docs/`.
+6. If a route changes, regenerate the contract with `python -m implementation_scripts.api_contract --write` from `resmon_scripts/` and Atlas's types with `npm run gen:atlas-api` from `resmon_scripts/frontend/`, and commit both. A new route needs a `ROUTE_JOURNEYS` entry; adding or removing one also changes the count in the guide's API reference. Run `npm run build`, `npm run verify`, and `node scripts/check-tokens.mjs` in `site/`, and commit the rebuilt pages. See the [contract instructions](docs/api-contract/README.md).
+7. Open the pull request against `main`. The description says what changed and why, how it was verified (the exact commands and their output counts), what it deliberately does not do, and any file outside the obvious set, with the reason.
 
-### Code of Conduct
+A change that implies more certainty than the code earns is rejected even when the code is correct. A field extracted from a document, a field matched against the collection, and a field guessed by a model are different kinds of fact, and resmon labels which is which.
+
+## Commit messages
+
+Commit messages are concise and imperative: `Add OpenAlex rate-limit fallback`, not `Added` or `Adds`. Put the issue number in the body, not the subject.
+
+## Code of conduct
 
 Be respectful and constructive. Focus feedback on the code and the technical trade-offs, not the contributor.

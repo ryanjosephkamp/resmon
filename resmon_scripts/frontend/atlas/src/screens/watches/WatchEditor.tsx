@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { answer, engine, EngineError } from '../../api/client';
@@ -8,7 +8,7 @@ import { breakable } from '../../shell/breakable';
 import { Icon } from '../../shell/Icon';
 import { commandEnter } from '../../shell/shortcuts';
 import { SAVED_KEY } from '../collection/savedSearches';
-import { RUNS_KEY } from '../runs/RunLog';
+import { RUNS_KEY } from '../runs/model';
 import type { CatalogEntry } from '../runs/model';
 import { SummaryChoiceField, choiceProblem } from '../settings/SummaryChoiceField';
 import { NO_CHOICE, choiceOf, choiceSentence, type SummaryChoice } from '../settings/summaryChoice';
@@ -30,6 +30,10 @@ import {
   windowHint, windowSpan, type DateWindowComputed,
 } from './window';
 import { CountField } from '../../shell/CountField';
+import { useDraft } from '../../shell/drafts';
+import { useCollection } from '../../collections/current';
+import { LIBRARY, LIBRARY_KEY } from '../library/libraryApi';
+import { orWords } from '../fulltext/fullText';
 
 /** What the watch page and the list say after the editor leaves them. */
 export interface EditorSaid { said: string }
@@ -39,6 +43,9 @@ const FOLLOWS: readonly { follows: Follows; label: string }[] = [
   { follows: 'new_papers', label: 'A person: their new papers' },
   { follows: 'retractions', label: 'A person: retractions and corrections on their papers' },
 ];
+
+/** Who the PDFs switch never downloads from, until the engine's rules (`/api/full-text/rules`) say it. */
+const NEVER_FROM = ['NASA ADS', 'Springer', 'CORE', 'BMC', 'nature.com'];
 
 function errorWords(error: Error): string {
   return error instanceof EngineError && error.detail ? error.detail : error.message;
@@ -113,16 +120,42 @@ function EditingWatch({ raw }: { raw: string }) {
   return <EditorForm existing={routine.data} seed={null} />;
 }
 
+/** What the watch editor keeps of a form not yet saved (see `useDraft`), with the watch it began from. */
+interface WatchDraft {
+  basis: string;
+  form: WatchForm;
+  terms: string[];
+  termDraft: string;
+  summaries: SummaryChoice;
+}
+
 function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchSeed | null }) {
   const navigate = useNavigate();
   const client = useQueryClient();
-  const initial = useMemo(() => (existing ? formFrom(existing) : seededForm(seed)), [existing, seed]);
-  const [form, setForm] = useState<WatchForm>(initial);
-  const terms = useTerms(initial.keywords);
+  // A new watch puts its papers in the collection this window shows, unless another is chosen.
+  const collections = useCollection();
+  const initial = useMemo(() => {
+    const form = existing ? formFrom(existing) : seededForm(seed);
+    return form.collection === null && collections.id !== null ? { ...form, collection: collections.id } : form;
+  }, [existing, seed, collections.id]);
   const initialSummaries = useMemo<SummaryChoice>(
     () => (existing ? choiceOf(!!existing.ai_enabled, existing.ai_settings) : NO_CHOICE), [existing]);
-  const [summaries, setSummaries] = useState<SummaryChoice>(initialSummaries);
+  // The form as it was left on this history entry, when Back returns to it. A draft of a change to a watch
+  // is kept only while the watch is as it was when the change began: one changed since starts from the watch.
+  const basis = JSON.stringify([initial, initialSummaries]);
+  const draft = useDraft<WatchDraft>(existing ? `watch-editor:${existing.id}` : 'watch-editor:new');
+  const was = draft.restored?.basis === basis ? draft.restored : null;
+  const [form, setForm] = useState<WatchForm>(was?.form ?? initial);
+  const terms = useTerms(was?.terms ?? initial.keywords, was?.termDraft ?? '');
+  const [summaries, setSummaries] = useState<SummaryChoice>(was?.summaries ?? initialSummaries);
+  const keepDraft = draft.keep;
+  useEffect(() => {
+    keepDraft({ basis, form, terms: terms.terms, termDraft: terms.draft, summaries });
+  }, [keepDraft, basis, form, terms.terms, terms.draft, summaries]);
   const ai = useQuery({ queryKey: AI_KEY, queryFn: () => answer(engine().GET('/api/settings/ai')) });
+  // The limits the PDFs switch states, and whether the Library has a folder to put them in.
+  const rules = useQuery({ queryKey: ['full-text-rules'], staleTime: Infinity, queryFn: () => answer(engine().GET('/api/full-text/rules')) });
+  const library = useQuery({ queryKey: LIBRARY_KEY, queryFn: () => answer(engine().GET('/api/library', LIBRARY)) });
   const set = (patch: Partial<WatchForm>) => setForm((f) => ({ ...f, ...patch }));
   const setSchedule = (patch: Partial<ScheduleChoice>) => setForm((f) => ({ ...f, schedule: { ...f.schedule, ...patch } }));
   /** Whether the stored schedule is one the choices cannot state, so "As it is" is offered. */
@@ -175,6 +208,8 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
       return { id: made.id, warning: made.entity_warning ?? null };
     },
     onSuccess: ({ id, warning }) => {
+      // Saved, it is a watch now, not a draft: Back finds the form as the address sets it, not one that saves it twice.
+      draft.drop();
       changed(id);
       const said = existing ? 'Saved.' : form.start ? 'Saved, and watching.' : 'Saved, paused.';
       navigate(`/watches/${id}`, { state: { said: warning ? `${said} ${warning}` : said } satisfies EditorSaid });
@@ -184,6 +219,7 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
   const remove = useMutation({
     mutationFn: (watch: Routine) => answer(engine().DELETE('/api/routines/{routine_id}', { params: { path: { routine_id: watch.id } } })),
     onSuccess: (_done, watch) => {
+      draft.drop();
       changed(watch.id);
       void client.invalidateQueries({ queryKey: RUNS_KEY });
       client.removeQueries({ queryKey: ['routine', watch.id] });
@@ -337,6 +373,21 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
           </>
         )}
 
+        {collections.several && (
+          <div className="form-field editor-collection" data-editor="collection">
+            <label className="form-label" htmlFor="watch-collection">Its papers land in</label>
+            <select id="watch-collection" value={form.collection ?? ''}
+              onChange={(event) => set({ collection: Number(event.target.value) })}>
+              {collections.list.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <p className="form-hint">
+              {existing
+                ? 'Changing it changes where the next runs put their papers. Papers its earlier runs found stay where they are.'
+                : 'Every paper its runs find is put there, including one resmon already holds in another collection.'}
+            </p>
+          </div>
+        )}
+
         <div className="form-field editor-intent">
           <label className="form-label" htmlFor="watch-intent">What it is really looking for <span className="form-optional">optional</span></label>
           <textarea id="watch-intent" rows={2} value={form.intent} placeholder="Methods that keep perovskite cells stable outdoors"
@@ -362,38 +413,54 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
           )}
         </fieldset>
 
+        {form.follows !== 'retractions' && (
+          <fieldset className="choices editor-switches" data-editor="pdfs">
+            <legend className="field-title">PDFs</legend>
+            <EditorSwitch label="Get its new papers’ open-access PDFs" on={form.pdfs} name="download_full_text"
+              onFlip={(pdfs) => set({ pdfs })} />
+            <p className="form-hint">
+              After each run, resmon downloads into the Library the PDF of each new paper a source states an open license
+              for (Creative Commons, public domain, or arXiv’s own), never from{' '}
+              {orWords(rules.data?.refused_sources.map((source) => source.name) ?? NEVER_FROM)}. At most{' '}
+              {rules.data?.per_run_cap ?? 20} a run and {rules.data?.daily_cap ?? 100} in any 24 hours, one at a time from
+              each site. The run’s page says what it got, skipped, and why.
+              {!library.data?.vault && <> The Library needs its folder first: <Link to="/library">Library</Link>.</>}
+            </p>
+          </fieldset>
+        )}
+
         <fieldset className="choices editor-summaries" data-editor="summaries">
           <legend className="field-title">Summaries</legend>
           <SummaryChoiceField id="watch-ai" value={summaries} onChange={setSummaries} stored={ai.data} whose="this watch" toggle="switch" />
           {ai.isError && <p className="field-error" role="alert">The engine did not say what Settings › AI holds ({ai.error.message}).</p>}
         </fieldset>
 
+        {/* The bar is the foot of the form, Delete included, so nothing sits under it while the page scrolls. */}
         <div className="ask-go">
-          <button type="submit" className="btn primary go" disabled={missing.length > 0 || waiting || save.isPending}
-            aria-keyshortcuts={commandEnterKeys()}>
-            {save.isPending ? 'Saving' : existing ? 'Save changes' : 'Save watch'}
-          </button>
-          <Link to={back} className="btn quiet go-cancel">Cancel</Link>
-          <CommandEnterHint />
+          <div className="ask-actions">
+            <button type="submit" className="btn primary go" disabled={missing.length > 0 || waiting || save.isPending}
+              aria-keyshortcuts={commandEnterKeys()}>
+              {save.isPending ? 'Saving' : existing ? 'Save changes' : 'Save watch'}
+            </button>
+            <Link to={back} className="btn quiet go-cancel">Cancel</Link>
+            <CommandEnterHint />
+            {existing && (
+              <button type="button" className="btn quiet editor-delete" data-editor="delete" disabled={remove.isPending}
+                onClick={() => {
+                  if (window.confirm(`Delete “${existing.name}”? Its schedule, its destinations, and its record of missed fires go. Its runs stay in the run log, and the papers they found stay in your collection.`)) {
+                    remove.mutate(existing);
+                  }
+                }}>
+                Delete this watch
+              </button>
+            )}
+          </div>
           <div className="ask-facts" aria-live="polite">
             {missing.map((m) => <p key={m}>{m}</p>)}
             {save.error && <p className="ask-refusal" role="alert" data-editor="refusal">{errorWords(save.error)}</p>}
           </div>
+          {existing && remove.error && <p className="field-error" role="alert">{errorWords(remove.error)}</p>}
         </div>
-
-        {existing && (
-          <div className="editor-delete">
-            <button type="button" className="btn quiet" data-editor="delete" disabled={remove.isPending}
-              onClick={() => {
-                if (window.confirm(`Delete “${existing.name}”? Its schedule, its destinations, and its record of missed fires go. Its runs stay in the run log, and the papers they found stay in your collection.`)) {
-                  remove.mutate(existing);
-                }
-              }}>
-              Delete this watch
-            </button>
-            {remove.error && <p className="field-error" role="alert">{errorWords(remove.error)}</p>}
-          </div>
-        )}
       </form>
 
       <WillDo form={current} existing={existing} picked={picked} unknown={unknown} person={person}
@@ -615,6 +682,9 @@ function WillDo({ form, existing, picked, unknown, person, keyMissing, words, cr
           {notices.map((notice) => (
             <p key={`${notice.slug}:${notice.effect}`} className="will-warn" data-will="notice">{notice.effect}</p>
           ))}
+          {picked.filter((entry) => entry.service_notice).map((entry) => (
+            <p key={`service:${entry.slug}`} className="will-warn" data-will="service-notice">{entry.service_notice}</p>
+          ))}
           {newest.length > 0 && (
             <p className="will-quiet" data-will="newest-first">
               {listed(newest.map((e) => e.name))} {newest.length === 1 ? 'puts its' : 'put their'} newest papers first.
@@ -636,6 +706,12 @@ function WillDo({ form, existing, picked, unknown, person, keyMissing, words, cr
           <h3>When a run finishes</h3>
           {!sends && <p>Nothing is sent. Its runs and reports are kept here.</p>}
           {form.notify && <p>A notification, if {systemName()} lets resmon post them. Clicking it opens the run.</p>}
+          {form.pdfs && form.follows !== 'retractions' && (
+            <p data-will="pdfs">
+              The open-access PDF of each new paper a source states an open license for goes into the Library, within the
+              limits under PDFs; the run’s page says what it got and skipped.
+            </p>
+          )}
           {form.email && !emailOff && (
             <p>
               An email with the report{form.attach ? ', and its results attached' : ''}, to{' '}

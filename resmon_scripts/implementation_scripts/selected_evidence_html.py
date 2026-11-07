@@ -16,7 +16,10 @@ from . import evidence_export, selected_evidence as se
 MAX_BYTES = 4194304
 MAX_CSS_BYTES = 65536
 CONTRACT = 'selected-answer-html/v1'
-CSS = """*{box-sizing:border-box}html{color:#171717;background:#fff;font:100%/1.6 system-ui,sans-serif}body{margin:0}main{max-width:76rem;margin:auto;padding:clamp(1rem,4vw,3rem)}h1,h2,h3,h4{line-height:1.25}h1{font-size:2rem}h2{margin-top:2.5rem;border-bottom:1px solid #aaa;padding-bottom:.4rem}h3{margin-top:1.8rem}a{color:#174c83;text-underline-offset:.2em}a:focus-visible,summary:focus-visible,[tabindex]:focus-visible{outline:3px solid #174c83;outline-offset:4px}:target{outline:3px solid #986000;outline-offset:4px}p,dd,dt,summary,a,h1,h2,h3,h4{overflow-wrap:anywhere}dl{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,3fr);gap:.3rem 1rem}dt{font-weight:600}dd{margin:0;min-width:0}.literal{white-space:pre-wrap;overflow-wrap:anywhere;tab-size:4;margin:.6rem 0;unicode-bidi:plaintext}.limits,.quote{border-left:3px solid #777;padding:.25rem 1rem;background:#f5f5f5}.item{margin:1.5rem 0}.source{border-top:1px solid #aaa;margin-top:2rem}details{margin:1rem 0}summary{cursor:pointer;font-weight:600}nav{display:flex;flex-wrap:wrap;gap:.5rem 1.2rem}.meta{font-size:.9rem}li{overflow-wrap:anywhere}section,article{min-width:0}@media(max-width:40rem){dl{display:block}dd{margin-bottom:.7rem}h1{font-size:1.6rem}}@media print{html{font-size:10pt}main{max-width:none;padding:0}a{color:inherit}nav{display:none}h2,h3,h4,summary{break-after:avoid}.quote,dl{break-inside:avoid}.literal{white-space:pre-wrap}details{display:block}summary{list-style:none}.limits,.quote{background:#fff}:target{outline:none}}
+# Ligatures are off because the file carries exact text: with them, a font may
+# print "ff" in a hash or an id, or "fi" in a quote, as one character, and the
+# text copied from the page or its printout no longer matches what was saved.
+CSS = """*{box-sizing:border-box}html{color:#171717;background:#fff;font:100%/1.6 system-ui,sans-serif;font-variant-ligatures:none}body{margin:0}main{max-width:76rem;margin:auto;padding:clamp(1rem,4vw,3rem)}h1,h2,h3,h4{line-height:1.25}h1{font-size:2rem}h2{margin-top:2.5rem;border-bottom:1px solid #aaa;padding-bottom:.4rem}h3{margin-top:1.8rem}a{color:#174c83;text-underline-offset:.2em}a:focus-visible,summary:focus-visible,[tabindex]:focus-visible{outline:3px solid #174c83;outline-offset:4px}:target{outline:3px solid #986000;outline-offset:4px}p,dd,dt,summary,a,h1,h2,h3,h4{overflow-wrap:anywhere}dl{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,3fr);gap:.3rem 1rem}dt{font-weight:600}dd{margin:0;min-width:0}.literal{white-space:pre-wrap;overflow-wrap:anywhere;tab-size:4;margin:.6rem 0;unicode-bidi:plaintext}.limits,.quote{border-left:3px solid #777;padding:.25rem 1rem;background:#f5f5f5}.item{margin:1.5rem 0}.source{border-top:1px solid #aaa;margin-top:2rem}details{margin:1rem 0}summary{cursor:pointer;font-weight:600}nav{display:flex;flex-wrap:wrap;gap:.5rem 1.2rem}.meta{font-size:.9rem}li{overflow-wrap:anywhere}section,article{min-width:0}@media(max-width:40rem){dl{display:block}dd{margin-bottom:.7rem}h1{font-size:1.6rem}}@media print{html{font-size:10pt}main{max-width:none;padding:0}a{color:inherit}nav{display:none}h2,h3,h4,summary{break-after:avoid}.quote,dl{break-inside:avoid}.literal{white-space:pre-wrap}details{display:block}summary{list-style:none}.limits,.quote{background:#fff}:target{outline:none}}
 """
 CSS_HASH = base64.b64encode(hashlib.sha256(CSS.encode('utf-8')).digest()).decode('ascii')
 CSP = ("default-src 'none'; script-src 'none'; connect-src 'none'; img-src 'none'; "
@@ -40,7 +43,7 @@ class _Document:
         self.cancel = cancel
 
     def add(self, authored: str) -> None:
-        evidence_export.cancelled(self.cancel)
+        evidence_export.canceled(self.cancel)
         raw = authored.encode('utf-8')
         if self.size + len(raw) > MAX_BYTES:
             se.fail('The escaped HTML exceeds the 4 MiB portable limit.', 'export_limit', 413)
@@ -187,5 +190,5 @@ def render(answer: dict, *, cancel: threading.Event | None = None) -> bytes:
           'exclude source_id and source_sha256; the request hash covers the payload. '
           'This document contains selected excerpts, not full originals or embedded PDFs.</p></details></section>'
           '<p><a href="#top">Return to top</a></p></main></body></html>')
-    evidence_export.cancelled(cancel)
+    evidence_export.canceled(cancel)
     return b''.join(d.parts)

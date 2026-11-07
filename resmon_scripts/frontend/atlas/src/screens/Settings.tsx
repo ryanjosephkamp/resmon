@@ -7,14 +7,17 @@ import {
   type AccentTones, type ThemeName,
 } from '../theme/accent';
 import { useAppearance, type ThemeChoice } from '../theme/appearance';
+import { CollectionsSettings } from '../collections/CollectionsSettings';
 import { About } from './settings/About';
 import { Ai } from './settings/Ai';
 import { Background } from './settings/Background';
 import { DangerZone } from './settings/DangerZone';
 import { Email } from './settings/Email';
+import { LibrarySettings } from './settings/LibrarySettings';
 import { Notifications } from './settings/Notifications';
 import { Sources } from './settings/Sources';
 import { Storage } from './settings/Storage';
+import { TopBarSettings } from './settings/TopBar';
 import { Tutorials } from './settings/Tutorials';
 import { GROUPS, groupPath } from './settings/model';
 
@@ -139,12 +142,15 @@ export function Settings() {
             </section>
           )}
           {known?.slug === '' && <Appearance />}
+          {known?.slug === 'top-bar' && <TopBarSettings />}
           {known?.slug === 'background' && <Background />}
           {known?.slug === 'email' && <Email />}
           {known?.slug === 'notifications' && <Notifications />}
           {known?.slug === 'ai' && <Ai />}
           {known?.slug === 'sources' && <Sources />}
+          {known?.slug === 'collections' && <CollectionsSettings />}
           {known?.slug === 'storage' && <Storage />}
+          {known?.slug === 'library' && <LibrarySettings />}
           {known?.slug === 'tutorials' && <Tutorials />}
           {known?.slug === 'about' && <About />}
           {known?.slug === 'danger' && <DangerZone />}

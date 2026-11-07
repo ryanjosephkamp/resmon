@@ -8,8 +8,8 @@ const THEMES: ThemeName[] = ['dark', 'light'];
 
 /**
  * Every hue in 15-degree steps at five saturations and seven lightnesses, plus
- * the greys and the two extremes: 530 colors, the worst of them included on
- * purpose (navy on the night chart, pale yellow on the page, mid grey on both).
+ * the grays and the two extremes: 530 colors, the worst of them included on
+ * purpose (navy on the night chart, pale yellow on the page, mid gray on both).
  */
 function sweep(): string[] {
   const colors = new Set<string>(['#000000', '#ffffff', '#808080', '#777777', '#0000ff', '#ffff00', '#1a1a40']);

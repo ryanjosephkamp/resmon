@@ -16,7 +16,8 @@ from typing import BinaryIO
 from . import evidence
 from .child_process import hidden_window_kwargs
 
-MAX_INPUT = 16 * 1024 * 1024
+# The Library's one read limit: a PDF the Library keeps is one Evidence reads.
+MAX_INPUT = 64 * 1024 * 1024
 MAX_OUTPUT = 1024 * 1024
 MAX_STDERR = 4096
 TIMEOUT_SECONDS = 20
@@ -57,9 +58,9 @@ def validate_output(raw: bytes, page: int) -> dict:
 def extract(raw: bytes, page: int, *, cancel: threading.Event | None = None) -> dict:
     evidence.integer(page, 1, 200)
     if not isinstance(raw, bytes) or not 1 <= len(raw) <= MAX_INPUT:
-        evidence.refuse('pdf_limit', 'PDF reading is limited to 16 MiB.', 413)
+        evidence.refuse('pdf_limit', 'PDF reading is limited to 64 MiB.', 413)
     if cancel is not None and cancel.is_set():
-        evidence.refuse('cancelled', 'The selected PDF page was cancelled.')
+        evidence.refuse('cancelled', 'The selected PDF page was canceled.')
     if not _LEASE.acquire(blocking=False):
         evidence.refuse('reader_busy', 'Another bounded PDF page is being read. Try again when it finishes.', 409)
     start = time.monotonic()

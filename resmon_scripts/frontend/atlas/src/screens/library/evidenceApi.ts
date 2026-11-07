@@ -13,7 +13,7 @@
 import type { components } from '../../api/schema';
 import { bridge } from '../../bridge';
 import { EngineError, engineSentence } from '../../api/client';
-import { LIBRARY } from './libraryApi';
+import { LIBRARY, MAX_READ_BYTES } from './libraryApi';
 
 export type Project = components['schemas']['EvidenceProject'];
 export type FileRecord = components['schemas']['EvidenceFileRecord'];
@@ -45,7 +45,7 @@ export class EvidenceRefusal extends EngineError {
 
 /**
  * The engine reads one PDF page at a time and answers a second read with
- * `reader_busy` until the first finishes or is cancelled, which a reader
+ * `reader_busy` until the first finishes or is canceled, which a reader
  * switching pages or files can meet. That one refusal is worth waiting for.
  */
 export function readerBusy(error: unknown): boolean {
@@ -55,9 +55,10 @@ export function readerBusy(error: unknown): boolean {
 function endpoint(): { base: string; token: string | null } {
   const link = bridge();
   const port = link?.getBackendPort() ?? '';
-  // Evidence never falls back to a default instance, and never to the daemon's port.
-  if (!/^[1-9][0-9]{0,4}$/.test(port) || Number(port) > 65535 || port === '8742') {
-    throw new EngineError(0, 'Evidence needs this window’s own engine, and it has none yet.');
+  // The engine this window talks to, the background service's included. Evidence never guesses a port:
+  // with none from the window, it says so rather than ask a default one.
+  if (!/^[1-9][0-9]{0,4}$/.test(port) || Number(port) > 65535) {
+    throw new EngineError(0, 'Evidence cannot reach resmon’s engine yet.');
   }
   return { base: `http://127.0.0.1:${port}/api/evidence`, token: link?.getApiToken() ?? null };
 }
@@ -106,8 +107,8 @@ export async function sha256Hex(value: string | Uint8Array<ArrayBuffer>): Promis
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-/** The largest PDF the reader draws, as the engine bounds a kept file. */
-const MAX_PDF_BYTES = 16 * 1024 * 1024;
+/** The largest PDF the reader draws: the Library's one read limit, which import shares. */
+const MAX_PDF_BYTES = MAX_READ_BYTES;
 
 /** A body read to its end, refused the moment it passes `limit` bytes. */
 async function boundedBytes(response: Response, limit: number): Promise<Uint8Array<ArrayBuffer>> {
@@ -135,6 +136,9 @@ const revisioned = (p: Project) => ({ expected_vault_id: p.vault_id, expected_re
 
 export const evidence = {
   projects: async (vault: string) => same(await read<Projects>(`/projects${query({ expected_vault_id: vault })}`), vault),
+  /** One page of projects, from after an id: the Library's shelf reads them all, a page at a time. */
+  projectsPage: async (vault: string, after?: number) => same(
+    await read<Projects>(`/projects${query({ expected_vault_id: vault, after_id: after, limit: 50 })}`), vault),
   create: async (vault: string, name: string) => same(await read<ProjectDetail>('/projects', 'POST', { expected_vault_id: vault, name }), vault),
   detail: async (vault: string, id: string) => same(await read<ProjectDetail>(`/projects/${id}${query({ expected_vault_id: vault })}`), vault, id),
   rename: async (p: Project, name: string) => same(await read<ProjectDetail>(`/projects/${p.project_id}`, 'PATCH', { ...revisioned(p), name }), p.vault_id, p.project_id),

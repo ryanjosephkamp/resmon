@@ -60,7 +60,7 @@ def test_arxiv_client_search():
 
 @pytest.mark.live_network
 def test_crossref_client_search():
-    """CrossRef client returns NormalizedResult objects for a known query."""
+    """Crossref client returns NormalizedResult objects for a known query."""
     from implementation_scripts.api_crossref import CrossrefClient
     client = CrossrefClient()
     results = client.search(query="machine learning", max_results=3)

@@ -8,7 +8,9 @@ import { SearchTabs } from './collection/SearchTabs';
 import { SAVED_KEY, savedAsks, savedParameters } from './collection/savedSearches';
 import { ASK_PATH, KINDS, type AskState, type SearchKind } from './searchStart';
 import { useFocusOnArrival } from './arrival';
-import { RunLog } from './runs/RunLog';
+import { ACTIVE_KEY } from './runs/active';
+import { LatestRuns } from './runs/LatestRuns';
+import type { RunsNotice } from './runs/Runs';
 import { PlaceHelp } from './watches/people/People';
 import { formStart, startNeeded, windowSpan } from './watches/window';
 import {
@@ -19,6 +21,8 @@ import { SummaryChoiceField, choiceProblem } from './settings/SummaryChoiceField
 import { NO_CHOICE, overrideOf, type SummaryChoice } from './settings/summaryChoice';
 import { AI_KEY } from './settings/summaryLanes';
 import { CountField } from '../shell/CountField';
+import { useDraft } from '../shell/drafts';
+import { useCollection } from '../collections/current';
 
 type Mode = SearchKind;
 
@@ -47,7 +51,7 @@ function windowDates(days: number | null): { from: string; to: string } {
 /**
  * Search: ask the sources. One source in depth (a Deep Dive) or several at
  * once (a Deep Sweep), from a catalog that states each source's limits before
- * anything is asked, beside the log of every run so far.
+ * anything is asked, beside the newest runs.
  *
  * The limits are the catalog's own statements about each upstream, and the
  * two sentences under the button are derived from them for this selection:
@@ -60,9 +64,23 @@ function windowDates(days: number | null): { from: string; to: string } {
  * emptying it unseen, takes the kind asked for where that drops nothing,
  * says so, and offers to start over.
  */
+/** What Ask the sources keeps of a form not yet started (see `useDraft`). */
+interface AskDraft {
+  mode: Mode;
+  terms: string[];
+  termDraft: string;
+  chosen: string[];
+  windowDays: number | null | undefined;
+  dates: { from: string; to: string };
+  cap: number;
+  summaries: SummaryChoice;
+}
+
 export function Search() {
   const navigate = useNavigate();
   const client = useQueryClient();
+  // A Deep Dive or a Deep Sweep started here lands in the collection this window shows.
+  const shownCollection = useCollection();
   const location = useLocation();
   const arrival = useNavigationType();
   // A saved search opened from Saved fills the form, and the run it starts
@@ -71,16 +89,24 @@ export function Search() {
   const opened = routed?.saved ?? null;
   const from = opened ? savedAsks(opened) : null;
   const { sources, keyMissing, pending, failed } = useSources();
+  // The form as it was left on this history entry, when Back or Forward returns to it (Settings › AI from
+  // the summaries line, say); a new visit is a new entry and starts from the address alone.
+  const draft = useDraft<AskDraft>('ask-the-sources');
+  const was = draft.restored;
 
-  const [mode, setMode] = useState<Mode>(routed?.start ?? (opened?.config_type === 'manual_dive' ? 'dive' : opened ? 'sweep' : 'dive'));
-  const terms = useTerms(from?.keywords ?? []);
-  const [chosen, setChosen] = useState<string[]>(from?.sources ?? []);
+  const [mode, setMode] = useState<Mode>(was?.mode ?? routed?.start ?? (opened?.config_type === 'manual_dive' ? 'dive' : opened ? 'sweep' : 'dive'));
+  const terms = useTerms(was?.terms ?? from?.keywords ?? [], was?.termDraft ?? '');
+  const [chosen, setChosen] = useState<string[]>(was?.chosen ?? from?.sources ?? []);
   /** The preset the dates came from; `undefined` once they are edited by hand. */
-  const [windowDays, setWindowDays] = useState<number | null | undefined>(from ? undefined : FRESH_DAYS);
-  const [dates, setDates] = useState(() => (from ? { from: from.dateFrom, to: from.dateTo } : windowDates(FRESH_DAYS)));
-  const [cap, setCap] = useState(from?.cap ?? FRESH_CAP);
+  const [windowDays, setWindowDays] = useState<number | null | undefined>(was ? was.windowDays : from ? undefined : FRESH_DAYS);
+  const [dates, setDates] = useState(() => was?.dates ?? (from ? { from: from.dateFrom, to: from.dateTo } : windowDates(FRESH_DAYS)));
+  const [cap, setCap] = useState(was?.cap ?? from?.cap ?? FRESH_CAP);
   // Summaries for this run alone: on or off, and anything set here rather than in Settings › AI.
-  const [summaries, setSummaries] = useState<SummaryChoice>({ ...NO_CHOICE, on: from?.summarize ?? false });
+  const [summaries, setSummaries] = useState<SummaryChoice>(was?.summaries ?? { ...NO_CHOICE, on: from?.summarize ?? false });
+  const keepDraft = draft.keep;
+  useEffect(() => {
+    keepDraft({ mode, terms: terms.terms, termDraft: terms.draft, chosen, windowDays, dates, cap, summaries });
+  }, [keepDraft, mode, terms.terms, terms.draft, chosen, windowDays, dates, cap, summaries]);
   const lane = useQuery({ queryKey: AI_KEY, queryFn: () => answer(engine().GET('/api/settings/ai')), enabled: summaries.on });
   /** The name being typed for Save this search; `null` while the field is closed. */
   const [naming, setNaming] = useState<string | null>(null);
@@ -107,7 +133,7 @@ export function Search() {
   // changes under it, as a render adjusts to a new prop. Back and forward return
   // to a page; they do not ask for a new search again.
   const [seen, setSeen] = useState(location.key);
-  const [focusAsked, setFocusAsked] = useState(() => (routed?.start && arrival !== 'POP' ? 1 : 0));
+  const [focusAsked, setFocusAsked] = useState(() => (routed?.start && arrival !== 'POP' && !was ? 1 : 0));
   if (location.key !== seen) {
     setSeen(location.key);
     const asked = routed?.start;
@@ -164,12 +190,24 @@ export function Search() {
         ...(Object.keys(override).length ? { ai_settings: override } : {}),
         request_id: crypto.randomUUID(),
         saved_configuration_id: opened?.id ?? null,
+        ...(shownCollection.id !== null ? { collection: shownCollection.id } : {}),
       };
       return mode === 'dive'
         ? answer(engine().POST('/api/search/dive', { body: { ...base, repository: picked[0]?.slug ?? '' } }))
         : answer(engine().POST('/api/search/sweep', { body: { ...base, repositories: picked.map((e) => e.slug) } }));
     },
-    onSuccess: (started) => navigate(`/runs/${started.execution_id}`),
+    onSuccess: (started) => {
+      // A started search is a run now, not a draft: Back finds the form as the address sets it.
+      draft.drop();
+      // What runs now is read at once, so the run monitor shows this run even if it ends before its next read.
+      void client.invalidateQueries({ queryKey: ACTIVE_KEY });
+      // One that waits for a free slot has no page yet: the Runs tab lists it under Waiting, and says so.
+      if (started.execution_id === null) {
+        navigate('/runs', { state: { queued: started.detail ?? 'This search waits for a free run slot.' } satisfies RunsNotice });
+      } else {
+        navigate(`/runs/${started.execution_id}`);
+      }
+    },
   });
 
   // A run that summarizes waits for Settings › AI: a lane of its own is built from it, and without it the
@@ -229,8 +267,8 @@ export function Search() {
   const merged = !!needs && !filled && needs.entries.every((entry) => notices
     .some((notice) => notice.slug === entry.slug && notice.scope === 'beyond_default_start'));
 
-  const refusal = start.error instanceof EngineError && start.error.status === 429
-    ? 'resmon is already running as many runs at once as Settings › In the background allows. Try again when one finishes.'
+  const refusal = start.error instanceof EngineError && start.error.status === 429 && start.error.detail
+    ? start.error.detail
     : start.error ? `The search could not start: ${start.error.message}.` : null;
 
   return (
@@ -326,13 +364,72 @@ export function Search() {
           {lane.isError && <p className="field-error" role="alert">The engine did not say what Settings › AI holds ({lane.error.message}).</p>}
         </div>
 
+        {/* The bar is the foot of the form: everything a run is started or kept with is in it, so
+            nothing sits under it while the column scrolls. */}
         <div className="ask-go">
-          <button type="submit" className="btn primary go" disabled={!ready} aria-keyshortcuts={commandEnterKeys()}>
-            {start.isPending ? 'Starting'
-              : picked.length === 1 ? `Ask ${picked[0]?.name}`
-                : picked.length > 1 ? `Ask ${picked.length} sources` : 'Ask'}
-          </button>
-          <CommandEnterHint />
+          <div className="ask-actions">
+            <button type="submit" className="btn primary go" disabled={!ready} aria-keyshortcuts={commandEnterKeys()}>
+              {start.isPending ? 'Starting'
+                : picked.length === 1 ? `Ask ${picked[0]?.name}`
+                  : picked.length > 1 ? `Ask ${picked.length} sources` : 'Ask'}
+            </button>
+            <CommandEnterHint />
+            {shownCollection.several && shownCollection.name && (
+              <span className="ask-lands" data-search="lands">Its papers land in <b>{shownCollection.name}</b></span>
+            )}
+            <div className="ask-keep">
+              {naming === null ? (
+                <span className="keep-row">
+                  <button
+                    type="button"
+                    className="btn quiet"
+                    data-saved="keep"
+                    disabled={!allTerms.length || !picked.length}
+                    onClick={() => { keep.reset(); setNaming(''); }}
+                  >
+                    Save this search
+                  </button>
+                  {/* Not the dates: a window fixed today would be asked again on every run. */}
+                  <button
+                    type="button"
+                    className="btn quiet"
+                    data-editor="watch-this"
+                    disabled={!allTerms.length || !picked.length}
+                    onClick={() => navigate('/watches/new', {
+                      state: { seed: { sources: picked.map((e) => e.slug), keywords: allTerms, cap } },
+                    })}
+                  >
+                    Watch this search
+                  </button>
+                </span>
+              ) : (
+                <span className="keep-row">
+                  <label className="sr-only" htmlFor="keep-name">A name for this saved search</label>
+                  <input
+                    id="keep-name"
+                    value={naming}
+                    placeholder="A name for this search"
+                    autoFocus
+                    {...commandEnter('keep-save')}
+                    onChange={(event) => setNaming(event.target.value)}
+                    onKeyDown={(event) => {
+                      // Enter here saves; it must not reach the form and start a run. ⌘Enter presses Save too, through the shell.
+                      if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
+                        event.preventDefault();
+                        if (naming.trim()) keep.mutate(naming.trim());
+                      } else if (event.key === 'Escape') {
+                        setNaming(null);
+                      }
+                    }}
+                  />
+                  <button type="button" id="keep-save" className="btn" disabled={!naming.trim() || keep.isPending} onClick={() => keep.mutate(naming.trim())}>
+                    {keep.isPending ? 'Saving' : 'Save'}
+                  </button>
+                  <button type="button" className="btn quiet" onClick={() => setNaming(null)}>Cancel</button>
+                </span>
+              )}
+            </div>
+          </div>
           <div className="ask-facts" aria-live="polite">
             {!allTerms.length && <p>Add at least one term.</p>}
             {summaryProblem && summaryProblem !== 'Reading Settings › AI.' && <p data-ask="summary-problem">{summaryProblem}</p>}
@@ -351,6 +448,9 @@ export function Search() {
             {picked.filter(keyMissing).map((entry) => (
               <p key={entry.slug}>{entry.name} has no API key here, so it will be recorded as not queried.</p>
             ))}
+            {picked.filter((entry) => entry.service_notice).map((entry) => (
+              <p key={`service:${entry.slug}`} data-ask="service-notice">{entry.service_notice}</p>
+            ))}
             {unknown.length > 0 && (
               <p data-saved="unknown-sources">
                 {unknown.join(', ')} {unknown.length === 1 ? 'is' : 'are'} in this saved search but {unknown.length === 1 ? 'is not a source' : 'are not sources'}
@@ -359,60 +459,7 @@ export function Search() {
             )}
             {refusal && <p className="ask-refusal" role="alert">{refusal}</p>}
           </div>
-        </div>
-
-        <div className="ask-keep">
           {opened && <p className="keep-from">Opened from the saved search “{opened.name}”; a run started here records it.</p>}
-          {naming === null ? (
-            <span className="keep-row">
-              <button
-                type="button"
-                className="btn quiet"
-                data-saved="keep"
-                disabled={!allTerms.length || !picked.length}
-                onClick={() => { keep.reset(); setNaming(''); }}
-              >
-                Save this search
-              </button>
-              {/* Not the dates: a window fixed today would be asked again on every run. */}
-              <button
-                type="button"
-                className="btn quiet"
-                data-editor="watch-this"
-                disabled={!allTerms.length || !picked.length}
-                onClick={() => navigate('/watches/new', {
-                  state: { seed: { sources: picked.map((e) => e.slug), keywords: allTerms, cap } },
-                })}
-              >
-                Watch this search
-              </button>
-            </span>
-          ) : (
-            <span className="keep-row">
-              <label className="sr-only" htmlFor="keep-name">A name for this saved search</label>
-              <input
-                id="keep-name"
-                value={naming}
-                placeholder="A name for this search"
-                autoFocus
-                {...commandEnter('keep-save')}
-                onChange={(event) => setNaming(event.target.value)}
-                onKeyDown={(event) => {
-                  // Enter here saves; it must not reach the form and start a run. ⌘Enter presses Save too, through the shell.
-                  if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
-                    event.preventDefault();
-                    if (naming.trim()) keep.mutate(naming.trim());
-                  } else if (event.key === 'Escape') {
-                    setNaming(null);
-                  }
-                }}
-              />
-              <button type="button" id="keep-save" className="btn" disabled={!naming.trim() || keep.isPending} onClick={() => keep.mutate(naming.trim())}>
-                {keep.isPending ? 'Saving' : 'Save'}
-              </button>
-              <button type="button" className="btn quiet" onClick={() => setNaming(null)}>Cancel</button>
-            </span>
-          )}
           {keep.isSuccess && naming === null && (
             <p className="settings-said" role="status" data-saved="kept">
               Saved as “{keep.variables}”, under <Link to="/search/saved">Saved</Link>.
@@ -425,7 +472,7 @@ export function Search() {
           )}
         </div>
       </form>
-      <RunLog />
+      <LatestRuns />
     </div>
   );
 }

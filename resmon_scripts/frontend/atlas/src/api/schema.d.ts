@@ -292,8 +292,9 @@ export interface paths {
          * @description Per keyword: papers it found that no other keyword did.
          *
          *     Scoped to one execution with ``?execution_id=``, otherwise to every keyword
-         *     ever searched against the whole corpus. Cached like the other analytics —
-         *     it reads every candidate document once, which is not free on a large corpus.
+         *     of the runs that put papers in the collection, against its papers. Cached
+         *     like the other analytics — it reads every candidate document once, which
+         *     is not free on a large corpus.
          */
         get: operations["analytics_keyword_contribution_api_analytics_keyword_contribution_get"];
         put?: never;
@@ -313,7 +314,7 @@ export interface paths {
         };
         /**
          * Analytics Overview
-         * @description Everything the Analytics page needs, in one round trip.
+         * @description Everything the Analytics page needs about one collection, in one round trip.
          */
         get: operations["analytics_overview_api_analytics_overview_get"];
         put?: never;
@@ -353,7 +354,7 @@ export interface paths {
         };
         /**
          * Analytics Routine Health
-         * @description Per routine: new results per run, and whether it has gone quiet.
+         * @description Per routine whose papers land in the collection: new results per run, and whether it has gone quiet.
          */
         get: operations["analytics_routine_health_api_analytics_routine_health_get"];
         put?: never;
@@ -680,7 +681,7 @@ export interface paths {
         };
         /**
          * Backup Last
-         * @description The last bundle, the last restore outcome, and whether an undo copy exists.
+         * @description The last bundle, the last restore outcome, the undo copies, and the copy kept before the last upgrade.
          */
         get: operations["backup_last_api_backup_last_get"];
         put?: never;
@@ -722,6 +723,124 @@ export interface paths {
         get: operations["calendar_events_api_calendar_events_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/collections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Collections
+         * @description Every collection, the one the app shows, and the default one.
+         */
+        get: operations["list_collections_api_collections_get"];
+        put?: never;
+        /**
+         * Create Collection
+         * @description Make an empty collection. Names are unique without regard to case.
+         */
+        post: operations["create_collection_api_collections_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/collections/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Current Collection
+         * @description Remember the collection the app shows, by its id or its name.
+         */
+        put: operations["set_current_collection_api_collections_current_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/collections/{collection_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Collection
+         * @description One collection, and what deleting it would do to its papers and watches.
+         */
+        get: operations["get_collection_api_collections__collection_id__get"];
+        /** Rename Collection */
+        put: operations["rename_collection_api_collections__collection_id__put"];
+        post?: never;
+        /**
+         * Delete Collection
+         * @description Delete a collection, never its papers.
+         *
+         *     A paper only it held is kept in the default collection; one in another
+         *     collection stays there. Its watches put their papers in the default
+         *     collection from then on. Its map goes with it, since the map holds words
+         *     from its papers. The default collection is refused (409).
+         */
+        delete: operations["delete_collection_api_collections__collection_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/collections/{collection_id}/papers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change Collection Papers
+         * @description Move or copy papers into this collection. No paper leaves the database.
+         *
+         *     A copy adds them and every collection they were in keeps them. A move adds
+         *     them here and then takes them out of the collection they came from, so a
+         *     paper is never in none. The answer is what an undo sends back.
+         */
+        post: operations["change_collection_papers_api_collections__collection_id__papers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/collections/{collection_id}/papers/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo Collection Papers
+         * @description Undo a move or a copy into this collection, from what it answered.
+         */
+        post: operations["undo_collection_papers_api_collections__collection_id__papers_undo_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1073,6 +1192,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents/{doc_id}/full-text": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get The Pdf
+         * @description Get the PDF: ask for this paper's open-access PDF into the Library.
+         *
+         *     Recorded before anything is fetched. A request that cannot go ahead (no
+         *     open copy with a stated license, a refused source, no Library folder, the
+         *     day's cap) comes back ``skipped`` with its reason and sends nothing.
+         */
+        post: operations["get_the_pdf_api_documents__doc_id__full_text_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents/{doc_id}/lifecycle": {
         parameters: {
             query?: never;
@@ -1176,7 +1319,7 @@ export interface paths {
          *
          *     Returns immediately; poll ``GET /api/embeddings/status``. Resumable by
          *     construction — the work remaining is a query, not a stored cursor — so a
-         *     cancelled run restarts where the corpus is, not where the last run thought
+         *     canceled run restarts where the corpus is, not where the last run thought
          *     it was.
          */
         post: operations["start_embedding_backfill_api_embeddings_backfill_post"];
@@ -1290,6 +1433,9 @@ export interface paths {
         /**
          * Embedding Status
          * @description N of M embedded with model X, the run, the index, and the extension.
+         *
+         *     ``coverage`` counts every paper, as a backfill does; with ``collection``,
+         *     ``collection_coverage`` counts that collection's papers too.
          */
         get: operations["embedding_status_api_embeddings_status_get"];
         put?: never;
@@ -1550,7 +1696,18 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Executions */
+        /**
+         * List Executions
+         * @description The runs, newest first, a page at a time; how many match is the ``X-Resmon-Total`` header.
+         *
+         *     ``type`` and ``status`` each take one value or several, comma-separated
+         *     (``type=deep_dive,deep_sweep,find_paper`` is every search asked by hand). ``q``
+         *     matches a run's terms, its sources, its watch's or saved search's name,
+         *     or its number. ``omit_events`` leaves each row's stored
+         *     ``progress_events`` out (null): the Runs tab lists runs and reads a run's
+         *     events only on its own page. The total is a header, so the body stays
+         *     the list every reader of this route already reads.
+         */
         get: operations["list_executions_api_executions_get"];
         put?: never;
         post?: never;
@@ -1567,7 +1724,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Active Executions */
+        /**
+         * Active Executions
+         * @description The runs this engine is running, each with its search and its events, and the queue.
+         *
+         *     For the Runs tab's Running now and Waiting, read every two seconds while
+         *     anything runs or waits. A run is here from the moment it is registered
+         *     until its thread has finished with it; a run another engine is running
+         *     is not, and the run log lists it as running.
+         */
         get: operations["active_executions_api_executions_active_get"];
         put?: never;
         post?: never;
@@ -1624,6 +1789,53 @@ export interface paths {
          */
         post: operations["export_executions_api_executions_export_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/executions/seen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark Runs Seen
+         * @description The run monitor's panel was opened: every run that has failed until now is seen.
+         *
+         *     Clears the monitor's red mark (``failed_unseen`` on ``/active``) until a
+         *     run fails again. Nothing about any run changes.
+         */
+        post: operations["mark_runs_seen_api_executions_seen_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/executions/waiting/{ticket}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Withdraw Waiting Run
+         * @description Take a run that waits for a free slot out of the queue, before it starts.
+         *
+         *     Only a run asked for by hand: a watch's fire runs as its watch says, and
+         *     is stopped by pausing the watch. A run that has already started is not
+         *     waiting any more (404), and is stopped from its own page.
+         */
+        delete: operations["withdraw_waiting_run_api_executions_waiting__ticket__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1700,12 +1912,12 @@ export interface paths {
          * Cancel Execution
          * @description Request cooperative cancellation of a running execution.
          *
-         *     A row that is not in the in-memory ``ProgressStore`` is not cancellable,
+         *     A row that is not in the in-memory ``ProgressStore`` is not cancelable,
          *     and saying only "Execution not running" would read, on an
          *     interrupted row, as if resmon had lost track of something. The row's own
          *     state belongs in the sentence.
          *
-         *     ``detail`` stays a **string**. FastAPI will serialise a dict there happily,
+         *     ``detail`` stays a **string**. FastAPI will serialize a dict there happily,
          *     and a renderer that renders ``detail`` directly -- which several of
          *     resmon's do -- would then show ``[object Object]``. Anything that needs the
          *     state structurally reads ``status`` off the row it already has.
@@ -1743,11 +1955,12 @@ export interface paths {
         };
         /**
          * Get Execution Document Ids
-         * @description Every paper this run stored that is still in the collection, by id.
+         * @description Every paper this run stored that is in the collection, by id.
          *
-         *     The run's map needs all of them and nothing else about them: the map
-         *     already holds their positions. The papers themselves are paged by
-         *     ``/documents``; ids alone are a few bytes each, so they come whole.
+         *     The run's map is the collection's map, so it needs these and nothing else
+         *     about them: the map already holds their positions. The papers themselves
+         *     are paged by ``/documents``; ids alone are a few bytes each, so they come
+         *     whole.
          */
         get: operations["get_execution_document_ids_api_executions__exec_id__document_ids_get"];
         put?: never;
@@ -1791,6 +2004,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/executions/{exec_id}/find": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find Result
+         * @description A find's question and what each source it named said: found or not, how it matched, what differs, its open copy.
+         */
+        get: operations["find_result_api_executions__exec_id__find_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/executions/{exec_id}/full-text": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Run Full Text
+         * @description Every PDF a run asked for (a watch with its opt-in on), and what came of each.
+         */
+        get: operations["run_full_text_api_executions__exec_id__full_text_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/executions/{exec_id}/log": {
         parameters: {
             query?: never;
@@ -1815,7 +2068,17 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Execution Progress Events */
+        /**
+         * Get Execution Progress Events
+         * @description The run's progress events, from the ``since``-th on (0, every one).
+         *
+         *     A running run's page reads only the events it has not seen: a sweep's
+         *     heartbeat adds one event every two seconds for each source still being
+         *     asked, and reading the whole list every second read it again and again.
+         *     The list only grows while the run runs, and once it has ended the
+         *     persisted list is the same list, so an index into one is an index into
+         *     the other.
+         */
         get: operations["get_execution_progress_events_api_executions__exec_id__progress_events_get"];
         put?: never;
         post?: never;
@@ -1899,6 +2162,21 @@ export interface paths {
          *
          *     The source row is never touched. Its history is what happened, and a
          *     restart is a second thing that happened, not a correction of the first.
+         *
+         *     ``again`` asks for a completed run's search once more (Run again, on the
+         *     Runs tab); without it only an interrupted, failed or canceled run is
+         *     restarted. At the run limit the new run waits in the queue
+         *     (``_start_or_queue``) and its row is written only when it starts: the
+         *     answer then carries no execution id, ``queued``, and its place.
+         *
+         *     **A watch's run is never run alongside its watch.** Restart or Run again
+         *     on a watch's run is that watch's Run now (``run_routine_now``): the
+         *     watch's claim, its queue, a paused watch run once, and delivery as it is
+         *     set, with the watch's current settings rather than the old run's copy,
+         *     and refused with the run that holds the watch when it is already running,
+         *     since two runs of one watch would both deliver and email. The new run is
+         *     the watch's, so it is not linked back (``restarted_from`` is null). A Deep
+         *     Dive's or Deep Sweep's run is copied, as below.
          */
         post: operations["restart_execution_api_executions__exec_id__restart_post"];
         delete?: never;
@@ -1943,8 +2221,13 @@ export interface paths {
          * Explorer Export
          * @description Export everything matching the current filters, not just the page shown.
          *
-         *     Reuses the same renderers as the per-execution export; only the way the
-         *     documents are selected differs.
+         *     Every match, however many: the papers are read from the database a batch at
+         *     a time and the file is sent as it is written, so the engine never holds the
+         *     whole of it (measured: `python -m perf scale`). The count in
+         *     ``X-Resmon-Document-Count`` and the papers are read in one transaction on a
+         *     connection of the export's own, so the header is exactly what the file holds
+         *     even while a run is storing papers. Reuses the same renderers as the
+         *     per-execution export; only the way the documents are selected differs.
          */
         post: operations["explorer_export_api_explorer_export_post"];
         delete?: never;
@@ -2016,6 +2299,91 @@ export interface paths {
          *     allocated once for the complete file. This never merges corpus records.
          */
         post: operations["export_selected_references_api_export_references_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/find": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Find A Paper
+         * @description Find a paper across the sources that can look it up: a run, or queued like one (202).
+         *
+         *     Each source is asked by the kind it can be asked by; the copy that is the
+         *     paper is kept in the collection, every source's answer is recorded
+         *     (``GET /api/executions/{id}/find``), and the copies that share a DOI are
+         *     linked. A query no named source can look up is refused (400) with why.
+         */
+        post: operations["find_a_paper_api_find_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/find/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find Plan
+         * @description What a typed query reads as (a DOI, an arXiv id, a PMID, or a title), and which sources it would ask.
+         */
+        get: operations["find_plan_api_find_plan_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/full-text/for-documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Full Text For Documents
+         * @description For each paper: its open copies, the one resmon would get or why none, its latest request, its Library PDF.
+         */
+        post: operations["full_text_for_documents_api_full_text_for_documents_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/full-text/rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Full Text Rules
+         * @description The limits on downloads, the license rule, and the sources and sites never downloaded from.
+         */
+        get: operations["full_text_rules_api_full_text_rules_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2118,7 +2486,12 @@ export interface paths {
         get: operations["library_detail_api_library_files__file_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Library Remove
+         * @description Take a file out of the Library. Its bytes are held in the Library folder's
+         *     ``removed/`` and its record kept, for Undo and Restore; nothing is deleted.
+         */
+        delete: operations["library_remove_api_library_files__file_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2152,6 +2525,74 @@ export interface paths {
         put?: never;
         /** Library Link */
         post: operations["library_link_api_library_files__file_id__paper_links_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/library/files/{file_id}/pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Library Read Pdf
+         * @description A kept PDF's bytes, for the reader outside Evidence: verified, up to the one read limit.
+         *
+         *     The identity headers name the vault, file, version and hash the bytes were
+         *     checked against, so the renderer can refuse an answer about another file.
+         */
+        get: operations["library_read_pdf_api_library_files__file_id__pdf_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/library/files/{file_id}/picture": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Library Picture
+         * @description The first-page picture kept for this exact version, or 404 ``no_picture``.
+         */
+        get: operations["library_picture_api_library_files__file_id__picture_get"];
+        /**
+         * Library Keep Picture
+         * @description Keep the first-page picture the renderer drew of this version: WebP, PNG or JPEG, 512 KiB at most.
+         */
+        put: operations["library_keep_picture_api_library_files__file_id__picture_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/library/files/{file_id}/removal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Library Removal Summary
+         * @description What would go with this file if it were removed: its paper links, and the projects
+         *     it is in or has notes in. ``needs_confirmation`` is true when there is a project.
+         */
+        get: operations["library_removal_summary_api_library_files__file_id__removal_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2201,6 +2642,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/library/removed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Library Removed
+         * @description Every removed file still on record, newest first, and whether its bytes are still held.
+         */
+        get: operations["library_removed_api_library_removed_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/library/removed/{file_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Library Forget
+         * @description Drop a removed file's record once its bytes have left the Library folder; refused while they are held.
+         */
+        delete: operations["library_forget_api_library_removed__file_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/library/removed/{file_id}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Library Release
+         * @description The held file's verified path, under the name it was imported as, for the desktop's Trash.
+         */
+        post: operations["library_release_api_library_removed__file_id__release_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/library/removed/{file_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Library Restore
+         * @description Undo a removal: the folder, the row and every row that went with it, as they were.
+         */
+        post: operations["library_restore_api_library_removed__file_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/library/vault": {
         parameters: {
             query?: never;
@@ -2212,6 +2733,47 @@ export interface paths {
         put?: never;
         /** Library Create Vault */
         post: operations["library_create_vault_api_library_vault_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/library/vault/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Library Move
+         * @description Move the Library folder into another folder, keeping its name. Across disks the
+         *     files are copied and checked, and the old folder is left where it was.
+         */
+        post: operations["library_move_api_library_vault_move_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/library/vault/relink": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Library Relink
+         * @description Record where the Library folder is now, after checking it is this Library's own.
+         */
+        post: operations["library_relink_api_library_vault_relink_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2429,11 +2991,12 @@ export interface paths {
         };
         /**
          * Get Collection Map
-         * @description Where every paper sits on the Atlas plate, and on what basis.
+         * @description Where every paper of a collection sits on the Atlas plate, and on what basis.
          *
          *     The first call on a collection starts a fit in the background and answers
          *     ``fitting``; later calls answer from the fit, placing papers that arrived
-         *     since. See ``collection_map`` for what a position does and does not say.
+         *     since. Each collection has its own map, fitted over its papers alone. See
+         *     ``collection_map`` for what a position does and does not say.
          */
         get: operations["get_collection_map_api_map_get"];
         put?: never;
@@ -2453,9 +3016,9 @@ export interface paths {
         };
         /**
          * Get Map Facets
-         * @description What the map's filters and colors read about every paper: its source,
-         *     its dates, its place in the reading queue, whether it is new on Today, and
-         *     the watches that found it. See ``map_facets`` for what each says.
+         * @description What the map's filters and colors read about every paper of a collection:
+         *     its source, its dates, its place in the reading queue, whether it is new on
+         *     Today, and the watches that found it. See ``map_facets`` for what each says.
          */
         get: operations["get_map_facets_api_map_facets_get"];
         put?: never;
@@ -2475,8 +3038,8 @@ export interface paths {
         };
         /**
          * Find On Map
-         * @description The papers whose title or authors contain ``q``, newest first, for
-         *     lighting them on a map. Fewer than two characters find nothing.
+         * @description The papers of a collection whose title or authors contain ``q``, newest
+         *     first, for lighting them on a map. Fewer than two characters find nothing.
          */
         get: operations["find_on_map_api_map_find_get"];
         put?: never;
@@ -2732,7 +3295,7 @@ export interface paths {
         };
         /**
          * Get Watch Profile Matches
-         * @description Papers matched to this profile, **each with the basis it was matched on**.
+         * @description Papers of a collection matched to this profile, **each with the basis it was matched on**.
          *
          *     The basis rides on every row and is never omitted: a list of papers with no
          *     basis is exactly the claim resmon refuses to make.
@@ -2755,7 +3318,14 @@ export interface paths {
         };
         /**
          * List Reading Queue
-         * @description One page of saved papers. ``status`` omitted (or ``all``) means both.
+         * @description One page of a collection's saved papers. ``status`` omitted (or ``all``) means both.
+         *
+         *     The queue is one list; each collection shows the saved papers it holds,
+         *     with their counts. ``q`` keeps the papers whose title, authors or source
+         *     contain it. ``sort`` is ``saved`` (newest save first), ``published``,
+         *     ``title``, ``source`` or ``map`` (the collection's map); the page's own
+         *     ``sort`` says which order it is in, which is ``saved`` when ``map`` was
+         *     asked for and no map is fitted yet.
          */
         get: operations["list_reading_queue_api_reading_queue_get"];
         put?: never;
@@ -2769,6 +3339,77 @@ export interface paths {
          *     time, which is how a caller can tell the two apart if it needs to.
          */
         post: operations["save_to_reading_queue_api_reading_queue_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reading-queue/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save Many To Reading Queue
+         * @description Save many papers at once: each one not in the queue is added, each one in it is left as it is.
+         *
+         *     The answer counts both, and the ids it does not hold (``missing``), and
+         *     lists the ids it added with the moment they carry, for Undo
+         *     (``POST /api/reading-queue/batch/undo``).
+         */
+        post: operations["save_many_to_reading_queue_api_reading_queue_batch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reading-queue/batch/all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save All To Reading Queue
+         * @description Save every paper of a search, a run, or Today, read by the engine rather than listed.
+         *
+         *     At most ``reading_queue.BATCH_MOST`` papers; a larger set is refused with
+         *     how many it holds. 409 when the set holds more than ``at_most``, the number
+         *     the person was asked about. Otherwise the answer of ``/batch``.
+         */
+        post: operations["save_all_to_reading_queue_api_reading_queue_batch_all_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reading-queue/batch/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo Save To Reading Queue
+         * @description Undo a save of many: the entries it added go, unless they changed since.
+         *
+         *     ``document_ids`` and ``saved_at`` are the save's own answer. An entry marked
+         *     read since, or removed and saved again, stays, and is counted as ``kept``.
+         */
+        post: operations["undo_save_to_reading_queue_api_reading_queue_batch_undo_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2798,6 +3439,29 @@ export interface paths {
          *     interface is looking at a list somebody else already changed.
          */
         delete: operations["remove_from_reading_queue_api_reading_queue__document_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reading-queue/{document_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore To Reading Queue
+         * @description Undo a removal: the entry back with the state and dates it had.
+         *
+         *     ``restored`` is false when the paper was saved again in the meantime; its
+         *     entry now is returned unchanged rather than overwritten.
+         */
+        post: operations["restore_to_reading_queue_api_reading_queue__document_id__restore_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -3099,12 +3763,15 @@ export interface paths {
         };
         /**
          * Routine Documents
-         * @description The papers this routine's runs collected: a watch's constellation.
+         * @description The papers this routine's runs collected that a collection holds: a watch's constellation on its map.
          *
          *     Ids only, newest run first and each paper once, because what a screen does
          *     with them is mark them on the collection map; a page of records is the
-         *     Explorer's job. ``total`` counts all of them, so a screen whose ``limit``
-         *     cut the list short can say so rather than imply the marks are complete.
+         *     Explorer's job. Every one unless ``limit`` asks for fewer: ids are a few
+         *     bytes each, and a constellation drawn from the first 2,000 of a watch's
+         *     papers left the rest off the map. ``total`` counts all of them, so a screen
+         *     whose ``limit`` cut the list short can say so rather than imply the marks
+         *     are complete.
          */
         get: operations["routine_documents_api_routines__routine_id__documents_get"];
         put?: never;
@@ -3242,7 +3909,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Search Dive */
+        /**
+         * Search Dive
+         * @description Start a Deep Dive, or queue it when resmon runs as many as it allows (202).
+         */
         post: operations["search_dive_api_search_dive_post"];
         delete?: never;
         options?: never;
@@ -3276,7 +3946,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Search Sweep */
+        /**
+         * Search Sweep
+         * @description Start a Deep Sweep, or queue it when resmon runs as many as it allows (202).
+         */
         post: operations["search_sweep_api_search_sweep_post"];
         delete?: never;
         options?: never;
@@ -3356,7 +4029,7 @@ export interface paths {
         };
         /**
          * Service Status
-         * @description Return whether the daemon unit file is installed and its path.
+         * @description Return whether the daemon unit file is installed and its path, and on macOS what launchd holds.
          */
         get: operations["service_status_api_service_status_get"];
         put?: never;
@@ -3378,7 +4051,7 @@ export interface paths {
         put?: never;
         /**
          * Service Uninstall
-         * @description Remove the unit file; optionally deregister with the OS first.
+         * @description Remove the unit file; optionally deregister with the OS first, keeping the file if that fails.
          */
         post: operations["service_uninstall_api_service_uninstall_post"];
         delete?: never;
@@ -3568,6 +4241,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Source Settings
+         * @description The contact address resmon gives Crossref and OpenAlex, and the sources it goes to.
+         */
+        get: operations["get_source_settings_api_settings_sources_get"];
+        /**
+         * Update Source Settings
+         * @description Set the contact address, or clear it with null or an empty string, after which nothing is sent.
+         */
+        put: operations["update_source_settings_api_settings_sources_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/settings/storage": {
         parameters: {
             query?: never;
@@ -3698,7 +4395,7 @@ export interface paths {
         };
         /**
          * Get Today
-         * @description The papers resmon first collected since Today was last looked at, by watch.
+         * @description The papers runs put in a collection since its Today was last looked at, by watch.
          *
          *     See ``today`` for what "new", "looked" and "watch" mean. Reading this does
          *     not mark anything looked at; ``POST /api/today/looked`` does.
@@ -3723,9 +4420,56 @@ export interface paths {
         put?: never;
         /**
          * Mark Today Looked
-         * @description Record that Today was looked at now: the next window starts here.
+         * @description Record that a collection's Today was looked at now: its next window starts here.
          */
         post: operations["mark_today_looked_api_today_looked_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/today/papers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Today Papers
+         * @description The next page of a collection's new papers on Today, after the page before it.
+         *
+         *     ``cursor`` is the ``next_cursor`` that page gave, so every new paper can be
+         *     listed, a page at a time, however many there are.
+         */
+        get: operations["get_today_papers_api_today_papers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/top-bar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Top Bar
+         * @description The top bar's sections in order, the hidden ones, the start page, and where the resmon name goes.
+         */
+        get: operations["get_top_bar_api_top_bar_get"];
+        /**
+         * Update Top Bar
+         * @description Store the whole arrangement, and answer it as it was stored.
+         */
+        put: operations["update_top_bar_api_top_bar_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3818,12 +4562,79 @@ export interface components {
             purpose?: string | null;
         };
         /**
+         * ActiveRun
+         * @description A run this engine is running now, with its search and its events so far.
+         *
+         *     ``events`` is the run's progress events with the repeating ones folded to
+         *     their latest: each source's newest heartbeat, and the newest count of the
+         *     papers linked, embedded or summarized. Every event that changes a source's
+         *     or the run's state is kept, in order, so a reader folds them as it folds
+         *     the whole list (``/progress/events``).
+         */
+        ActiveRun: {
+            /** Current Stage */
+            current_stage: string | null;
+            /** Events */
+            events: {
+                [key: string]: unknown;
+            }[];
+            /** Execution Type */
+            execution_type: string;
+            /** Id */
+            id: number;
+            /** Keywords */
+            keywords: string[] | null;
+            /** Query */
+            query: string | null;
+            /** Repositories */
+            repositories: string[] | null;
+            /** Request Id */
+            request_id: string | null;
+            /** Restarted From */
+            restarted_from: number | null;
+            /** Routine Id */
+            routine_id: number | null;
+            /** Saved Configuration Id */
+            saved_configuration_id: number | null;
+            /** Start Time */
+            start_time: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * ActiveRuns
-         * @description ``GET /api/executions/active``: the runs this backend is running now.
+         * @description ``GET /api/executions/active``: the runs this backend is running now, and those waiting.
+         *
+         *     ``active_ids`` is the running runs' ids, as it always was. ``running`` is
+         *     each of them in the order it started; ``waiting`` the queue, next first.
+         *     ``max_concurrent`` and ``queue_limit`` are the limits Settings › In the
+         *     background sets, as this engine holds them. ``failed_unseen`` is the runs
+         *     that failed since the run monitor's panel was last opened (``seen_at``,
+         *     null before it ever was; failures since this engine started count then),
+         *     newest first, at most 20. ``newest_run_id`` and ``last_ended_at`` are the
+         *     newest run's id and the latest any run ended (null with no runs): a
+         *     reader that lists runs reads again when either changes, which catches a
+         *     run that started and ended between two reads of this route.
          */
         ActiveRuns: {
             /** Active Ids */
             active_ids: number[];
+            /** Failed Unseen */
+            failed_unseen: number[];
+            /** Last Ended At */
+            last_ended_at: string | null;
+            /** Max Concurrent */
+            max_concurrent: number;
+            /** Newest Run Id */
+            newest_run_id: number | null;
+            /** Queue Limit */
+            queue_limit: number;
+            /** Running */
+            running: components["schemas"]["ActiveRun"][];
+            /** Seen At */
+            seen_at: string | null;
+            /** Waiting */
+            waiting: components["schemas"]["WaitingRun"][];
         } & {
             [key: string]: unknown;
         };
@@ -4103,6 +4914,8 @@ export interface components {
         Appearance: {
             /** Accent */
             accent: string | null;
+            /** Run Monitor */
+            run_monitor: boolean;
             /**
              * Theme
              * @enum {string}
@@ -4113,11 +4926,17 @@ export interface components {
         };
         /**
          * AppearanceBody
-         * @description The whole appearance, every time: a PUT replaces both values.
+         * @description The whole appearance, every time: a PUT replaces the theme and the accent.
+         *
+         *     ``run_monitor`` (Settings › Top bar, "Show the run monitor in the top
+         *     bar") is stored when it is sent and left as it is when it is not, so a
+         *     caller that knows only the theme and the accent changes only those.
          */
         AppearanceBody: {
             /** Accent */
             accent: string | null;
+            /** Run Monitor */
+            run_monitor?: boolean | null;
             /**
              * Theme
              * @enum {string}
@@ -4335,8 +5154,14 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
-        /** AssistantMessageBody */
+        /**
+         * AssistantMessageBody
+         * @description One message. ``collection`` is the window's: the turn's tools read it,
+         *     and a run the turn starts lands in it, where a call names no other.
+         */
         AssistantMessageBody: {
+            /** Collection */
+            collection?: number | string | null;
             /** Legacy Adoption */
             legacy_adoption?: {
                 [key: string]: unknown;
@@ -4419,7 +5244,7 @@ export interface components {
          *     Called by ``assistant_permission_server.py``, not the renderer, and held
          *     open until the person answers or five minutes pass. ``decision`` is
          *     ``allow`` or ``deny``; a timeout, a panel that was not open to ask, and a
-         *     cancelled conversation all deny, and ``message`` says which.
+         *     canceled conversation all deny, and ``message`` says which.
          */
         AssistantPermissionDecision: {
             /** Decision */
@@ -4949,6 +5774,8 @@ export interface components {
          *     while this database still has the removed upload to Google Drive after
          *     each run switched on, until ``POST
          *     /api/backup/drive-upload-notice/acknowledge``; nothing uploads either way.
+         *     ``pre_upgrade_copy`` is the copy of the database kept beside it before the
+         *     last schema upgrade, ``None`` when there is none there.
          *
          *     A pointer or record edited by hand into a shape no resmon wrote matches
          *     neither model of its union, and this route then answers 500 rather than a
@@ -4968,6 +5795,7 @@ export interface components {
             pending_restore_runs_on: ("app_restart" | "service_restart" | "service_stopped") | null;
             /** Pending Restore Runs When */
             pending_restore_runs_when: string | null;
+            pre_upgrade_copy: components["schemas"]["PreUpgradeCopy"] | null;
             /** Undo Copies */
             undo_copies: string[];
         } & {
@@ -5294,6 +6122,89 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * CollectionCurrent
+         * @description ``PUT /api/collections/current``: the collection the app now shows.
+         */
+        CollectionCurrent: {
+            /** Current Id */
+            current_id: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** CollectionCurrentBody */
+        CollectionCurrentBody: {
+            /** Collection */
+            collection: number | string;
+        };
+        /**
+         * CollectionDeleted
+         * @description ``DELETE /api/collections/{collection_id}``: what went, and where its
+         *     papers and watches are now. No paper left the database.
+         */
+        CollectionDeleted: {
+            /** Default Id */
+            default_id: number;
+            /** Id */
+            id: number;
+            /** Kept In Default */
+            kept_in_default: number;
+            /** Name */
+            name: string;
+            /** Papers */
+            papers: number;
+            /** Still Elsewhere */
+            still_elsewhere: number;
+            /** Watches Moved */
+            watches_moved: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * CollectionDetail
+         * @description ``GET /api/collections/{collection_id}``: one collection, and what deleting
+         *     it would do. ``only_here`` papers are in no other collection and would be
+         *     kept in the default one; ``also_elsewhere`` papers stay where else they are;
+         *     the watches in ``watch_list`` would put their papers in the default one.
+         */
+        CollectionDetail: {
+            /** Also Elsewhere */
+            also_elsewhere: number;
+            /** Created At */
+            created_at: string | null;
+            /** Id */
+            id: number;
+            /** Is Default */
+            is_default: boolean;
+            /** Name */
+            name: string;
+            /** Only Here */
+            only_here: number;
+            /** Papers */
+            papers: number;
+            /** Watch List */
+            watch_list: components["schemas"]["CollectionWatch"][];
+            /** Watches */
+            watches: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * CollectionList
+         * @description ``GET /api/collections``: every collection, the default first and the rest
+         *     in the order they were made; the one the app shows (``current_id``), which
+         *     the engine remembers; and the default one's id.
+         */
+        CollectionList: {
+            /** Collections */
+            collections: components["schemas"]["CollectionSummary"][];
+            /** Current Id */
+            current_id: number;
+            /** Default Id */
+            default_id: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * CollectionMap
          * @description ``GET /api/map``: where every paper sits, and on what basis.
          *
@@ -5327,6 +6238,164 @@ export interface components {
              */
             state: "empty" | "fitting" | "failed" | "ready";
             unplaced: components["schemas"]["MapUnplaced"];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * CollectionMembership
+         * @description A paper's place in a collection as a move found it, for an undo to put back.
+         */
+        CollectionMembership: {
+            /** Added At */
+            added_at: string;
+            /** Added By */
+            added_by: string;
+            /** Document Id */
+            document_id: number;
+            /** Execution Id */
+            execution_id: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** CollectionMembershipBody */
+        CollectionMembershipBody: {
+            /** Added At */
+            added_at: string;
+            /** Added By */
+            added_by: string;
+            /** Document Id */
+            document_id: number;
+            /** Execution Id */
+            execution_id?: number | null;
+        };
+        /** CollectionNameBody */
+        CollectionNameBody: {
+            /** Name */
+            name: string;
+        };
+        /**
+         * CollectionPapersBody
+         * @description Move or copy papers into the collection in the path.
+         *
+         *     The papers are named by id (``document_ids``) or by a search of the
+         *     collection they come from (``matching``: the Explorer's filters, whose own
+         *     ``collection`` is that collection), never both. A search's papers leave
+         *     out ``except_ids``, and ``at_most`` is how many the person was told would
+         *     move or copy: a search that matches more by the time it is read is
+         *     refused, so a filter lost on the way can never move a whole collection. A
+         *     move takes them out of ``from_collection``, which is the search's
+         *     collection where ``matching`` is given and the default collection where
+         *     neither names one.
+         */
+        CollectionPapersBody: {
+            /** At Most */
+            at_most?: number | null;
+            /** Document Ids */
+            document_ids?: number[];
+            /** Except Ids */
+            except_ids?: number[];
+            /** From Collection */
+            from_collection?: number | string | null;
+            matching?: components["schemas"]["ExplorerFilters"] | null;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "move" | "copy";
+        };
+        /**
+         * CollectionPapersChanged
+         * @description ``POST /api/collections/{collection_id}/papers``: a move or a copy.
+         *
+         *     ``added`` are the papers that arrived in the collection; ``already_there``
+         *     counts those it held already. A move also lists, in ``removed``, each
+         *     paper's place in the collection it left, as it was; ``not_in_source``
+         *     counts papers named that were not in that collection, and ``missing`` ids
+         *     that are no paper. Send ``added``, ``from_collection_id`` and ``removed``
+         *     back to ``/papers/undo`` to undo it.
+         */
+        CollectionPapersChanged: {
+            /** Added */
+            added: number[];
+            /** Already There */
+            already_there: number;
+            /** Collection Id */
+            collection_id: number;
+            /** From Collection Id */
+            from_collection_id: number | null;
+            /** Missing */
+            missing: number;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "move" | "copy";
+            /** Not In Source */
+            not_in_source: number;
+            /** Removed */
+            removed: components["schemas"]["CollectionMembership"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * CollectionPapersUndoBody
+         * @description What a move or a copy answered, sent back to undo it.
+         */
+        CollectionPapersUndoBody: {
+            /** Added */
+            added?: number[];
+            /** From Collection */
+            from_collection?: number | string | null;
+            /** Removed */
+            removed?: components["schemas"]["CollectionMembershipBody"][];
+        };
+        /**
+         * CollectionPapersUndone
+         * @description ``POST /api/collections/{collection_id}/papers/undo``. ``left_in_place``
+         *     counts papers kept in the collection because they are in no other.
+         */
+        CollectionPapersUndone: {
+            /** Collection Id */
+            collection_id: number;
+            /** From Collection Id */
+            from_collection_id: number | null;
+            /** Left In Place */
+            left_in_place: number;
+            /** Put Back */
+            put_back: number;
+            /** Taken Out */
+            taken_out: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * CollectionSummary
+         * @description One collection: how many papers it holds, and how many watches put
+         *     their papers there. The default collection (``is_default``) can be renamed
+         *     and never deleted.
+         */
+        CollectionSummary: {
+            /** Created At */
+            created_at: string | null;
+            /** Id */
+            id: number;
+            /** Is Default */
+            is_default: boolean;
+            /** Name */
+            name: string;
+            /** Papers */
+            papers: number;
+            /** Watches */
+            watches: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** CollectionWatch */
+        CollectionWatch: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
         } & {
             [key: string]: unknown;
         };
@@ -5879,13 +6948,15 @@ export interface components {
         };
         /**
          * DiscoveryLag
-         * @description ``GET /api/analytics/discovery-lag``.
+         * @description ``GET /api/analytics/discovery-lag``. ``not_a_day`` counts papers left out because their date is not a whole day.
          */
         DiscoveryLag: {
             /** Insufficient Reason */
             insufficient_reason: string | null;
             /** Minimum Sample */
             minimum_sample: number;
+            /** Not A Day */
+            not_a_day: number;
             /** Sample Size */
             sample_size: number;
             /** Sources */
@@ -5904,6 +6975,8 @@ export interface components {
             fastest_days: number | null;
             /** Median Days */
             median_days: number | null;
+            /** Not A Day */
+            not_a_day: number;
             /** Sample Size */
             sample_size: number;
             /** Slowest Days */
@@ -5926,6 +6999,8 @@ export interface components {
             ai_settings?: {
                 [key: string]: unknown;
             } | null;
+            /** Collection */
+            collection?: number | string | null;
             /** Date From */
             date_from?: string | null;
             /** Date To */
@@ -5974,14 +7049,6 @@ export interface components {
         DocumentBriefsBody: {
             /** Ids */
             ids: number[];
-        };
-        /** DocumentIdsBody */
-        DocumentIdsBody: {
-            /**
-             * Document Ids
-             * @default []
-             */
-            document_ids: number[];
         };
         /**
          * DriveUploadNoticeAcknowledged
@@ -6245,14 +7312,37 @@ export interface components {
          * @description ``GET /api/embeddings/status``: the backfill, the coverage, the vector
          *     extension and index, the configured lane, and whether ranking by meaning
          *     is available now (and if not, why).
+         *
+         *     ``coverage`` counts every paper resmon holds, which is what a backfill
+         *     embeds. ``collection_coverage``, present when a ``collection`` is named,
+         *     counts that collection's papers alone.
          */
         EmbeddingStatus: {
             capability: components["schemas"]["EmbeddingCapability"];
+            collection_coverage?: components["schemas"]["EmbeddingCoverage"] | null;
             coverage: components["schemas"]["EmbeddingCoverage"];
             extension: components["schemas"]["VectorExtensionStatus"];
             index: components["schemas"]["EmbeddingIndexState"];
             lane: components["schemas"]["EmbeddingLaneView"] | null;
             run: components["schemas"]["EmbeddingJobRun"];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * EvidenceCoverFile
+         * @description One of a project's first three PDFs, for its cover in the Library's gallery.
+         */
+        EvidenceCoverFile: {
+            /** Byte Size */
+            byte_size: number;
+            /** File Id */
+            file_id: string;
+            /** Media Type */
+            media_type: string;
+            /** Sha256 */
+            sha256: string;
+            /** Version Id */
+            version_id: string;
         } & {
             [key: string]: unknown;
         };
@@ -6524,6 +7614,8 @@ export interface components {
          * @description A project row as stored, with its current counts.
          */
         EvidenceProject: {
+            /** Cover Files */
+            cover_files: components["schemas"]["EvidenceCoverFile"][];
             /** Created At Utc */
             created_at_utc: string;
             /** File Count */
@@ -6534,6 +7626,8 @@ export interface components {
             name: string;
             /** Note Count */
             note_count: number;
+            /** Passage Count */
+            passage_count: number;
             /** Project Id */
             project_id: string;
             /** Revision */
@@ -6670,6 +7764,8 @@ export interface components {
              * @default []
              */
             categories: string[];
+            /** Collection */
+            collection?: number | string | null;
             /** Date From */
             date_from?: string | null;
             /** Date To */
@@ -6699,6 +7795,8 @@ export interface components {
              * @default []
              */
             categories: string[];
+            /** Collection */
+            collection?: number | string | null;
             /** Date From */
             date_from?: string | null;
             /** Date To */
@@ -6715,12 +7813,18 @@ export interface components {
          * ExplorerPage
          * @description ``POST /api/explorer/search``.
          *
-         *     ``total`` is the count of every match, capped at ``count_cap`` when
-         *     ``total_is_capped``. Under ``sort == "similarity"`` the phrase ranks the
-         *     filtered set rather than filtering it, and ``ranked_count``,
-         *     ``unranked_count`` and ``model`` say how; ``similarity_unavailable`` says
-         *     why a requested ranking was refused and the page fell back to newest.
-         *     Each of those four is absent when it does not apply.
+         *     ``total`` is the count of every match when ``total_is_exact``; when it is
+         *     false, counting ran out of its time budget (``count_budget_ms``) and
+         *     ``total`` is how many it had counted, which the matches are at least. Under
+         *     ``sort == "similarity"`` the phrase ranks the filtered set rather than
+         *     filtering it, and ``ranked_count``, ``unranked_count`` and ``model`` say how;
+         *     ``similarity_unavailable`` says why a requested ranking was refused and the
+         *     page fell back to newest. Each of those four is absent when it does not
+         *     apply.
+         *
+         *     ``start_date``, ``newer_count`` and ``newer_count_is_exact`` are present
+         *     when the request jumped to a date: the page starts at the newest match
+         *     published on or before it, and ``newer_count`` matches were published after.
          *
          *     ``links``, ``matches`` and ``lifecycle`` are present only when the request's
          *     ``include`` named them: what ``/api/links/for-documents``,
@@ -6728,8 +7832,8 @@ export interface components {
          *     answer for this page's papers, so a page and its marks arrive together.
          */
         ExplorerPage: {
-            /** Count Cap */
-            count_cap: number;
+            /** Count Budget Ms */
+            count_budget_ms: number;
             /** Has More */
             has_more: boolean;
             lifecycle?: components["schemas"]["LifecycleForDocuments"] | null;
@@ -6737,6 +7841,10 @@ export interface components {
             matches?: components["schemas"]["WatchProfileMatchesByDocument"] | null;
             /** Model */
             model?: string | null;
+            /** Newer Count */
+            newer_count?: number | null;
+            /** Newer Count Is Exact */
+            newer_count_is_exact?: boolean | null;
             /** Next Cursor */
             next_cursor: unknown | null;
             /** Page Size */
@@ -6749,10 +7857,12 @@ export interface components {
             similarity_unavailable?: string | null;
             /** Sort */
             sort: string;
+            /** Start Date */
+            start_date?: string | null;
             /** Total */
             total: number;
-            /** Total Is Capped */
-            total_is_capped: boolean;
+            /** Total Is Exact */
+            total_is_exact: boolean;
             /** Unranked Count */
             unranked_count?: number | null;
             /** Used Full Text Index */
@@ -6810,6 +7920,8 @@ export interface components {
              * @default []
              */
             categories: string[];
+            /** Collection */
+            collection?: number | string | null;
             /** Cursor */
             cursor?: string | null;
             /** Date From */
@@ -6835,10 +7947,15 @@ export interface components {
              * @default []
              */
             sources: string[];
+            /** Start Date */
+            start_date?: string | null;
         };
         /**
          * FactoryReset
-         * @description ``POST /api/admin/factory-reset``: papers, configurations, runs, settings, and AI, repository and SMTP keys.
+         * @description ``POST /api/admin/factory-reset``: papers, configurations, runs, settings, collections, and AI, repository and SMTP keys.
+         *
+         *     ``collections_removed`` counts the collections deleted; the default one is
+         *     kept, empty, under its first name.
          *
          *     The counts are as the single-purpose routes and ``SettingsReset`` count
          *     them, so the key counts are of keys found and removed. It does not clear a
@@ -6849,6 +7966,8 @@ export interface components {
         FactoryReset: {
             /** Ai Keys Removed */
             ai_keys_removed: number;
+            /** Collections Removed */
+            collections_removed: number;
             /** Configs Removed */
             configs_removed: number;
             /** Documents Removed */
@@ -6863,6 +7982,164 @@ export interface components {
             smtp_credentials_removed: number;
             /** Success */
             success: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * FindDifference
+         * @description One field where a copy differs from the reference copy: ``title``, ``year``,
+         *     ``doi``, ``first_author`` or ``author_count``.
+         */
+        FindDifference: {
+            /** Field */
+            field: string;
+            /** Reference */
+            reference: unknown;
+            /** This */
+            this: unknown;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * FindOpenCopy
+         * @description The open copy of a found record resmon would get, or the first one a source named.
+         *
+         *     ``downloadable`` is resmon's rule (a stated open license, never NASA ADS,
+         *     Springer or CORE). ``license_to_be_read`` is an arXiv copy whose license
+         *     is read from arXiv when its PDF is asked for.
+         */
+        FindOpenCopy: {
+            /** Downloadable */
+            downloadable: boolean;
+            /** Host */
+            host: string | null;
+            /** License */
+            license: string | null;
+            /** License To Be Read */
+            license_to_be_read: boolean;
+            /** License Words */
+            license_words: string | null;
+            /** Pdf Url */
+            pdf_url: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * FindPlan
+         * @description ``GET /api/find/plan``: what a typed query reads as, and which sources it would ask.
+         *
+         *     ``kind`` is ``doi``, ``arxiv``, ``pmid`` or ``title``; ``value`` is the
+         *     identifier as resmon will send it (a DOI lowercased, an arXiv id without
+         *     its version). ``asked`` keeps the order the sources were named in.
+         */
+        FindPlan: {
+            /** Asked */
+            asked: string[];
+            /** Kind */
+            kind: string;
+            /** Not Asked */
+            not_asked: components["schemas"]["FindPlanSource"][];
+            /** Typed */
+            typed: string;
+            /** Value */
+            value: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * FindPlanSource
+         * @description One source a find would not ask, and why, in a sentence.
+         */
+        FindPlanSource: {
+            /** Source */
+            source: string;
+            /** Why */
+            why: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** FindQuery */
+        FindQuery: {
+            /** Kind */
+            kind: string | null;
+            /** Typed */
+            typed: string | null;
+            /** Value */
+            value: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * FindRequest
+         * @description Find a paper: a DOI, an arXiv id, a PMID or a title, asked of many sources at once.
+         */
+        FindRequest: {
+            /** Collection */
+            collection?: number | string | null;
+            /** Query */
+            query: string;
+            /** Repositories */
+            repositories?: string[] | null;
+            /** Request Id */
+            request_id?: string | null;
+        };
+        /**
+         * FindResult
+         * @description ``GET /api/executions/{exec_id}/find``: a find's question and every source's answer.
+         *
+         *     Empty ``sources`` while the run is going: each row is written when every
+         *     source has answered. ``counts`` totals the outcomes.
+         */
+        FindResult: {
+            /** Counts */
+            counts: {
+                [key: string]: number;
+            };
+            /** Execution Id */
+            execution_id: number;
+            query: components["schemas"]["FindQuery"];
+            /** Reference Document Id */
+            reference_document_id: number | null;
+            /** Sources */
+            sources: components["schemas"]["FindSourceResult"][];
+            /** Status */
+            status: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * FindSourceResult
+         * @description What one source said to a find.
+         *
+         *     ``outcome`` is ``found``, ``not_found`` (it answered, and no record was the
+         *     paper), ``did_not_answer``, or ``not_asked`` (with ``why_not_asked``).
+         *     ``matched_by`` says how the copy kept was matched: ``doi``, ``arxiv``,
+         *     ``pmid``, ``exact_title`` or ``close_title``, with ``title_similarity``
+         *     for a title. ``candidates`` is how many records the source returned.
+         *     ``reference`` marks the copy the others are compared with.
+         */
+        FindSourceResult: {
+            /** Candidates */
+            candidates: number | null;
+            /** Differences */
+            differences: components["schemas"]["FindDifference"][];
+            /** Document Id */
+            document_id: number | null;
+            /** Matched By */
+            matched_by: string | null;
+            /** Name */
+            name: string;
+            open_copy: components["schemas"]["FindOpenCopy"] | null;
+            /** Outcome */
+            outcome: string;
+            /** Reference */
+            reference: boolean;
+            /** Source */
+            source: string;
+            /** Title Similarity */
+            title_similarity: number | null;
+            /** Why Not Asked */
+            why_not_asked: string | null;
         } & {
             [key: string]: unknown;
         };
@@ -6886,6 +8163,170 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /**
+         * FullTextCopy
+         * @description One open copy a source reported, as stored.
+         */
+        FullTextCopy: {
+            /** Host */
+            host: string | null;
+            /** Landing Url */
+            landing_url: string | null;
+            /** License */
+            license: string | null;
+            /** License Basis */
+            license_basis: string | null;
+            /** License To Be Read */
+            license_to_be_read: boolean;
+            /** License Words */
+            license_words: string | null;
+            /** Pdf Url */
+            pdf_url: string | null;
+            /** Reported By */
+            reported_by: string;
+            /** Version */
+            version: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** FullTextLibraryFile */
+        FullTextLibraryFile: {
+            /** Byte Size */
+            byte_size: number;
+            /** File Id */
+            file_id: string;
+            /** Vault Id */
+            vault_id: string;
+            /** Version Id */
+            version_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** FullTextLicense */
+        FullTextLicense: {
+            /** License */
+            license: string;
+            /** Words */
+            words: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * FullTextRefusedSource
+         * @description A provider resmon never downloads from: a source it asks, or a site other sources link to.
+         */
+        FullTextRefusedSource: {
+            /** Name */
+            name: string;
+            /** Source */
+            source: string;
+            /** Why */
+            why: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * FullTextRequest
+         * @description One PDF asked for, and what came of it.
+         *
+         *     ``state`` is ``waiting``, ``downloading``, ``stored``, ``skipped`` (with
+         *     the ``reason`` no request was sent) or ``failed`` (with why). ``words`` is
+         *     the reason in a sentence. A stored request carries the Library ``file_id``,
+         *     ``final_url`` (where the PDF came from after every redirect), its
+         *     ``license``, and ``finished_at_utc``, when it was retrieved. ``id`` is null
+         *     only for the answer that the Library already holds the paper's PDF, which
+         *     records nothing new. ``file_held``, on a run's list only, says for a stored
+         *     request whether the Library holds its file still: false once it was removed.
+         */
+        FullTextRequest: {
+            /** Byte Size */
+            byte_size: number | null;
+            /** Document Id */
+            document_id: number;
+            /** Execution Id */
+            execution_id: number | null;
+            /** File Held */
+            file_held?: boolean | null;
+            /** File Id */
+            file_id: string | null;
+            /** Final Url */
+            final_url: string | null;
+            /** Finished At Utc */
+            finished_at_utc: string | null;
+            /** Host */
+            host: string | null;
+            /** Id */
+            id: number | null;
+            /** License */
+            license: string | null;
+            /** License Words */
+            license_words: string | null;
+            /** Reason */
+            reason: string | null;
+            /** Reported By */
+            reported_by: string | null;
+            /** Requested At Utc */
+            requested_at_utc: string;
+            /** Requested By */
+            requested_by: string;
+            /** State */
+            state: string;
+            /** Url */
+            url: string | null;
+            /** Version */
+            version: string | null;
+            /** Words */
+            words: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * FullTextRules
+         * @description ``GET /api/full-text/rules``: the limits and the license rule, as Settings states them.
+         */
+        FullTextRules: {
+            /** Daily Cap */
+            daily_cap: number;
+            /** Host Interval Seconds */
+            host_interval_seconds: number;
+            /** Https Only */
+            https_only: boolean;
+            /** Max Bytes */
+            max_bytes: number;
+            /** One At A Time Per Host */
+            one_at_a_time_per_host: boolean;
+            /** Open Licenses */
+            open_licenses: components["schemas"]["FullTextLicense"][];
+            /** Per Run Cap */
+            per_run_cap: number;
+            /** Refused Sources */
+            refused_sources: components["schemas"]["FullTextRefusedSource"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * FullTextStatus
+         * @description A paper's full text: its open copies (its own and its stored copies'), the
+         *     one resmon would get, why there is none to get, its latest request, and the
+         *     PDF the Library holds for it.
+         */
+        FullTextStatus: {
+            best: components["schemas"]["FullTextCopy"] | null;
+            /** Copies */
+            copies: components["schemas"]["FullTextCopy"][];
+            /** Document Id */
+            document_id: number;
+            download: components["schemas"]["FullTextRequest"] | null;
+            /** Downloadable */
+            downloadable: boolean;
+            in_library: components["schemas"]["FullTextLibraryFile"] | null;
+            /** Why Not */
+            why_not: string | null;
+            /** Why Not Words */
+            why_not_words: string | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -6898,9 +8339,13 @@ export interface components {
          *     ``embeddings`` is attempted against a real connection on every call rather
          *     than read from a cached probe: it is a ``dlopen`` of a 165 KB library, and
          *     a health endpoint answering from memory would keep reporting a capability
-         *     the process had lost.
+         *     the process had lost. ``build`` names the build of the app that started
+         *     this engine (``RESMON_BUILD_ID``), null for an engine started otherwise:
+         *     every build of a version gives the same ``version``.
          */
         Health: {
+            /** Build */
+            build?: string | null;
             embeddings: components["schemas"]["VectorExtensionStatus"];
             identity: components["schemas"]["RuntimeIdentity"];
             /** Pid */
@@ -6978,12 +8423,20 @@ export interface components {
         /**
          * LibraryCounts
          * @description What the database records the vault holding; ``basis`` says it was not re-measured.
+         *
+         *     ``removed`` counts removed files still on record. ``missing`` is how many
+         *     recorded files have no folder in the Library folder now; it is present only
+         *     when the folder was read.
          */
         LibraryCounts: {
             /** Basis */
             basis: string;
             /** Items */
             items: number;
+            /** Missing */
+            missing?: number | null;
+            /** Removed */
+            removed: number;
             /** Retained Bytes */
             retained_bytes: number;
         } & {
@@ -7007,6 +8460,8 @@ export interface components {
             original_name: string;
             /** Paper Links */
             paper_links: components["schemas"]["LibraryPaperLink"][];
+            /** Project Count */
+            project_count: number;
             /** Relative Path */
             relative_path: string;
             /** Sha256 */
@@ -7030,7 +8485,9 @@ export interface components {
         };
         /**
          * LibraryFiles
-         * @description ``GET /api/library/files``: a descending page under a fixed ceiling, ``through_id``.
+         * @description ``GET /api/library/files``: a page under a fixed ceiling, ``through_id``, in ``sort`` order.
+         *
+         *     ``total`` counts the files under the ceiling that match the name filter.
          */
         LibraryFiles: {
             /** Files */
@@ -7039,8 +8496,30 @@ export interface components {
             has_more: boolean;
             /** Next Before Id */
             next_before_id: number | null;
+            /** Offset */
+            offset: number;
+            /** Sort */
+            sort: string;
             /** Through Id */
             through_id: number;
+            /** Total */
+            total: number;
+            /** Vault Id */
+            vault_id: string;
+            /** Version */
+            version: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LibraryForgotten
+         * @description ``DELETE /api/library/removed/{file_id}``: the record is gone; its bytes had already left.
+         */
+        LibraryForgotten: {
+            /** File Id */
+            file_id: string;
+            /** Forgotten */
+            forgotten: boolean;
             /** Vault Id */
             vault_id: string;
             /** Version */
@@ -7087,16 +8566,17 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
-        /** LibraryLimits */
+        /**
+         * LibraryLimits
+         * @description One size for keeping a file and reading it, and the free space an import leaves.
+         */
         LibraryLimits: {
-            /** Batch Files */
-            batch_files: number;
             /** File Bytes */
             file_bytes: number;
-            /** Items */
-            items: number;
-            /** Vault Bytes */
-            vault_bytes: number;
+            /** Free Space Floor */
+            free_space_floor: number;
+            /** Read Bytes */
+            read_bytes: number;
         } & {
             [key: string]: unknown;
         };
@@ -7121,6 +8601,50 @@ export interface components {
             version: number;
             /** Version Id */
             version_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** LibraryMoveBody */
+        LibraryMoveBody: {
+            /** Expected Vault Id */
+            expected_vault_id: string;
+            /** Parent Directory */
+            parent_directory: string;
+        };
+        /**
+         * LibraryMoved
+         * @description Where a move took the Library folder. ``old_folder_kept`` is the old folder's path
+         *     when the move copied across disks and left it where it was, else ``None``.
+         */
+        LibraryMoved: {
+            /** Old Folder Kept */
+            old_folder_kept: string | null;
+            /** Path */
+            path: string;
+            /** Previous */
+            previous: string;
+            /** Same Disk */
+            same_disk: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LibraryMovedStatus
+         * @description ``POST /api/library/vault/move``: the status after the move, and the move itself.
+         */
+        LibraryMovedStatus: {
+            /** Changing */
+            changing?: string | null;
+            counts: components["schemas"]["LibraryCounts"];
+            limits: components["schemas"]["LibraryLimits"];
+            moved: components["schemas"]["LibraryMoved"];
+            /** Reason */
+            reason?: string | null;
+            /** Status */
+            status: string;
+            vault: components["schemas"]["LibraryVault"] | null;
+            /** Version */
+            version: number;
         } & {
             [key: string]: unknown;
         };
@@ -7166,14 +8690,195 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * LibraryPicture
+         * @description ``PUT /api/library/files/{file_id}/picture``: the picture kept for this version.
+         */
+        LibraryPicture: {
+            /** Byte Size */
+            byte_size: number;
+            /** File Id */
+            file_id: string;
+            /** Media Type */
+            media_type: string;
+            /** Vault Id */
+            vault_id: string;
+            /** Version */
+            version: number;
+            /** Version Id */
+            version_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LibraryReleased
+         * @description ``POST /api/library/removed/{file_id}/release``: the held file's path, for the Trash only.
+         */
+        LibraryReleased: {
+            /** File Id */
+            file_id: string;
+            /** Path */
+            path: string;
+            /** Vault Id */
+            vault_id: string;
+            /** Version */
+            version: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** LibraryRelinkBody */
+        LibraryRelinkBody: {
+            /** Expected Vault Id */
+            expected_vault_id: string;
+            /** Folder */
+            folder: string;
+        };
+        /**
+         * LibraryRemoval
+         * @description ``GET /api/library/files/{file_id}/removal``: what would go with the file.
+         */
+        LibraryRemoval: {
+            /** File Id */
+            file_id: string;
+            /** Links */
+            links: components["schemas"]["LibraryRemovalLink"][];
+            /** Needs Confirmation */
+            needs_confirmation: boolean;
+            /** Original Name */
+            original_name: string;
+            /** Projects */
+            projects: components["schemas"]["LibraryRemovalProject"][];
+            /** Vault Id */
+            vault_id: string;
+            /** Version */
+            version: number;
+            /** Version Id */
+            version_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** LibraryRemovalLink */
+        LibraryRemovalLink: {
+            /** Document Id */
+            document_id: number;
+            /** Title */
+            title: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LibraryRemovalProject
+         * @description A project the file is in (``member``) or has notes in, with how many of each.
+         */
+        LibraryRemovalProject: {
+            /** Member */
+            member: boolean;
+            /** Name */
+            name: string;
+            /** Notes */
+            notes: number;
+            /** Passages */
+            passages: number;
+            /** Project Id */
+            project_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** LibraryRemoveBody */
+        LibraryRemoveBody: {
+            /**
+             * Cascade
+             * @default false
+             */
+            cascade: boolean;
+            /** Expected Vault Id */
+            expected_vault_id: string;
+            /** Expected Version Id */
+            expected_version_id: string;
+        };
+        /**
+         * LibraryRemoved
+         * @description ``DELETE /api/library/files/{file_id}``: the file as it is now held.
+         */
+        LibraryRemoved: {
+            removed: components["schemas"]["LibraryRemovedFile"];
+            /** Vault Id */
+            vault_id: string;
+            /** Version */
+            version: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LibraryRemovedFile
+         * @description A removed file on record. ``bytes`` is ``held``, ``missing`` (none to hold when it
+         *     was removed) or ``gone`` (no longer in the removed folder).
+         */
+        LibraryRemovedFile: {
+            /** Byte Size */
+            byte_size: number;
+            /** Bytes */
+            bytes: string;
+            /** File Id */
+            file_id: string;
+            /** Links */
+            links: number;
+            /** Media Type */
+            media_type: string;
+            /** Notes */
+            notes: number;
+            /** Original Name */
+            original_name: string;
+            /** Projects */
+            projects: components["schemas"]["LibraryRemovedProject"][];
+            /** Removed At Utc */
+            removed_at_utc: string;
+            /** Sha256 */
+            sha256: string;
+            /** Version Id */
+            version_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LibraryRemovedList
+         * @description ``GET /api/library/removed``: every removed file on record, and the bytes still held.
+         */
+        LibraryRemovedList: {
+            /** Bytes */
+            bytes: number;
+            /** Removed */
+            removed: components["schemas"]["LibraryRemovedFile"][];
+            /** Vault Id */
+            vault_id: string;
+            /** Version */
+            version: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** LibraryRemovedProject */
+        LibraryRemovedProject: {
+            /** Name */
+            name: string | null;
+            /** Notes */
+            notes: number;
+            /** Project Id */
+            project_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * LibraryStatus
-         * @description ``GET /api/library`` and ``POST /api/library/vault``.
+         * @description ``GET /api/library``, ``POST /api/library/vault`` and ``.../vault/relink``.
          *
-         *     ``status`` is ``unconfigured``, ``ready``, ``busy``, ``mismatch``,
-         *     ``needs_attention`` or ``unavailable``; ``reason`` is present only for the
-         *     two that came from a refusal.
+         *     ``status`` is ``unconfigured``, ``ready``, ``busy``, ``missing`` (the folder
+         *     is not where it was recorded), ``mismatch``, ``needs_attention`` or
+         *     ``unavailable``; ``reason`` is present only for those that came from a
+         *     refusal, and for ``missing``. ``changing`` is ``moving`` or ``relinking``
+         *     while the folder's place is being changed, and absent otherwise.
          */
         LibraryStatus: {
+            /** Changing */
+            changing?: string | null;
             counts: components["schemas"]["LibraryCounts"];
             limits: components["schemas"]["LibraryLimits"];
             /** Reason */
@@ -7188,7 +8893,10 @@ export interface components {
         };
         /**
          * LibraryText
-         * @description ``GET /api/library/files/{file_id}/text``: a retained TXT or MD file's bytes as literal text.
+         * @description ``GET /api/library/files/{file_id}/text``: a retained TXT, MD, or TeX file's bytes as literal text.
+         *
+         *     With ``lines``, ``text`` is only the file's first lines and ``shown_lines``
+         *     says how many; the file was still read and verified whole.
          */
         LibraryText: {
             /** Byte Size */
@@ -7207,6 +8915,8 @@ export interface components {
             normalization: string;
             /** Sha256 */
             sha256: string;
+            /** Shown Lines */
+            shown_lines?: number | null;
             /** Text */
             text: string;
             /** Vault Id */
@@ -7220,13 +8930,15 @@ export interface components {
         };
         /**
          * LibraryVault
-         * @description The vault by its id and folder name: never its absolute root.
+         * @description The vault by its id, its folder's name, and where that folder is recorded to be.
          */
         LibraryVault: {
             /** Created At Utc */
             created_at_utc: string;
             /** Label */
             label: string;
+            /** Path */
+            path: string;
             /** Vault Id */
             vault_id: string;
         } & {
@@ -7236,6 +8948,11 @@ export interface components {
         LibraryVaultBody: {
             /** Parent Directory */
             parent_directory: string;
+        };
+        /** LibraryVaultIdBody */
+        LibraryVaultIdBody: {
+            /** Expected Vault Id */
+            expected_vault_id: string;
         };
         /**
          * LifecycleCheckError
@@ -7892,8 +9609,9 @@ export interface components {
         };
         /**
          * Paper
-         * @description ``GET /api/documents/{doc_id}``: one paper as stored, and its place in the
-         *     reading queue (``to_read``, ``read``, or ``None`` when it is not saved).
+         * @description ``GET /api/documents/{doc_id}``: one paper as stored, its place in the
+         *     reading queue (``to_read``, ``read``, or ``None`` when it is not saved),
+         *     and every collection it is in, the default first.
          */
         Paper: {
             /** Abstract */
@@ -7902,6 +9620,8 @@ export interface components {
             authors: string | null;
             /** Categories */
             categories: string | null;
+            /** Collections */
+            collections: components["schemas"]["PaperCollection"][];
             /** Doi */
             doi: string | null;
             /** External Id */
@@ -7924,6 +9644,27 @@ export interface components {
             title: string;
             /** Url */
             url: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * PaperCollection
+         * @description One collection a paper is in: when it arrived there, and how (``run``,
+         *     ``move``, ``copy``, ``upgrade`` for a paper there since before collections,
+         *     or ``kept`` for one left in no other when its collection was deleted), and
+         *     the run that put it there where a run did.
+         */
+        PaperCollection: {
+            /** Added At */
+            added_at: string | null;
+            /** Added By */
+            added_by: string;
+            /** Execution Id */
+            execution_id: number | null;
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
         } & {
             [key: string]: unknown;
         };
@@ -8063,6 +9804,27 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * PreUpgradeCopy
+         * @description The copy of the database kept beside it before the last schema upgrade, read from the file.
+         *
+         *     ``schema_version`` is the schema the database was at when it was copied,
+         *     from the file's name. ``written_at_utc`` is the file's modification time,
+         *     which is when the copy was finished unless something has written to the
+         *     file since. ``bytes`` is its size. Nothing is opened or checked here.
+         */
+        PreUpgradeCopy: {
+            /** Bytes */
+            bytes: number;
+            /** Path */
+            path: string;
+            /** Schema Version */
+            schema_version: number;
+            /** Written At Utc */
+            written_at_utc: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * ProfileImportBody
          * @description One exported profile, or a list of them.
          */
@@ -8085,7 +9847,7 @@ export interface components {
         };
         /**
          * PublicationVolume
-         * @description ``GET /api/analytics/publication-volume``, by ``source`` or ``category``.
+         * @description ``GET /api/analytics/publication-volume``, by ``source`` or ``category``; ``not_a_day`` counts papers whose date no month's range takes in.
          */
         PublicationVolume: {
             /** Group By */
@@ -8094,6 +9856,8 @@ export interface components {
             groups: string[];
             /** Insufficient Reason */
             insufficient_reason: string | null;
+            /** Not A Day */
+            not_a_day: number;
             /** Sample Size */
             sample_size: number;
             /** Series */
@@ -8116,6 +9880,86 @@ export interface components {
             month: string;
             /** Total */
             total: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * ReadingQueueAllBody
+         * @description Every paper of a set the engine reads itself, so a save of 12,000 lists none of them.
+         *
+         *     ``scope`` says which set: ``search``, the papers ``search`` matches (the
+         *     filters as Search › Your collection sends them, the words left out where it
+         *     ranked by meaning, since there they order the list and do not narrow it);
+         *     ``run``, the papers run ``execution_id`` stored, or with ``only_new`` the ones
+         *     it found first; ``today``, Today's new papers in ``collection`` (the default
+         *     one where none is named). ``except_ids`` are left out.
+         *     ``at_most`` is how many the person was told would be saved: a set that holds
+         *     more by the time it is read is refused, so a filter lost on the way can never
+         *     save the whole collection.
+         */
+        ReadingQueueAllBody: {
+            /** At Most */
+            at_most: number;
+            /** Collection */
+            collection?: number | string | null;
+            /** Except Ids */
+            except_ids?: number[];
+            /** Execution Id */
+            execution_id?: number | null;
+            /**
+             * Only New
+             * @default false
+             */
+            only_new: boolean;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "search" | "run" | "today";
+            search?: components["schemas"]["ExplorerFilters"] | null;
+        };
+        /** ReadingQueueBatchBody */
+        ReadingQueueBatchBody: {
+            /** Document Ids */
+            document_ids: number[];
+        };
+        /**
+         * ReadingQueueBatchSaved
+         * @description ``POST /api/reading-queue/batch`` and ``/batch/all``: a save of many papers.
+         *
+         *     ``asked`` is how many distinct papers the request named or described;
+         *     ``saved`` were added now, ``already`` were in the queue and are as they
+         *     were, and ``missing`` are not in the collection. ``saved_ids`` and
+         *     ``saved_at`` (``None`` when nothing was added) are what an Undo names.
+         */
+        ReadingQueueBatchSaved: {
+            /** Already */
+            already: number;
+            /** Asked */
+            asked: number;
+            counts: components["schemas"]["ReadingQueueCounts"];
+            /** Missing */
+            missing: number;
+            /** Saved */
+            saved: number;
+            /** Saved At */
+            saved_at: string | null;
+            /** Saved Ids */
+            saved_ids: number[];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * ReadingQueueBatchUndone
+         * @description ``POST /api/reading-queue/batch/undo``. ``kept`` are still in the queue:
+         *     changed since the save, so its Undo left them.
+         */
+        ReadingQueueBatchUndone: {
+            counts: components["schemas"]["ReadingQueueCounts"];
+            /** Kept */
+            kept: number;
+            /** Removed */
+            removed: number;
         } & {
             [key: string]: unknown;
         };
@@ -8179,6 +10023,8 @@ export interface components {
             document?: components["schemas"]["ReadingQueueDocument"] | null;
             /** Document Id */
             document_id: number;
+            found_by?: components["schemas"]["ReadingQueueFoundBy"] | null;
+            pdf?: components["schemas"]["ReadingQueuePdf"] | null;
             /** Read At */
             read_at: string | null;
             /** Saved At */
@@ -8187,6 +10033,24 @@ export interface components {
             status: string;
             /** Updated At */
             updated_at: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * ReadingQueueFoundBy
+         * @description The first run that collected the paper. ``watch_name`` is ``None`` once the watch is deleted.
+         */
+        ReadingQueueFoundBy: {
+            /** At */
+            at: string;
+            /** Execution Id */
+            execution_id: number;
+            /** Kind */
+            kind: string;
+            /** Watch Id */
+            watch_id: number | null;
+            /** Watch Name */
+            watch_name: string | null;
         } & {
             [key: string]: unknown;
         };
@@ -8206,6 +10070,10 @@ export interface components {
             limit: number;
             /** Offset */
             offset: number;
+            /** Q */
+            q: string;
+            /** Sort */
+            sort: string;
             /** Status */
             status: string | null;
             /** Total */
@@ -8214,14 +10082,59 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * ReadingQueuePdf
+         * @description The Library PDF most recently linked to the paper: the person's association.
+         */
+        ReadingQueuePdf: {
+            /** Byte Size */
+            byte_size: number;
+            /** File Id */
+            file_id: string;
+            /** Original Name */
+            original_name: string;
+            /** Sha256 */
+            sha256: string;
+            /** Vault Id */
+            vault_id: string;
+            /** Version Id */
+            version_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * ReadingQueueRemoval
-         * @description ``DELETE /api/reading-queue/{document_id}``. The paper is not touched.
+         * @description ``DELETE /api/reading-queue/{document_id}``. The paper is not touched;
+         *     ``entry`` is the entry as it was, for Undo.
          */
         ReadingQueueRemoval: {
             /** Document Id */
             document_id: number;
+            entry: components["schemas"]["ReadingQueueEntry"];
             /** Removed */
             removed: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ReadingQueueRestoreBody */
+        ReadingQueueRestoreBody: {
+            /** Read At */
+            read_at?: string | null;
+            /** Saved At */
+            saved_at: string;
+            /** Status */
+            status: string;
+            /** Updated At */
+            updated_at: string;
+        };
+        /**
+         * ReadingQueueRestored
+         * @description ``POST /api/reading-queue/{document_id}/restore``. ``restored`` is false when
+         *     the paper was saved again since, and ``entry`` is then its entry as it is.
+         */
+        ReadingQueueRestored: {
+            entry: components["schemas"]["ReadingQueueEntry"];
+            /** Restored */
+            restored: boolean;
         } & {
             [key: string]: unknown;
         };
@@ -8234,6 +10147,13 @@ export interface components {
         ReadingQueueStatusBody: {
             /** Status */
             status: string;
+        };
+        /** ReadingQueueUndoBody */
+        ReadingQueueUndoBody: {
+            /** Document Ids */
+            document_ids: number[];
+            /** Saved At */
+            saved_at: string;
         };
         /** ReferenceExportBody */
         ReferenceExportBody: {
@@ -8314,6 +10234,7 @@ export interface components {
             name: string;
             /** Notes */
             notes: string;
+            paper_lookup: components["schemas"]["RepositoryPaperLookup"];
             /** Parallel Safe */
             parallel_safe: string;
             /** Placeholder */
@@ -8331,6 +10252,8 @@ export interface components {
             result_order: "newest_first" | "relevance" | "unstated";
             /** Result Order Established */
             result_order_established: string;
+            /** Service Notice */
+            service_notice: string;
             /** Slug */
             slug: string;
             /** Subject Coverage */
@@ -8422,6 +10345,29 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * RepositoryPaperLookup
+         * @description Whether a source can be asked for one paper (Find a paper), and by what.
+         *
+         *     ``kinds`` are the queries it can be asked by: ``doi``, ``arxiv``, ``pmid``,
+         *     ``title``. ``syntax`` maps a kind to the field syntax put into the
+         *     source's ordinary search (``{value}`` where the query goes); a kind with no
+         *     syntax is asked through the client's own lookup endpoint. ``established``
+         *     is the dated observation behind the row, or why the source is asked by
+         *     nothing.
+         */
+        RepositoryPaperLookup: {
+            /** Established */
+            established: string;
+            /** Kinds */
+            kinds: string[];
+            /** Syntax */
+            syntax: {
+                [key: string]: string;
+            };
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * RepositorySourceNotice
          * @description One sentence the interface shows before a search is submitted.
          *
@@ -8453,6 +10399,11 @@ export interface components {
          *     do exactly that.
          */
         RestartRequest: {
+            /**
+             * Again
+             * @default false
+             */
+            again: boolean;
             /** Request Id */
             request_id?: string | null;
         };
@@ -8727,16 +10678,21 @@ export interface components {
          * @description ``GET /api/routines/{routine_id}``: one routine, its switches as
          *     booleans, and every fire it missed, oldest first. ``date_window_next`` is
          *     present only for a watch whose window moves (``date_window`` in its
-         *     parameters): the dates a run starting now would ask for.
+         *     parameters): the dates a run starting now would ask for. ``collection_id``
+         *     is the collection its runs' papers land in.
          */
         Routine: {
             /** Ai Enabled */
             ai_enabled: boolean;
             /** Ai Settings */
             ai_settings: string | null;
+            /** Collection Id */
+            collection_id: number | null;
             /** Created At */
             created_at: string;
             date_window_next?: components["schemas"]["DateWindowComputed"] | null;
+            /** Download Full Text */
+            download_full_text: boolean;
             /** Email Ai Summary Enabled */
             email_ai_summary_enabled: boolean;
             /** Email Enabled */
@@ -8849,6 +10805,13 @@ export interface components {
             ai_settings?: {
                 [key: string]: unknown;
             } | null;
+            /** Collection */
+            collection?: number | string | null;
+            /**
+             * Download Full Text
+             * @default false
+             */
+            download_full_text: boolean;
             /**
              * Email Ai Summary Enabled
              * @default false
@@ -8924,14 +10887,15 @@ export interface components {
          * @description ``GET /api/routines/{routine_id}/documents``: the papers this routine's
          *     runs collected, newest run first, each once.
          *
-         *     ``total`` counts every one; ``document_ids`` stops at ``limit``. Only ids:
+         *     ``total`` counts every one; ``document_ids`` holds every one, or stops at
+         *     ``limit`` where the request set one (``None`` when it did not). Only ids:
          *     what a screen marks on the collection map, not a page of records.
          */
         RoutineDocuments: {
             /** Document Ids */
             document_ids: number[];
             /** Limit */
-            limit: number;
+            limit: number | null;
             /** Routine Id */
             routine_id: number;
             /** Total */
@@ -9015,17 +10979,24 @@ export interface components {
             sufficient: boolean;
             /** Total New */
             total_new: number;
+            /** Unrecorded Runs */
+            unrecorded_runs: number;
         } & {
             [key: string]: unknown;
         };
-        /** RoutineHealthRun */
+        /**
+         * RoutineHealthRun
+         * @description One completed run of a watch, oldest first.
+         */
         RoutineHealthRun: {
+            /** Execution Id */
+            execution_id: number;
             /** New Results */
-            new_results: number;
+            new_results: number | null;
             /** Start Time */
             start_time: string | null;
             /** Total Results */
-            total_results: number;
+            total_results: number | null;
         } & {
             [key: string]: unknown;
         };
@@ -9039,15 +11010,20 @@ export interface components {
          *     sent rather than as meant, so neither body changes. ``parameters``,
          *     ``ai_settings`` and ``storage_settings`` are the stored JSON text, not
          *     parsed objects. ``last_execution`` repeats ``last_executed_at`` under the
-         *     name the renderer reads.
+         *     name the renderer reads. ``collection_id`` is the collection its runs'
+         *     papers land in.
          */
         RoutineRow: {
             /** Ai Enabled */
             ai_enabled: number;
             /** Ai Settings */
             ai_settings: string | null;
+            /** Collection Id */
+            collection_id: number | null;
             /** Created At */
             created_at: string;
+            /** Download Full Text */
+            download_full_text: number;
             /** Email Ai Summary Enabled */
             email_ai_summary_enabled: number;
             /** Email Enabled */
@@ -9120,6 +11096,10 @@ export interface components {
             ai_settings?: {
                 [key: string]: unknown;
             } | null;
+            /** Collection */
+            collection?: number | string | null;
+            /** Download Full Text */
+            download_full_text?: boolean | null;
             /** Email Ai Summary Enabled */
             email_ai_summary_enabled?: boolean | null;
             /** Email Enabled */
@@ -9155,6 +11135,10 @@ export interface components {
             ai_enabled?: number | null;
             /** Ai Settings */
             ai_settings?: string | null;
+            /** Collection Id */
+            collection_id?: number | null;
+            /** Download Full Text */
+            download_full_text?: number | null;
             /** Email Ai Summary Enabled */
             email_ai_summary_enabled?: number | null;
             /** Email Enabled */
@@ -9462,11 +11446,30 @@ export interface components {
         /**
          * RunDocumentIds
          * @description ``GET /api/executions/{exec_id}/document-ids``: every paper the run
-         *     stored that is still in the collection, by id, for the run's map.
+         *     stored that is in the collection named (the default one where none is),
+         *     by id, for the run's map, which is that collection's.
          */
         RunDocumentIds: {
             /** Ids */
             ids: number[];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RunFullText
+         * @description ``GET /api/executions/{exec_id}/full-text``: every PDF a run asked for, and the counts.
+         */
+        RunFullText: {
+            /** Counts */
+            counts: {
+                [key: string]: number;
+            };
+            /** Execution Id */
+            execution_id: number;
+            /** Per Run Cap */
+            per_run_cap: number;
+            /** Requests */
+            requests: components["schemas"]["FullTextRequest"][];
         } & {
             [key: string]: unknown;
         };
@@ -9548,17 +11551,30 @@ export interface components {
         /**
          * RunRestarted
          * @description ``POST /api/executions/{exec_id}/restart``: a new run with the old one's
-         *     parameters, linked back to it. ``duplicate`` as on ``RunStarted``.
+         *     parameters, linked back to it. ``duplicate`` as on ``RunStarted``; and
+         *     at the run limit, as there, no ``execution_id`` yet, ``queued``, its
+         *     ``queue_position``, its ``ticket``, and a ``detail``. ``routine_id`` only
+         *     for a watch's run, which runs as its watch's Run now.
          */
         RunRestarted: {
             /** Ai Enabled */
             ai_enabled: boolean;
+            /** Detail */
+            detail?: string | null;
             /** Duplicate */
             duplicate?: boolean | null;
             /** Execution Id */
-            execution_id: number;
+            execution_id: number | null;
+            /** Queue Position */
+            queue_position?: number | null;
+            /** Queued */
+            queued?: boolean | null;
             /** Restarted From */
             restarted_from: number | null;
+            /** Routine Id */
+            routine_id?: number | null;
+            /** Ticket */
+            ticket?: string | null;
         } & {
             [key: string]: unknown;
         };
@@ -9670,12 +11686,36 @@ export interface components {
          *     ``duplicate`` is present only when ``request_id`` matched a submission
          *     already made, and the id is that earlier run's: a retried click starts
          *     nothing new. Absent rather than ``false`` on a first submission.
+         *
+         *     At the run limit the run waits for a free slot (HTTP 202): there is no
+         *     ``execution_id`` yet, ``queued`` is true, ``queue_position`` is its place
+         *     (1 for next), and ``ticket`` names it in ``GET /api/executions/active``'s
+         *     ``waiting`` and in the ``request_id`` its row carries once it starts.
+         *     ``detail`` says so in a sentence.
          */
         RunStarted: {
+            /** Detail */
+            detail?: string | null;
             /** Duplicate */
             duplicate?: boolean | null;
             /** Execution Id */
-            execution_id: number;
+            execution_id: number | null;
+            /** Queue Position */
+            queue_position?: number | null;
+            /** Queued */
+            queued?: boolean | null;
+            /** Ticket */
+            ticket?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RunsSeen
+         * @description ``POST /api/executions/seen``: when the run monitor's panel was opened, as stored.
+         */
+        RunsSeen: {
+            /** Seen At */
+            seen_at: string;
         } & {
             [key: string]: unknown;
         };
@@ -10274,10 +12314,16 @@ export interface components {
         /**
          * ServiceInstalled
          * @description ``POST /api/service/install`` — the unit written, and where.
+         *
+         *     ``restarting`` is true when the request came from the service's own engine:
+         *     the service is stopped and started again from the new unit by a process
+         *     outside it once this answer has gone, and the app opens again on it.
          */
         ServiceInstalled: {
             /** Installed */
             installed: boolean;
+            /** Restarting */
+            restarting?: boolean | null;
             /** Unit Path */
             unit_path: string;
         } & {
@@ -10295,12 +12341,20 @@ export interface components {
          *     engine), or ``null`` when there is no unit or it names neither.
          *     ``app_available`` is true when this engine was started by the packaged app, so
          *     a unit written now would run the app.
+         *
+         *     On macOS, ``loaded`` is whether launchd holds the service's label, and
+         *     ``blocked`` whether macOS's Allow in the Background has turned it off, so
+         *     launchd will not start it whatever resmon does. Both are absent elsewhere.
          */
         ServiceStatus: {
             /** App Available */
             app_available: boolean;
+            /** Blocked */
+            blocked?: boolean | null;
             /** Installed */
             installed: boolean;
+            /** Loaded */
+            loaded?: boolean | null;
             /** Platform */
             platform: string;
             /** Runs */
@@ -10316,13 +12370,18 @@ export interface components {
          *
          *     ``removed`` is whether a file was there to remove: uninstalling a service
          *     that was never installed answers ``installed: false`` and ``removed:
-         *     false`` rather than an error.
+         *     false`` rather than an error. ``restarting`` is true when the request came
+         *     from the service's own engine: a process outside it stops the service,
+         *     removes the unit, and opens the app again, once this answer has gone, so
+         *     ``removed`` is still false here.
          */
         ServiceUninstalled: {
             /** Installed */
             installed: boolean;
             /** Removed */
             removed: boolean;
+            /** Restarting */
+            restarting?: boolean | null;
             /** Unit Path */
             unit_path: string;
         } & {
@@ -10912,6 +12971,27 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * SourceSettings
+         * @description ``GET`` and ``PUT /api/settings/sources`` — the contact address resmon gives the sources that ask for one.
+         *
+         *     ``contact_email`` is null when none is set, and then nothing is sent.
+         *     ``sent_to`` names the sources it goes to, and no other source is sent it
+         *     (``source_contact``).
+         */
+        SourceSettings: {
+            /** Contact Email */
+            contact_email: string | null;
+            /** Sent To */
+            sent_to: string[];
+        } & {
+            [key: string]: unknown;
+        };
+        /** SourceSettingsBody */
+        SourceSettingsBody: {
+            /** Contact Email */
+            contact_email?: string | null;
+        };
+        /**
          * SourceWall
          * @description ``GET /api/coverage/source-wall``: every source's answer to each of the last runs.
          *
@@ -11123,6 +13203,8 @@ export interface components {
             ai_settings?: {
                 [key: string]: unknown;
             } | null;
+            /** Collection */
+            collection?: number | string | null;
             /** Date From */
             date_from?: string | null;
             /** Date To */
@@ -11165,16 +13247,21 @@ export interface components {
         };
         /**
          * Today
-         * @description ``GET /api/today``.
+         * @description ``GET /api/today``: one collection's new papers and its watches.
          *
-         *     ``window`` is ``since_last_look`` when a look is recorded and
+         *     ``window`` is ``since_last_look`` when a look at this collection is recorded and
          *     ``first_look`` when none is, in which case ``since`` is seven days before
-         *     ``now`` and the interface says so. ``papers`` holds at most 1,000, newest
-         *     first; ``total`` counts them all.
+         *     ``now`` and the interface says so. ``papers`` is the first page of them, up
+         *     to 1,000, newest first; ``total`` counts them all, and ``next_cursor``
+         *     (``None`` when the page holds every one) reads the next page from
+         *     ``GET /api/today/papers``. ``watches`` are the watches that put their
+         *     papers in this collection, and any other whose papers are new here.
          */
         Today: {
             /** From Searches */
             from_searches: number;
+            /** Next Cursor */
+            next_cursor: string | null;
             /** Now */
             now: string;
             /** Papers */
@@ -11195,7 +13282,7 @@ export interface components {
         };
         /**
          * TodayLooked
-         * @description ``POST /api/today/looked``: the moment recorded.
+         * @description ``POST /api/today/looked``: the moment recorded, for one collection's Today.
          */
         TodayLooked: {
             /** Looked At */
@@ -11205,14 +13292,19 @@ export interface components {
         };
         /**
          * TodayPaper
-         * @description A paper resmon first collected since the last look.
+         * @description A paper a run put in the collection since its last look.
          *
+         *     ``first_seen_at`` is when resmon first collected the paper, and
+         *     ``arrived_at`` when it arrived in this collection; the two differ for a
+         *     paper resmon held elsewhere before a watch found it for this one.
          *     ``abstract_lede`` is the opening of the abstract as the source gave it,
          *     never a summary; resmon does not keep summaries per paper.
          */
         TodayPaper: {
             /** Abstract Lede */
             abstract_lede: string | null;
+            /** Arrived At */
+            arrived_at: string | null;
             /** Authors */
             authors: string | null;
             /** Doi */
@@ -11233,6 +13325,19 @@ export interface components {
             url: string | null;
             /** Watches */
             watches: number[];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * TodayPapersPage
+         * @description ``GET /api/today/papers``: the page of Today's new papers after a cursor,
+         *     in the same order and shape, and the cursor after it (``None`` at the end).
+         */
+        TodayPapersPage: {
+            /** Next Cursor */
+            next_cursor: string | null;
+            /** Papers */
+            papers: components["schemas"]["TodayPaper"][];
         } & {
             [key: string]: unknown;
         };
@@ -11312,6 +13417,53 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /**
+         * TopBar
+         * @description ``GET`` and ``PUT /api/top-bar``: how the top bar is arranged.
+         *
+         *     ``order`` names all seven sections, always: one an older build's stored
+         *     order lacked is put back after the section it follows by default.
+         *     ``hidden`` is the ones the bar leaves out, in that order; a hidden section
+         *     still has its address and its shortcut. ``start`` is the page a launch and
+         *     a new window open on, and ``lockup`` is where the resmon name goes, null
+         *     when it goes to the start page.
+         */
+        TopBar: {
+            /** Hidden */
+            hidden: ("today" | "watches" | "search" | "runs" | "library" | "ask" | "health")[];
+            /** Lockup */
+            lockup: ("/today" | "/watches" | "/watches/calendar" | "/watches/people" | "/search" | "/search/ask" | "/search/saved" | "/search/wording" | "/runs" | "/library" | "/library/files" | "/library/evidence" | "/ask" | "/health" | "/health/watchdog" | "/health/analytics" | "/health/engine") | null;
+            /** Order */
+            order: ("today" | "watches" | "search" | "runs" | "library" | "ask" | "health")[];
+            /**
+             * Start
+             * @enum {string}
+             */
+            start: "/today" | "/watches" | "/watches/calendar" | "/watches/people" | "/search" | "/search/ask" | "/search/saved" | "/search/wording" | "/runs" | "/library" | "/library/files" | "/library/evidence" | "/ask" | "/health" | "/health/watchdog" | "/health/analytics" | "/health/engine";
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * TopBarBody
+         * @description The whole arrangement, every time: a PUT replaces all four.
+         *
+         *     ``order`` may leave sections out, and they are put back where they go by
+         *     default; it may not name one twice, and neither may ``hidden``. A section
+         *     or a page the engine does not know is refused.
+         */
+        TopBarBody: {
+            /** Hidden */
+            hidden: ("today" | "watches" | "search" | "runs" | "library" | "ask" | "health")[];
+            /** Lockup */
+            lockup: ("/today" | "/watches" | "/watches/calendar" | "/watches/people" | "/search" | "/search/ask" | "/search/saved" | "/search/wording" | "/runs" | "/library" | "/library/files" | "/library/evidence" | "/ask" | "/health" | "/health/watchdog" | "/health/analytics" | "/health/engine") | null;
+            /** Order */
+            order: ("today" | "watches" | "search" | "runs" | "library" | "ask" | "health")[];
+            /**
+             * Start
+             * @enum {string}
+             */
+            start: "/today" | "/watches" | "/watches/calendar" | "/watches/people" | "/search" | "/search/ask" | "/search/saved" | "/search/wording" | "/runs" | "/library" | "/library/files" | "/library/evidence" | "/ask" | "/health" | "/health/watchdog" | "/health/analytics" | "/health/engine";
+        };
         /** ValidationError */
         ValidationError: {
             /** Context */
@@ -11338,6 +13490,58 @@ export interface components {
             extension: string | null;
             /** Reason */
             reason: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * WaitingRun
+         * @description A run waiting for a free slot, in the order it will start.
+         *
+         *     ``kind`` is ``watch`` (a watch's fire, scheduled or Run now) or ``manual``
+         *     (a Deep Dive, a Deep Sweep, a restart, or a run asked for again).
+         *     ``queued_at`` is when it joined the queue (for a scheduled fire, when it
+         *     came due). ``run_now`` is set for a watch's fire only. A manual run also
+         *     says its search: ``execution_type``, ``query``, ``keywords`` and
+         *     ``repositories``, and ``restarted_from`` when it repeats a run.
+         */
+        WaitingRun: {
+            /** Execution Type */
+            execution_type?: string | null;
+            /** Keywords */
+            keywords?: string[] | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "watch" | "manual";
+            /** Position */
+            position: number;
+            /** Query */
+            query?: string | null;
+            /** Queued At */
+            queued_at: string;
+            /** Repositories */
+            repositories?: string[] | null;
+            /** Restarted From */
+            restarted_from?: number | null;
+            /** Routine Id */
+            routine_id: number | null;
+            /** Run Now */
+            run_now: boolean | null;
+            /** Ticket */
+            ticket: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * WaitingWithdrawn
+         * @description ``DELETE /api/executions/waiting/{ticket}``: the run is out of the queue and will not start.
+         */
+        WaitingWithdrawn: {
+            /** Ticket */
+            ticket: string;
+            /** Withdrawn */
+            withdrawn: boolean;
         } & {
             [key: string]: unknown;
         };
@@ -11889,6 +14093,19 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** DocumentIdsBody */
+        resmon__DocumentIdsBody__1: {
+            /** Document Ids */
+            document_ids: number[];
+        };
+        /** DocumentIdsBody */
+        resmon__DocumentIdsBody__2: {
+            /**
+             * Document Ids
+             * @default []
+             */
+            document_ids: number[];
+        };
     };
     responses: never;
     parameters: never;
@@ -12290,7 +14507,10 @@ export interface operations {
     };
     analytics_discovery_lag_api_analytics_discovery_lag_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -12306,12 +14526,23 @@ export interface operations {
                     "application/json": components["schemas"]["DiscoveryLag"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     analytics_keyword_contribution_api_analytics_keyword_contribution_get: {
         parameters: {
             query?: {
                 execution_id?: number | null;
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
             };
             header?: never;
             path?: never;
@@ -12341,7 +14572,10 @@ export interface operations {
     };
     analytics_overview_api_analytics_overview_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -12357,6 +14591,15 @@ export interface operations {
                     "application/json": components["schemas"]["AnalyticsOverview"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     analytics_publication_volume_api_analytics_publication_volume_get: {
@@ -12364,6 +14607,8 @@ export interface operations {
             query?: {
                 group_by?: string;
                 months?: number;
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
             };
             header?: never;
             path?: never;
@@ -12393,7 +14638,10 @@ export interface operations {
     };
     analytics_routine_health_api_analytics_routine_health_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -12409,11 +14657,23 @@ export interface operations {
                     "application/json": components["schemas"]["RoutineHealth"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     analytics_source_contribution_api_analytics_source_contribution_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -12429,11 +14689,23 @@ export interface operations {
                     "application/json": components["schemas"]["SourceContribution"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     analytics_summary_api_analytics_summary_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -12447,6 +14719,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CorpusSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -13009,6 +15290,259 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CalendarEvent"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_collections_api_collections_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionList"];
+                };
+            };
+        };
+    };
+    create_collection_api_collections_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CollectionNameBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_current_collection_api_collections_current_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CollectionCurrentBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionCurrent"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_collection_api_collections__collection_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_collection_api_collections__collection_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CollectionNameBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_collection_api_collections__collection_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionDeleted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    change_collection_papers_api_collections__collection_id__papers_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CollectionPapersBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionPapersChanged"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    undo_collection_papers_api_collections__collection_id__papers_undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CollectionPapersUndoBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionPapersUndone"];
                 };
             };
             /** @description Validation Error */
@@ -13592,6 +16126,37 @@ export interface operations {
             };
         };
     };
+    get_the_pdf_api_documents__doc_id__full_text_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FullTextRequest"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     document_lifecycle_api_documents__doc_id__lifecycle_get: {
         parameters: {
             query?: never;
@@ -13835,7 +16400,10 @@ export interface operations {
     };
     embedding_status_api_embeddings_status_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -13849,6 +16417,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EmbeddingStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -14434,6 +17011,9 @@ export interface operations {
                 offset?: number;
                 type?: string | null;
                 routine_id?: number | null;
+                status?: string | null;
+                q?: string | null;
+                omit_events?: boolean;
             };
             header?: never;
             path?: never;
@@ -14444,6 +17024,8 @@ export interface operations {
             /** @description Successful Response */
             200: {
                 headers: {
+                    /** @description How many runs match the filters, however many this page holds. */
+                    "X-Resmon-Total"?: number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -14534,6 +17116,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mark_runs_seen_api_executions_seen_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunsSeen"];
+                };
+            };
+        };
+    };
+    withdraw_waiting_run_api_executions_waiting__ticket__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WaitingWithdrawn"];
                 };
             };
             /** @description Validation Error */
@@ -14706,7 +17339,10 @@ export interface operations {
     };
     get_execution_document_ids_api_executions__exec_id__document_ids_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
+            };
             header?: never;
             path: {
                 exec_id: number;
@@ -14770,6 +17406,68 @@ export interface operations {
             };
         };
     };
+    find_result_api_executions__exec_id__find_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                exec_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FindResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_full_text_api_executions__exec_id__full_text_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                exec_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunFullText"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_execution_log_api_executions__exec_id__log_get: {
         parameters: {
             query?: never;
@@ -14803,7 +17501,9 @@ export interface operations {
     };
     get_execution_progress_events_api_executions__exec_id__progress_events_get: {
         parameters: {
-            query?: never;
+            query?: {
+                since?: number;
+            };
             header?: never;
             path: {
                 exec_id: number;
@@ -15131,6 +17831,124 @@ export interface operations {
             };
         };
     };
+    find_a_paper_api_find_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FindRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunStarted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    find_plan_api_find_plan_get: {
+        parameters: {
+            query: {
+                q: string;
+                repositories?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FindPlan"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    full_text_for_documents_api_full_text_for_documents_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["resmon__DocumentIdsBody__1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FullTextStatus"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    full_text_rules_api_full_text_rules_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FullTextRules"];
+                };
+            };
+        };
+    };
     health_api_health_get: {
         parameters: {
             query?: {
@@ -15222,6 +18040,8 @@ export interface operations {
                 through_id?: number | null;
                 before_id?: number | null;
                 limit?: number;
+                sort?: string;
+                offset?: number;
             };
             header?: never;
             path?: never;
@@ -15315,6 +18135,41 @@ export interface operations {
             };
         };
     };
+    library_remove_api_library_files__file_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LibraryRemoveBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryRemoved"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     library_open_api_library_files__file_id__open_post: {
         parameters: {
             query?: never;
@@ -15372,6 +18227,142 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LibraryLinked"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    library_read_pdf_api_library_files__file_id__pdf_get: {
+        parameters: {
+            query: {
+                expected_vault_id: string;
+                expected_version_id: string;
+            };
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    library_picture_api_library_files__file_id__picture_get: {
+        parameters: {
+            query: {
+                expected_vault_id: string;
+                expected_version_id: string;
+            };
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    library_keep_picture_api_library_files__file_id__picture_put: {
+        parameters: {
+            query: {
+                expected_vault_id: string;
+                expected_version_id: string;
+            };
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryPicture"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    library_removal_summary_api_library_files__file_id__removal_get: {
+        parameters: {
+            query: {
+                expected_vault_id: string;
+                expected_version_id: string;
+            };
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryRemoval"];
                 };
             };
             /** @description Validation Error */
@@ -15459,6 +18450,7 @@ export interface operations {
             query: {
                 expected_vault_id: string;
                 expected_version_id: string;
+                lines?: number | null;
             };
             header?: never;
             path: {
@@ -15488,6 +18480,142 @@ export interface operations {
             };
         };
     };
+    library_removed_api_library_removed_get: {
+        parameters: {
+            query: {
+                expected_vault_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryRemovedList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    library_forget_api_library_removed__file_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LibraryVaultIdBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryForgotten"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    library_release_api_library_removed__file_id__release_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LibraryVaultIdBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryReleased"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    library_restore_api_library_removed__file_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LibraryVaultIdBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryFileDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     library_create_vault_api_library_vault_post: {
         parameters: {
             query?: never;
@@ -15503,6 +18631,72 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    library_move_api_library_vault_move_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LibraryMoveBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryMovedStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    library_relink_api_library_vault_relink_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LibraryRelinkBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -15636,7 +18830,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["DocumentIdsBody"];
+                "application/json": components["schemas"]["resmon__DocumentIdsBody__2"];
             };
         };
         responses: {
@@ -15669,7 +18863,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["DocumentIdsBody"];
+                "application/json": components["schemas"]["resmon__DocumentIdsBody__2"];
             };
         };
         responses: {
@@ -15755,7 +18949,10 @@ export interface operations {
     };
     get_collection_map_api_map_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -15771,11 +18968,23 @@ export interface operations {
                     "application/json": components["schemas"]["CollectionMap"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     get_map_facets_api_map_facets_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -15791,12 +19000,23 @@ export interface operations {
                     "application/json": components["schemas"]["MapFacets"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     find_on_map_api_map_find_get: {
         parameters: {
             query?: {
                 q?: string;
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
             };
             header?: never;
             path?: never;
@@ -16246,6 +19466,8 @@ export interface operations {
             query?: {
                 limit?: number;
                 offset?: number;
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
             };
             header?: never;
             path: {
@@ -16281,6 +19503,10 @@ export interface operations {
                 status?: string | null;
                 limit?: number;
                 offset?: number;
+                q?: string;
+                sort?: string;
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
             };
             header?: never;
             path?: never;
@@ -16328,6 +19554,105 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReadingQueueEntry"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_many_to_reading_queue_api_reading_queue_batch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReadingQueueBatchBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadingQueueBatchSaved"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_all_to_reading_queue_api_reading_queue_batch_all_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReadingQueueAllBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadingQueueBatchSaved"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    undo_save_to_reading_queue_api_reading_queue_batch_undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReadingQueueUndoBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadingQueueBatchUndone"];
                 };
             };
             /** @description Validation Error */
@@ -16394,6 +19719,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReadingQueueRemoval"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_to_reading_queue_api_reading_queue__document_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReadingQueueRestoreBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadingQueueRestored"];
                 };
             };
             /** @description Validation Error */
@@ -16966,7 +20326,9 @@ export interface operations {
     routine_documents_api_routines__routine_id__documents_get: {
         parameters: {
             query?: {
-                limit?: number;
+                limit?: number | null;
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
             };
             header?: never;
             path: {
@@ -17617,6 +20979,59 @@ export interface operations {
             };
         };
     };
+    get_source_settings_api_settings_sources_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceSettings"];
+                };
+            };
+        };
+    };
+    update_source_settings_api_settings_sources_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceSettingsBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceSettings"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_storage_settings_api_settings_storage_get: {
         parameters: {
             query?: never;
@@ -17795,7 +21210,10 @@ export interface operations {
     };
     get_today_api_today_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -17811,9 +21229,84 @@ export interface operations {
                     "application/json": components["schemas"]["Today"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     mark_today_looked_api_today_looked_post: {
+        parameters: {
+            query?: {
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodayLooked"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_today_papers_api_today_papers_get: {
+        parameters: {
+            query: {
+                cursor: string;
+                limit?: number;
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodayPapersPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_top_bar_api_top_bar_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -17828,7 +21321,40 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TodayLooked"];
+                    "application/json": components["schemas"]["TopBar"];
+                };
+            };
+        };
+    };
+    update_top_bar_api_top_bar_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TopBarBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopBar"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

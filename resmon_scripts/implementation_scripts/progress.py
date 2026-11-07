@@ -18,6 +18,10 @@ class ProgressStore:
         self._locks: dict[int, threading.Lock] = defaultdict(threading.Lock)
         self._cancel_flags: dict[int, threading.Event] = {}
         self._completed: dict[int, bool] = {}
+        # Executions past their last cancellation check, and the lock that
+        # makes "a stop was accepted" and "the run is finishing" exclusive.
+        self._finishing: set[int] = set()
+        self._gate = threading.Lock()
 
     # ------------------------------------------------------------------
     # Registration / lifecycle
@@ -40,6 +44,7 @@ class ProgressStore:
         self._events[exec_id] = []
         self._cancel_flags[exec_id] = threading.Event()
         self._completed[exec_id] = False
+        self._finishing.discard(exec_id)
 
     def mark_complete(self, exec_id: int) -> None:
         """Mark execution as complete (no more events will be emitted)."""
@@ -51,6 +56,7 @@ class ProgressStore:
         self._locks.pop(exec_id, None)
         self._cancel_flags.pop(exec_id, None)
         self._completed.pop(exec_id, None)
+        self._finishing.discard(exec_id)
 
     # ------------------------------------------------------------------
     # Event emission / retrieval
@@ -86,11 +92,34 @@ class ProgressStore:
     # Cooperative cancellation
     # ------------------------------------------------------------------
 
-    def request_cancel(self, exec_id: int) -> None:
-        """Set the cancellation flag for the given execution."""
-        flag = self._cancel_flags.get(exec_id)
-        if flag is not None:
-            flag.set()
+    def request_cancel(self, exec_id: int) -> bool:
+        """Ask the execution to stop; ``False`` if it is too late to.
+
+        ``True`` is a promise: the run reads the flag at ``begin_finishing``,
+        its last check, so a request answered ``True`` ends the run canceled.
+        ``False`` means the run is past that check and will finish as it is.
+        """
+        with self._gate:
+            if exec_id in self._finishing:
+                return False
+            flag = self._cancel_flags.get(exec_id)
+            if flag is not None:
+                flag.set()
+            return True
+
+    def begin_finishing(self, exec_id: int) -> bool:
+        """The run's last cancellation check, taken once, just before it is recorded as finished.
+
+        Returns ``False`` if a stop was requested, and the run must end
+        canceled. Otherwise the run is committed to finishing, and any later
+        ``request_cancel`` is refused.
+        """
+        with self._gate:
+            flag = self._cancel_flags.get(exec_id)
+            if flag is not None and flag.is_set():
+                return False
+            self._finishing.add(exec_id)
+            return True
 
     def should_cancel(self, exec_id: int) -> bool:
         """Check whether cancellation has been requested."""

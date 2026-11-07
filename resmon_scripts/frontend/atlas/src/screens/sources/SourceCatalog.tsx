@@ -41,6 +41,12 @@ export function useSources() {
  * The catalog as a choice: one source (radios) or several (checkboxes), each
  * row stating how the source combines terms, how fast it may be asked, how
  * finely it dates papers, and whether it can be asked about an author.
+ *
+ * The rows take their full height, so a wheel over them scrolls the page and
+ * whatever the form holds below them comes into view; the column heads, a
+ * filter, and the names already chosen stay at the top while it scrolls. The
+ * rows keep the catalog's order, so a row never moves under the pointer when
+ * it is chosen.
  */
 export function SourceCatalog({ legend, count, sources, chosen, multiple, keyMissing, pending, failed, onChoose, name }: {
   legend: string;
@@ -55,21 +61,64 @@ export function SourceCatalog({ legend, count, sources, chosen, multiple, keyMis
   /** The inputs' shared name, unique to the form. */
   name: string;
 }) {
+  const [filter, setFilter] = useState('');
+  const wanted = filter.trim().toLowerCase();
+  const shown = wanted
+    ? sources.filter((entry) => entry.name.toLowerCase().includes(wanted) || entry.slug.includes(wanted))
+    : sources;
+  const picked = sources.filter((entry) => chosen.includes(entry.slug));
   return (
     <fieldset className="catalog">
       <legend>
         {legend}
         <span>{count}</span>
       </legend>
-      <div className="catalog-head" aria-hidden="true">
-        <span />
-        <span>Source</span>
-        <span>Terms combine</span>
-        <span>Requests allowed</span>
-        <span>Dates papers</span>
+      <div className="catalog-top">
+        <div className="catalog-tools">
+          <label className="catalog-filter">
+            <Icon name="search" size={14} />
+            <input
+              type="search"
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+              onKeyDown={(event) => {
+                // Enter here filters; it must not reach the form and start a run.
+                if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) event.preventDefault();
+                if (event.key === 'Escape' && filter) { event.preventDefault(); setFilter(''); }
+              }}
+              placeholder="Filter sources"
+              aria-label="Filter the sources by name"
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </label>
+          {picked.length > 0 && (
+            <p className="catalog-chosen" data-catalog="chosen">
+              <span>Chosen:</span>
+              {picked.map((entry) => (multiple ? (
+                <span key={entry.slug} className="chosen-source">
+                  {entry.name}
+                  <button type="button" aria-label={`Remove ${entry.name}`} onClick={() => onChoose(entry.slug)}>
+                    <Icon name="close" />
+                  </button>
+                </span>
+              ) : <span key={entry.slug} className="chosen-source">{entry.name}</span>))}
+            </p>
+          )}
+        </div>
+        <div className="catalog-head" aria-hidden="true">
+          <span />
+          <span>Source</span>
+          <span>Terms combine</span>
+          <span>Requests allowed</span>
+          <span>Dates papers</span>
+        </div>
       </div>
       <div className="catalog-rows">
-        {sources.map((entry) => {
+        {wanted && shown.length === 0 && (
+          <p className="index-cap" data-catalog="no-match">No source’s name matches “{filter.trim()}”.</p>
+        )}
+        {shown.map((entry) => {
           const rate = ratePerSecond(entry.rate_limit);
           const missing = keyMissing(entry);
           const on = chosen.includes(entry.slug);
@@ -84,6 +133,9 @@ export function SourceCatalog({ legend, count, sources, chosen, multiple, keyMis
               <span className="source-name">
                 {entry.name}
                 {missing && <span className="source-key">needs an API key</span>}
+                {entry.service_notice && (
+                  <span className="source-key source-notice" data-notice="service" title={entry.service_notice}>end announced</span>
+                )}
                 <span className="source-key" data-author-query={entry.entity_search.author_query}>
                   {authorWords(entry.entity_search.author_query)}
                 </span>
@@ -106,9 +158,9 @@ export function SourceCatalog({ legend, count, sources, chosen, multiple, keyMis
  * takes the last one back, and leaving the field keeps what was typed.
  * `draft` is lifted so a form can count a term that is typed and not yet added.
  */
-export function useTerms(initial: readonly string[]) {
+export function useTerms(initial: readonly string[], initialDraft = '') {
   const [terms, setTerms] = useState<string[]>([...initial]);
-  const [draft, setDraft] = useState('');
+  const [draft, setDraft] = useState(initialDraft);
   const add = () => {
     const term = draft.trim();
     if (term && !terms.includes(term)) setTerms([...terms, term]);

@@ -355,9 +355,9 @@ def overlong_text(codepoints: int = 200001) -> bytes:
     return text_pages(["X" * codepoints])
 
 
-def oversized_input(payload_bytes: int = 16 * MIB + 1) -> bytes:
+def oversized_input(payload_bytes: int = 64 * MIB + 1) -> bytes:
     """E08: valid envelope with a large unreferenced stream; input guard first."""
-    _integer(payload_bytes, 16 * MIB + 1, 17 * MIB, "payload_bytes")
+    _integer(payload_bytes, 64 * MIB + 1, 65 * MIB, "payload_bytes")
     pdf = _Pdf()
     catalog, pages = pdf.reserve(), pdf.reserve()
     font = _font(pdf)
@@ -679,14 +679,16 @@ def test_a_refusal_the_parser_swallowed_still_discards_its_text(monkeypatch) -> 
     assert worker.parse(two_pages(), 1)['status'] == 'extracted'
 
 
-def test_a_shipped_pdf_reads_the_same_in_the_child_as_in_unconfined_pypdf() -> None:
-    # A real document that needs UTF-16BE: every page was malformed in the child.
+def test_a_browser_printed_pdf_reads_the_same_in_the_child_as_in_unconfined_pypdf() -> None:
+    # A browser-printed document carries UTF-16BE ToUnicode maps; the confined child must read each page as pypdf does.
     from pypdf import PdfReader
-    raw = (Path(__file__).resolve().parents[2] / 'resmon_reports' / 'info_docs' / 'calendar_info.pdf').read_bytes()
+    raw = (Path(__file__).parent / 'fixtures' / 'evidence' / 'chrome-text.pdf').read_bytes()
     reader = PdfReader(io.BytesIO(raw), strict=True)
+    assert len(reader.pages) == 2
     for number, page in enumerate(reader.pages, 1):
         expected = page.extract_text().replace('\r\n', '\n').replace('\r', '\n')
         assert expected
         assert supervisor.extract(raw, number) == {
             'status': 'extracted', 'page_number': number, 'page_count': len(reader.pages), 'text': expected}
+    assert 'Café' in reader.pages[0].extract_text()
     assert_reaped()

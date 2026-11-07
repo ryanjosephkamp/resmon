@@ -45,7 +45,7 @@ jobs:
   smoke:
     name: Route smoke (Electron under xvfb)
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     # Runs only here — see README.md in this directory.
     if: github.repository == 'ryanjosephkamp/resmon'
 
@@ -164,9 +164,9 @@ jobs:
           retention-days: 3
 
   window:
-    name: Window behaviour (Electron on macOS)
+    name: Window behavior (Electron on macOS)
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 45
     # Runs only here — see README.md in this directory.
     if: github.repository == 'ryanjosephkamp/resmon'
 

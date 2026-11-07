@@ -1,4 +1,6 @@
 import { useEffect, useEffectEvent, useState, type ToggleEvent } from 'react';
+import { useCollectionWords } from '../../collections/current';
+import { afterPause } from '../../shell/history';
 import { Icon } from '../../shell/Icon';
 import { number } from '../today/format';
 import {
@@ -42,6 +44,7 @@ interface Props {
  * and drawn above the list rather than pushing it down.
  */
 export function FacetMenus({ filters, facets, words, matches, nameOf, onMenu, onToggle, onDate }: Props) {
+  const shown = useCollectionWords();
   const toggle = (menu: Menu) => (event: ToggleEvent<HTMLDivElement>) => onMenu(menu, event.newState === 'open');
   const dates = (filters.from ? 1 : 0) + (filters.to ? 1 : 0);
   const problem = dateRangeProblem(filters);
@@ -64,9 +67,9 @@ export function FacetMenus({ filters, facets, words, matches, nameOf, onMenu, on
                 <p className="facet-caption">Counting.</p>
               ) : (
                 <>
-                  <p className="facet-caption">{facetCaption(group.key, scope, listed.length, facets.data.max_values)}</p>
+                  <p className="facet-caption">{facetCaption(group.key, scope, listed.length, facets.data.max_values, shown)}</p>
                   {rows.length === 0 && (
-                    <p className="facet-empty">{facetEmptyWords(group.key, scope, matches)}</p>
+                    <p className="facet-empty">{facetEmptyWords(group.key, scope, matches, shown)}</p>
                   )}
                   <ul className="facet-list" data-stale={facets.stale || undefined}>
                     {rows.map((row) => (
@@ -133,8 +136,7 @@ function DateField({ id, label, value, onCommit }: { id: string; label: string; 
   const commit = useEffectEvent(onCommit);
   useEffect(() => {
     if (draft === value) return undefined;
-    const settle = setTimeout(() => commit(draft), SETTLE_MS);
-    return () => clearTimeout(settle);
+    return afterPause(SETTLE_MS, () => commit(draft));
   }, [draft, value]);
   return (
     <label className="date" htmlFor={id}>

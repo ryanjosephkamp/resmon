@@ -145,6 +145,10 @@ export interface WatchForm {
   attach: boolean;
   /** A new watch only: whether it starts watching when saved, or is saved paused. */
   start: boolean;
+  /** The collection its runs' papers land in; null, for a new watch, the one the window shows. */
+  collection: number | null;
+  /** `download_full_text`: each run gets its new papers' open-access PDFs into the Library. Off unless asked for. */
+  pdfs: boolean;
 }
 
 export function parametersOf(raw: unknown): Record<string, unknown> {
@@ -162,7 +166,7 @@ export function blankForm(): WatchForm {
     name: '', follows: 'words', profileId: null, keywords: [], sources: [],
     schedule: { ...DEFAULT_SCHEDULE }, window: 'previous_run', lastDays: DEFAULT_LAST_DAYS, dateFrom: '', dateTo: '',
     cap: 100, intent: '',
-    notify: false, email: false, attach: false, start: true,
+    notify: false, email: false, attach: false, start: true, collection: null, pdfs: false,
   };
 }
 
@@ -232,6 +236,8 @@ export function formFrom(routine: Routine): WatchForm {
     email: !!routine.email_enabled,
     attach: !!routine.email_ai_summary_enabled,
     start: !!routine.is_active,
+    collection: routine.collection_id ?? null,
+    pdfs: !!routine.download_full_text,
   };
 }
 
@@ -244,6 +250,9 @@ export interface WatchBody {
   email_enabled: boolean;
   email_ai_summary_enabled: boolean;
   is_active?: boolean;
+  /** Where its runs' papers land; absent, the engine's default for a new watch and no change for one saved. */
+  collection?: number;
+  download_full_text: boolean;
 }
 
 /**
@@ -294,8 +303,11 @@ export function watchBody(form: WatchForm, existing: Routine | null): WatchBody 
     email_enabled: form.email,
     // The attachment goes with the email; without one there is nothing to attach it to.
     email_ai_summary_enabled: form.email && form.attach,
+    // A watch on retractions finds no new papers, so it has none to get.
+    download_full_text: form.pdfs && form.follows !== 'retractions',
   };
   if (!existing) body.is_active = form.start;
+  if (form.collection !== null) body.collection = form.collection;
   return body;
 }
 

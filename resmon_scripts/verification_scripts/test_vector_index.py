@@ -243,7 +243,7 @@ def test_switching_model_rebuilds_at_the_new_width(conn):
 # ---------------------------------------------------------------------------
 
 
-def test_nearest_ranks_by_distance_and_honours_the_candidate_set(conn):
+def test_nearest_ranks_by_distance_and_honors_the_candidate_set(conn):
     ids = [_document(conn, str(i)) for i in range(6)]
     for offset, doc_id in enumerate(ids):
         _embed(conn, doc_id, "m1", [1.0, float(offset), 0.0, 0.0])
@@ -466,7 +466,7 @@ def test_concurrent_ranking_never_raises_while_another_thread_rebuilds(tmp_path)
     every open similar-papers panel ranks too.
 
     **Mutation, performed:** remove ``with _REBUILD_LOCK:`` from ``nearest`` so
-    only the rebuild itself is serialised and the query is not. **69 of 150
+    only the rebuild itself is serialized and the query is not. **69 of 150
     rankings came back empty** — every one of them a query that landed between a
     DROP and its CREATE and was swallowed by the handler below. Without that
     handler they are exceptions instead, which is what shipped.

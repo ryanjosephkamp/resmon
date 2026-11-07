@@ -119,6 +119,23 @@ def coverage(conn: sqlite3.Connection, model: Optional[str]) -> dict:
     return {"embedded": embedded, "total": total, "model": model}
 
 
+def collection_coverage(conn: sqlite3.Connection, model: Optional[str], collection_id: int) -> dict:
+    """:func:`coverage` over one collection's papers: what Search says of the
+    collection it shows. A backfill still embeds every paper resmon holds."""
+    from .paper_collections import holds_every_paper, member_clause  # noqa: PLC0415 - imports the database module
+
+    if holds_every_paper(conn, collection_id):
+        return coverage(conn, model)
+    total = int(conn.execute("SELECT COUNT(*) FROM collection_documents WHERE collection_id = ?",
+                             (int(collection_id),)).fetchone()[0])
+    if not model:
+        return {"embedded": 0, "total": total, "model": None}
+    embedded = int(conn.execute(
+        f"SELECT COUNT(*) FROM document_embeddings e WHERE e.model = ? AND {member_clause('e.document_id')}",
+        (model, int(collection_id))).fetchone()[0])
+    return {"embedded": embedded, "total": total, "model": model}
+
+
 def embed_documents(
     conn: sqlite3.Connection,
     lane: EmbeddingLane,
@@ -145,7 +162,7 @@ def embed_documents(
     for start in range(0, len(document_ids), batch_size):
         if should_cancel is not None and should_cancel():
             result["cancelled"] = True
-            result["reason"] = "Cancelled. The documents already embedded keep their vectors."
+            result["reason"] = "Canceled. The documents already embedded keep their vectors."
             return result
 
         chunk = document_ids[start : start + batch_size]
@@ -214,7 +231,7 @@ def embed_documents(
 
 
 class BackfillJob:
-    """One backfill at a time, cancellable, resumable, with a readable status.
+    """One backfill at a time, cancelable, resumable, with a readable status.
 
     A module-level singleton (:data:`backfill_job`) rather than a per-request
     object: two concurrent backfills over the same corpus would embed the same
@@ -347,7 +364,7 @@ class BackfillJob:
                     cancelled=outcome["cancelled"],
                     reason=outcome["reason"],
                 )
-        except Exception as exc:  # pragma: no cover - defence around a daemon thread
+        except Exception as exc:  # pragma: no cover - defense around a daemon thread
             logger.exception("embedding backfill failed")
             with self._lock:
                 self._state["reason"] = f"The backfill stopped: {type(exc).__name__}: {exc}"
@@ -358,7 +375,7 @@ class BackfillJob:
             if conn is not None and close_connection:
                 # This thread opened it and this thread closes it. ``close_db``
                 # refuses a close another live thread owns, and for good reason:
-                # connections are check_same_thread=False and nothing serialises
+                # connections are check_same_thread=False and nothing serializes
                 # a close against another thread's query.
                 try:
                     conn.close()

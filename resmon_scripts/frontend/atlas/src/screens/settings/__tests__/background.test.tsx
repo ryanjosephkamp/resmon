@@ -39,17 +39,43 @@ describe('In the background', () => {
     expect(screen.getByRole('button', { name: 'Install it again' })).toBeInTheDocument();
   });
 
-  test('installing it again removes the unit and writes it anew, registered', async () => {
+  test('installing it again is one install, registered: never a removal first, which stopped the service under the window', async () => {
     jest.spyOn(window, 'confirm').mockReturnValue(true);
     mount({ ...STATUS, runs: 'engine', app_available: true });
     fireEvent.click(await screen.findByRole('button', { name: 'Install it again' }));
-    await waitFor(() => expect(POST).toHaveBeenCalledTimes(2));
-    expect(POST.mock.calls.map((c) => c[0])).toEqual(['/api/service/uninstall', '/api/service/install']);
-    expect(POST.mock.calls.every((c) => c[1].body.register === true)).toBe(true);
+    await waitFor(() => expect(POST).toHaveBeenCalledTimes(1));
+    expect(POST.mock.calls.map((c) => c[0])).toEqual(['/api/service/install']);
+    expect(POST.mock.calls[0][1].body.register).toBe(true);
+    expect(await screen.findByText(/Installed again/)).toBeInTheDocument();
+  });
+
+  test('from the service\'s own engine, says the window closes and opens again on the new service', async () => {
+    jest.spyOn(window, 'confirm').mockReturnValue(true);
+    mount({ ...STATUS, runs: 'engine', app_available: true });
+    POST.mockImplementation(() => reply({ installed: true, unit_path: STATUS.unit_path, restarting: true }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Install it again' }));
+    expect(await screen.findByText(/This window closes, and resmon opens again on it/)).toBeInTheDocument();
+  });
+
+  test('says when macOS has turned resmon off in the background, and where to turn it on', async () => {
+    mount({ ...STATUS, runs: 'app', app_available: true, loaded: false, blocked: true });
+    expect(await screen.findByText(/macOS has turned resmon off in the background/)).toBeInTheDocument();
+    expect(screen.getByText(/Login Items & Extensions, under Allow in the Background/)).toBeInTheDocument();
+    // Not a Start button: launchd would refuse it until the person turns it on.
+    expect(screen.queryByRole('button', { name: 'Start it' })).toBeNull();
+  });
+
+  test('installed and not running: says so, and Start it starts it, with no Terminal', async () => {
+    jest.spyOn(window, 'confirm').mockReturnValue(true);
+    mount({ ...STATUS, runs: 'app', app_available: true, loaded: false, blocked: false });
+    expect(await screen.findByText(/installed, and macOS is not running it/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Start it' }));
+    await waitFor(() => expect(POST).toHaveBeenCalledWith('/api/service/install', { body: { register: true } }));
   });
 
   test.each([
     ['a unit that already runs the app', { runs: 'app', app_available: true }],
+    ['a unit that runs the app, loaded', { runs: 'app', app_available: true, loaded: true, blocked: false }],
     ['an engine the packaged app did not start (a checkout)', { runs: 'engine', app_available: false }],
     ['no unit at all', { installed: false, runs: null, app_available: true }],
   ])('says nothing about %s', async (_name, extra) => {

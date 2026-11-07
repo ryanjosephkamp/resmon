@@ -51,9 +51,9 @@ class Bundle:
             self.closed = True
 
 
-def cancelled(cancel: threading.Event | None) -> None:
+def canceled(cancel: threading.Event | None) -> None:
     if cancel is not None and cancel.is_set():
-        evidence.refuse('cancelled', 'The selected bundle was cancelled.')
+        evidence.refuse('cancelled', 'The selected bundle was canceled.')
 
 
 def _escaped(value: str) -> str:
@@ -114,13 +114,13 @@ def build(conn: sqlite3.Connection, expected: str, project_id: str, revision: in
         total = 0
         note_budget = 0
         for file_id, version_id in identities:
-            cancelled(cancel)
+            canceled(cancel)
             evidence.member(conn, expected, project_id, file_id, version_id)
             file = evidence.file_record(conn, expected, file_id, version_id)
             notes = conn.execute('SELECT * FROM evidence_notes WHERE project_id=? AND file_id=? ORDER BY id', (project_id, file_id))
             saved = []
             for note in notes:
-                cancelled(cancel)
+                canceled(cancel)
                 row = evidence.note_view(conn, expected, dict(note))
                 if row['version_id'] != version_id:
                     evidence.refuse('wrong_version', 'A saved note has a mismatched version.')
@@ -148,12 +148,12 @@ def build(conn: sqlite3.Connection, expected: str, project_id: str, revision: in
             archive.writestr('notes.md', notes)
             if include_files:
                 for file in manifest['files']:
-                    cancelled(cancel)
+                    canceled(cancel)
                     with library.retained(conn, expected, file['file_id'], file['version_id']) as (row, fd, _):
                         digest, size = hashlib.sha256(), 0
                         with archive.open(file['content_path'], 'w') as target:
                             while True:
-                                cancelled(cancel)
+                                canceled(cancel)
                                 data = os.read(fd, 65536)
                                 if not data:
                                     break
@@ -164,7 +164,7 @@ def build(conn: sqlite3.Connection, expected: str, project_id: str, revision: in
                         if (size != file['byte_size'] or digest.hexdigest() != file['sha256']
                                 or row['sha256'] != file['sha256']):
                             evidence.refuse('changed_content', 'A selected retained file changed during export.')
-        cancelled(cancel)
+        canceled(cancel)
         conn.rollback()  # End the read snapshot: this operation has no writes.
         bundle.manifest = manifest
         bundle.size = bundle.path.stat().st_size

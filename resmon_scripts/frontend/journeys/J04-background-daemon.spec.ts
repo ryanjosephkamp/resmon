@@ -14,7 +14,7 @@
  * `service_manager.unit_path()` puts in the machine's own LaunchAgents or
  * systemd directory. A journey in a brand-new state directory on a developer's
  * Mac would otherwise read `Status: Installed` — true about the machine,
- * useless about the app. `unit_path()` honours `RESMON_SERVICE_UNIT_DIR`, and
+ * useless about the app. `unit_path()` honors `RESMON_SERVICE_UNIT_DIR`, and
  * the session points it inside its own temp state, so the register's sentence
  * holds on every machine with no branch.
  *

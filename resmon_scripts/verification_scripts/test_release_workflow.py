@@ -41,7 +41,7 @@ def test_publish_waits_for_every_leg_and_runs_for_a_version_tag_only():
     assert re.search(r"^    needs: build$", PUBLISH, re.M)
     condition = re.search(r"^    if: (.+)$", PUBLISH, re.M).group(1)
     assert "github.event_name == 'push'" in condition
-    # `needs` with no `always()` or `failure()`: a failed or cancelled leg skips the job.
+    # `needs` with no `always()` or `failure()`: a failed or canceled leg skips the job.
     assert not re.search(r"always\(\)|failure\(\)|cancelled\(\)", condition)
     assert "contents: write" in PUBLISH
 

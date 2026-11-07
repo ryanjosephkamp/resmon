@@ -1,10 +1,10 @@
 /**
  * The denominator.
  *
- * Forty-nine rows, one per user journey the app carries. `register.spec.ts`
+ * Fifty-one rows, one per user journey the app carries. `register.spec.ts`
  * refuses to let this file and the spec files in this directory disagree. A row
  * with no test cannot exist, and a test with no row cannot exist either; that
- * mutual guard is the only thing that makes "N of 49" a measurement rather than
+ * mutual guard is the only thing that makes "N of 51" a measurement rather than
  * a hand count.
  *
  * **Screens are held to the register too.** `ROUTE_ROWS` below names, for every
@@ -50,13 +50,13 @@
 /**
  * The part of the suite that owns a row's test. `refresh` holds the Source
  * wall row, and `atlas` the rows for Atlas's own routes and screens: J46, J47,
- * J48 and J49.
+ * J48, J49, J50 (Find a paper), and J51 (Collections).
  */
 export type JourneySlice = '1' | '2a' | '2b' | 'refresh' | 'atlas';
 export type JourneyStatus = 'carried' | 'not_carried_forward';
 
 export interface JourneyRow {
-  /** `J01`…`J49`. */
+  /** `J01`…`J51`. */
   id: string;
   /** The row's title. */
   title: string;
@@ -129,6 +129,8 @@ export const JOURNEY_REGISTER: readonly JourneyRow[] = [
   { id: 'J47', title: 'Collection map: where every paper sits', slice: 'atlas', status: 'carried', built: true },
   { id: 'J48', title: 'Today: the papers since you last looked', slice: 'atlas', status: 'carried', built: true },
   { id: 'J49', title: 'Shared wording across papers', slice: 'atlas', status: 'carried', built: true },
+  { id: 'J50', title: 'Find a paper', slice: 'atlas', status: 'carried', built: true },
+  { id: 'J51', title: 'Collections', slice: 'atlas', status: 'carried', built: true },
 ];
 
 /** The slice whose rows are built by definition. */
@@ -193,12 +195,18 @@ export const ROUTE_ROWS: Readonly<Record<string, { rows: readonly string[]; why?
   '/search/ask': {
     rows: ['J01', 'J02', 'J18', 'J38', 'J19', 'J29', 'J22'],
     why: 'Ask the sources is where a dive or a sweep starts, with every source and its limits; its '
-      + 'run log opens each run\'s live progress, outcomes, report, and Restart.',
+      + 'column of the newest runs opens each run\'s live progress, outcomes, report, and Restart.',
   },
+  '/runs': {
+    rows: ['J18', 'J19', 'J38'],
+    why: 'Every run in one place: the runs going now, live, with Stop; those waiting for a free slot; and '
+      + 'the history, whose selection exports, bundles, and deletes, and whose rows restart a run that stopped.',
+  },
+  '/search/find': { rows: ['J50'] },
   '/search/saved': { rows: ['J21'] },
   '/search/wording': { rows: ['J49'] },
-  '/library': { rows: ['J28'], why: 'Lands on the Reading queue.' },
-  '/library/files': { rows: ['J34'] },
+  '/library': { rows: ['J28'], why: 'Lands on the gallery\'s To read shelf: the reading queue.' },
+  '/library/files': { rows: ['J34'], why: 'Leads to the gallery\'s Your files shelf.' },
   '/library/evidence': { rows: ['J35', 'J36', 'J37'] },
   '/ask': {
     rows: ['J13', 'J14', 'J31', 'J32', 'J33'],
@@ -213,6 +221,11 @@ export const ROUTE_ROWS: Readonly<Record<string, { rows: readonly string[]; why?
   '/health/analytics': { rows: ['J05'] },
   '/health/engine': { rows: ['J30'], why: 'Which engine this window is talking to, by its identity.' },
   '/settings': { rows: ['J46'], why: 'Lands on Appearance.' },
+  '/settings/top-bar': {
+    rows: ['J46'],
+    why: 'How the top bar is arranged, kept by the engine beside the theme: the sections\' order, the hidden ones, '
+      + 'the start page, where the resmon name goes, and the run monitor.',
+  },
   '/settings/background': { rows: ['J04'] },
   '/settings/email': { rows: ['J23'] },
   '/settings/notifications': { rows: ['J23'] },
@@ -224,10 +237,12 @@ export const ROUTE_ROWS: Readonly<Record<string, { rows: readonly string[]; why?
     rows: ['J22', 'J08'],
     why: 'Every source\'s keys and limits, including whether it can be asked about a person (J08).',
   },
+  '/settings/collections': { rows: ['J51'] },
   '/settings/storage': {
     rows: ['J41', 'J24'],
     why: 'Backup and restore, and where a backup goes: Google Drive for desktop\'s folder is J24.',
   },
+  '/settings/library': { rows: ['J34'], why: 'Where the Library folder is, changing it, and the files removed from it.' },
   '/settings/tutorials': { rows: ['J25'] },
   '/settings/about': {
     rows: ['J25'],

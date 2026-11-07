@@ -24,13 +24,14 @@ import { execFileSync } from 'child_process';
 import { _electron as electron, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import {
-  appRootAt, launchEnv, registerStateDir, THIS_CHECKOUT,
+  appRootAt, atlasEnv, launchEnv, registerStateDir, THIS_CHECKOUT,
 } from '../../e2e/fixtures/resmon-app';
 import type { AppRoot } from '../../e2e/fixtures/resmon-app';
 import {
   blockedConnections, startSourceEndpoint, writeStartupHook,
 } from '../fixtures/source-endpoint';
 import type { SourceEndpoint, SourceReply } from '../fixtures/source-endpoint';
+import { removeStateDir } from '../../e2e/fixtures/cleanup';
 
 /**
  * How long one backend request may take before the suite says so.
@@ -242,47 +243,16 @@ export interface Session {
 }
 
 /**
- * Give the launched app the one NLTK tokenizer it looks for at import, inside
- * its own state directory.
- *
- * `summarizer.py` does `nltk.data.find("tokenizers/punkt_tab")` at **import
- * time** and, on a miss, `nltk.download("punkt_tab", quiet=True)` — which
- * fetches from `raw.githubusercontent.com`. That module is imported inside the
- * backend as soon as a run has AI summarization on, which in this suite is J17.
- *
- * On a warm laptop nothing happens and the row is green. On a CI runner there
- * is no cache, the app reaches the internet during a user's run, the launch
- * guard refuses it, and J17's own "nothing left this machine" assertion fires —
- * which is exactly what it is for, and which is how this was found.
- *
- * The answer is not a permitted exception inside the guard: a guard with one
- * hole in it is a guard nobody can quote. It is to make the app's own lookup
- * succeed. The data is committed under `fixtures/nltk-data/` with its
- * provenance, copied in here, and `NLTK_DATA` points at the copy — so nothing
- * is downloaded, in CI or anywhere, and the copy dies with the session rather
- * than warming the machine for the next run.
- *
- * **The app's behaviour is the finding, not the fixture.** J17 prints it every
- * time: a local-first desktop app downloads at import when this data is absent.
- */
-function seedTheTokenizer(stateDir: string): string {
-  const source = path.join(__dirname, '..', 'fixtures', 'nltk-data');
-  const target = path.join(stateDir, 'nltk-data');
-  fs.cpSync(source, target, { recursive: true });
-  return target;
-}
-
-/**
  * The element that means Atlas has drawn its frame: the top bar's sections,
  * drawn once the stored appearance has been read and the app has rendered,
  * which is the moment a person can use it.
  */
 const LANDMARK = 'nav[aria-label="Sections"]';
 
-function envFor(stateDir: string, root: AppRoot, sourceUrl: string): Record<string, string> {
-  const env = launchEnv(stateDir, true);
-  env.NLTK_DATA = seedTheTokenizer(stateDir);
-  const hookDir = writeStartupHook({ stateDir, repoRoot: root.repo, sourceUrl });
+function envFor(stateDir: string, root: AppRoot, source: SourceEndpoint): Record<string, string> {
+  // Held to the screen a run is held to (RESMON_E2E_SCREEN), as the e2e suite's windows are.
+  const env = atlasEnv(launchEnv(stateDir, true));
+  const hookDir = writeStartupHook({ stateDir, repoRoot: root.repo, sourceUrl: source.url, fullText: source.fullText });
   env.PYTHONPATH = [hookDir, env.PYTHONPATH].filter(Boolean).join(path.delimiter);
   env.PYTHONDONTWRITEBYTECODE = '1';
   // Never the OS keyring: a journey must never read or write the person's real
@@ -304,6 +274,12 @@ function envFor(stateDir: string, root: AppRoot, sourceUrl: string): Record<stri
   // accident.
   env.RESMON_SERVICE_UNIT_DIR = path.join(stateDir, 'service-units');
   fs.mkdirSync(env.RESMON_SERVICE_UNIT_DIR, { recursive: true });
+  // And launchd: a label of the journeys' own, and a stand-in for launchctl
+  // that holds nothing and starts nothing, so no journey asks about, starts, or
+  // stops the person's own service.
+  env.RESMON_SERVICE_LABEL = 'com.resmon.journeys';
+  env.RESMON_LAUNCHCTL = path.resolve(__dirname, '..', '..', '..', 'verification_scripts', 'fixtures', 'fake_launchctl.py');
+  delete env.FAKE_LAUNCHCTL_STATE;
   // An AI command only where a journey names it. Left to search the installers'
   // locations and PATH, the engine finds the person's own signed-in `claude`,
   // and a turn sent with no command set runs it: one journey under development
@@ -326,7 +302,7 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
   // Every state directory this session has used, so a journey that moves to a
   // fresh one (a restore) does not leave the first behind on the machine.
   const stateDirs = [stateDir];
-  let env = envFor(stateDir, root, source.url);
+  let env = envFor(stateDir, root, source);
   registerStateDir(stateDir);
 
   let app!: ElectronApplication;
@@ -481,7 +457,7 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
      * case. Those two sockets are this process's read ends of the app's stdout
      * and stderr, and this process can simply destroy them. A destroyed socket
      * leaves the active-handle set no matter who else holds the pipe, so the
-     * worker's exit stops depending on the good behaviour of processes it did
+     * worker's exit stops depending on the good behavior of processes it did
      * not start.
      *
      * Only ever after the exit has been observed: these are the streams
@@ -627,7 +603,7 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
       await put();
       stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-journey-restored-'));
       stateDirs.push(stateDir);
-      env = envFor(stateDir, root, source.url);
+      env = envFor(stateDir, root, source);
       registerStateDir(stateDir);
       await bring();
     },
@@ -659,8 +635,8 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
         for (const close of alsoClose) await close().catch(() => { /* already closed */ });
       }
       console.log('[journeys] teardown: removing what this session made');
-      for (const dir of stateDirs) fs.rmSync(dir, { recursive: true, force: true });
-      for (const target of alsoRemove) fs.rmSync(target, { recursive: true, force: true });
+      for (const dir of stateDirs) removeStateDir(dir);
+      for (const target of alsoRemove) removeStateDir(target);
       console.log(`[journeys] teardown: done${forced.length ? `; ${forced.length} forced close(s)` : ''}`);
     },
   };

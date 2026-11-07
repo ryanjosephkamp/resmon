@@ -68,8 +68,8 @@ const RECORDINGS: readonly Recording[] = [
   {
     slug: 'library', title: 'Library', gif: libraryGif, still: libraryStill,
     shows: () => 'A PDF from your library opened in focus mode and scrolled, every page in the gallery, and a '
-      + 'sentence selected. The paper is “Difficulty Calibration Across Time for Membership Inference in Diffusion '
-      + 'Models” by Michael Joseph and Yedid Hoshen (arXiv:2610.40616), shown under CC BY 4.0.',
+      + 'sentence selected. The paper is “Wireless Link Scheduling with Graph Signal Diffusion” by Teresa Shang, '
+      + 'Romina Garcia Camargo, Yiğit Berkay Uslu, and Alejandro Ribeiro (arXiv:2611.08274), shown under CC BY 4.0.',
   },
   {
     slug: 'health', title: 'Health', gif: healthGif, still: healthStill,

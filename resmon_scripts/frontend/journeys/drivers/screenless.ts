@@ -179,6 +179,29 @@ app.on('window-all-closed', () => app.quit());
 `;
 
   const backend: BackendFacts = {
+    find: (run) => session.api('GET', `/api/executions/${run.id}/find`),
+    fullTextForPaper: async (paper) => {
+      const statuses = await session.api<Awaited<ReturnType<BackendFacts['fullTextForPaper']>>[]>(
+        'POST', '/api/full-text/for-documents', { document_ids: [paper] });
+      expect(statuses).toHaveLength(1);
+      return statuses[0]!;
+    },
+    libraryFiles: async () => {
+      const status = await evidenceRequest<{ vault: { vault_id: string } | null }>('GET', '/api/library');
+      expect(status.vault, 'this app has no Library vault to read').not.toBeNull();
+      const listed = await evidenceRequest<{ files: Awaited<ReturnType<BackendFacts['libraryFiles']>>; has_more: boolean }>(
+        'GET', `/api/library/files?expected_vault_id=${status.vault!.vault_id}&limit=100`);
+      expect(listed.has_more, 'the Library exceeds the journey reader’s first page').toBe(false);
+      return listed.files;
+    },
+    collections: () => session.api('GET', '/api/collections'),
+    papersInCollection: async (collection) => {
+      const page = await session.api<{ total: number; results: { id: number; title: string }[] }>(
+        'POST', '/api/explorer/search', { collection, limit: 50 });
+      expect(page.results.length, 'this collection exceeds the journey reader’s first page').toBe(page.total);
+      return page.results.map(({ id, title }) => ({ id, title })).sort((a, b) => a.id - b.id);
+    },
+    paper: (paper) => session.api('GET', `/api/documents/${paper}`),
     port: async () => session.port,
     health: () => session.api('GET', '/api/health'),
     execution: (run) => session.api('GET', `/api/executions/${run.id}`),
@@ -273,7 +296,11 @@ app.on('window-all-closed', () => app.quit());
     selectedAnswer: (project, answerId) => answerOf(project, answerId),
     sourceWall: () => session.api<StoredSourceWall>('GET', '/api/coverage/source-wall?limit=12'),
     // — the Atlas interface: facts any renderer can read ---------------------
-    appearance: () => session.api('GET', '/api/appearance'),
+    // The theme and the accent: the run monitor's switch, kept beside them, is not this journey's.
+    appearance: async () => {
+      const kept = await session.api<{ theme: 'system' | 'light' | 'dark'; accent: string | null }>('GET', '/api/appearance');
+      return { theme: kept.theme, accent: kept.accent };
+    },
     collectionMap: () => session.api('GET', '/api/map'),
     today: () => session.api('GET', '/api/today'),
     sharedWording: () => session.api('GET', '/api/shared-wording'),
@@ -291,7 +318,7 @@ app.on('window-all-closed', () => app.quit());
       });
       const run = { id: started.execution_id };
       await expect.poll(async () => String((await backend.execution(run)).status), { timeout: 150_000 })
-        .not.toMatch(/^(running|cancelling)$/);
+        .not.toMatch(/^(running|canceling)$/);
       return run;
     },
   };

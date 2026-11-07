@@ -6,6 +6,7 @@ import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
 import { test, expect, _electron as electron } from '@playwright/test';
 import { FRONTEND_ROOT, atlasEnv, launchEnv, ensureScreenshotDir, e2eAuth, ATLAS_LANDMARK } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 test('selected runs save one entry per stored paper with globally unique keys', async () => {
   const state = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-reading-export-'));
@@ -28,8 +29,8 @@ test('selected runs save one entry per stored paper with globally unique keys', 
     const health = await (await win.request.get(`http://127.0.0.1:${port}/api/health`, { headers: e2eAuth(`http://127.0.0.1:${port}/api/health`) })).json();
     expect(Number(execFileSync('ps', ['-o', 'ppid=', '-p', String(health.pid)], { encoding: 'utf8' }).trim())).toBe(app.process().pid);
     console.log('READING_INSTANCE', JSON.stringify({ state, port, health, parentPid: app.process().pid, fixture }));
-    // The run log beside Ask the sources: each run's row, by its id.
-    await win.evaluate(() => { window.location.hash = '#/search/ask'; });
+    // The Runs tab's history: each run's row, by its id, with its own checkbox.
+    await win.evaluate(() => { window.location.hash = '#/runs'; });
     for (const id of fixture.selected_execution_ids) {
       const row = win.locator(`.run-row[data-run="${id}"]`);
       await expect(row).toBeVisible({ timeout: 30_000 });
@@ -67,6 +68,6 @@ test('selected runs save one entry per stored paper with globally unique keys', 
     expect(snapshot()).toBe(before);
   } finally {
     await app.close().catch(() => {});
-    fs.rmSync(state, { recursive: true, force: true });
+    removeStateDir(state);
   }
 });

@@ -34,11 +34,13 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_assistant_api as api  # noqa: E402
+from test_assistant_runtime import bare_name_on_path, record_starts  # noqa: E402
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
 
 import mcp_server  # noqa: E402
+from implementation_scripts import ai_cli  # noqa: E402
 from implementation_scripts import assistant_choices as choices  # noqa: E402
 from implementation_scripts import assistant_runtime as ar  # noqa: E402
 from implementation_scripts.ai_model_names import model_display_name  # noqa: E402
@@ -341,6 +343,28 @@ def test_stop_ends_a_codex_turn_as_stopped(codex):
     assert ar.cancel_turn(733) is True
     worker.join(timeout=20)
     assert [e["code"] for e in sink if e["type"] == "error"] == ["stopped"]
+
+
+@pytest.mark.parametrize("configured", ["a path that is not there", "no path"])
+def test_a_missing_codex_starts_nothing_and_says_what_the_routes_say(tmp_path, monkeypatch, configured):
+    """``cli_missing``, with discovery's sentence, and never the ``codex`` on PATH."""
+    ran = bare_name_on_path(tmp_path, monkeypatch, "codex")
+    path = str(tmp_path / "no-such-codex") if configured != "no path" else None
+    started = record_starts(monkeypatch)
+    runtime = ar.CodexCliRuntime(cli_path=path, backend_port=_NO_BACKEND)
+    events = turn(runtime, "SAY:hello")
+    sentence = ai_cli.discover_cli("codex", path).describe()
+    assert runtime.status().reason == sentence
+    assert events == [{"type": "error", "message": sentence, "detail": "cli_missing", "code": "failed"}]
+    assert started == [] and not ran.exists()
+
+
+def test_the_codex_found_is_the_one_that_starts(codex, tmp_path, monkeypatch):
+    ran = bare_name_on_path(tmp_path, monkeypatch, "codex")
+    started = record_starts(monkeypatch)
+    events = turn(codex, "SAY:hello")
+    assert kinds(events) == ["started", "text_delta", "done"]
+    assert [argv[0] for argv in started] == [codex.configured_path] and not ran.exists()
 
 
 def test_a_codex_that_never_speaks_is_named_in_the_timeout(codex, monkeypatch):

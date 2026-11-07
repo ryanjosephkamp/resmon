@@ -21,7 +21,7 @@ def pdf_bytes(conn: sqlite3.Connection, expected: str, project_id: str, file_id:
                 break
             data.extend(chunk)
         if len(data) > evidence_pdf.MAX_INPUT:
-            evidence.refuse('pdf_limit', 'This PDF exceeds 16 MiB; nothing was truncated.', 413)
+            evidence.refuse('pdf_limit', 'This PDF exceeds 64 MiB; nothing was truncated.', 413)
         if len(data) != row['byte_size'] or hashlib.sha256(data).hexdigest() != row['sha256']:
             evidence.refuse('changed_content', 'Retained bytes changed during the read.')
         return file, bytes(data)
@@ -30,7 +30,7 @@ def pdf_bytes(conn: sqlite3.Connection, expected: str, project_id: str, file_id:
 def read_text(conn: sqlite3.Connection, expected: str, project_id: str, file_id: str,
               version_id: str, page: int, *, cancel: threading.Event | None = None) -> dict:
     if cancel is not None and cancel.is_set():
-        evidence.refuse('cancelled', 'The selected page read was cancelled.')
+        evidence.refuse('cancelled', 'The selected page read was canceled.')
     evidence.integer(page, 1, 200)
     file = evidence.reader_access(conn, expected, project_id, file_id, version_id)
     if file['media_type'] == 'application/pdf':
@@ -45,7 +45,7 @@ def read_text(conn: sqlite3.Connection, expected: str, project_id: str, file_id:
                   'page_count': 1, 'text': projection['text']}
         contract = evidence.TEXT_CONTRACT
     if cancel is not None and cancel.is_set():
-        evidence.refuse('cancelled', 'The selected page read was cancelled.')
+        evidence.refuse('cancelled', 'The selected page read was canceled.')
     text = result['text']
     return evidence.envelope(expected, project_id, file_id=file_id, version_id=version_id,
                              sha256=file['sha256'], media_type=file['media_type'], **result,

@@ -41,6 +41,17 @@ APP_DIR_NAME = "resmon"
 LOCK_FILE_NAME = "daemon.lock"
 
 
+def build_id() -> Optional[str]:
+    """The build of the app that started this engine, as the app names it (``RESMON_BUILD_ID``), or None.
+
+    Two builds of one version both call themselves 1.0.0, so a version alone
+    cannot tell the app whether the service running is its own build. The app
+    passes its id to every engine it starts; an engine started otherwise has none.
+    """
+    value = (os.environ.get("RESMON_BUILD_ID") or "").strip()
+    return value[:128] or None
+
+
 def state_dir() -> Path:
     """Return the OS-appropriate per-user state directory for resmon.
 
@@ -106,6 +117,9 @@ class DaemonLock:
             "pid": int(pid),
             "port": int(port),
             "version": str(version),
+            # Which build of that version: every 1.0.0 says 1.0.0, so the app
+            # tells its own service from another build's by this.
+            "build": build_id(),
             "started_at": datetime.now(timezone.utc).isoformat(),
         }
         fh.write(json.dumps(payload))
@@ -359,12 +373,6 @@ def _log_dir_arg(argv: list[str]) -> Optional[Path]:
     return None
 
 
-# Every line the service writes carries the time it was written. The 231 MB
-# error log that made rotation necessary had none, so nothing in it could say
-# when its 166,736 tracebacks happened.
-_LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
-
-
 def _uvicorn_log_config() -> dict:
     """uvicorn's own logging configuration, with a timestamp on every line."""
     import copy
@@ -383,6 +391,7 @@ def _uvicorn_log_config() -> dict:
 def _start_service_log(argv: list[str]):
     """Bound the service's log files and stamp the start, before anything else writes."""
     from . import service_log
+    from .logger import install_engine_log
 
     log = None
     try:
@@ -391,16 +400,10 @@ def _start_service_log(argv: list[str]):
             log.start()
     except Exception:  # a log that cannot rotate must not stop the service
         logger.warning("service log rotation is not running", exc_info=True)
-    # The same records as before -- warnings and errors, which reached stderr
-    # through ``logging.lastResort`` because nothing installs a root handler
-    # -- now with a time and the logger's name. The handler, not the root,
-    # carries the level, so a module logger set to INFO adds nothing here.
-    root = logging.getLogger()
-    if not root.handlers:
-        handler = logging.StreamHandler(sys.stderr)
-        handler.setLevel(logging.WARNING)
-        handler.setFormatter(logging.Formatter(_LOG_FORMAT))
-        root.addHandler(handler)
+    # Warnings and errors, with a time and the logger's name, and the lines an
+    # upgrade of an older database writes once. After ``attach``, which may
+    # give this process a new ``sys.stderr``.
+    install_engine_log()
     print(
         f"{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')} "
         f"resmon-daemon: starting (pid {os.getpid()})",
@@ -425,7 +428,7 @@ def run(argv: Optional[list[str]] = None) -> int:
         sys.path.insert(0, str(pkg_parent))
 
     import uvicorn  # local import — daemon may be imported from tests without uvicorn configured
-    from resmon import create_app  # type: ignore
+    from resmon import create_app, set_serving_port  # type: ignore
     from implementation_scripts.config import APP_NAME, APP_VERSION  # type: ignore
 
     from implementation_scripts import api_auth  # type: ignore
@@ -444,6 +447,8 @@ def run(argv: Optional[list[str]] = None) -> int:
             from implementation_scripts import desktop_notifier  # type: ignore
             desktop_notifier.configure_host_from_environment()
             try:
+                # Before the app starts: its startup binds Evidence's answers to the port it serves.
+                set_serving_port(port)
                 app = create_app()
                 install_signal_handlers()
                 logger.info("%s daemon v%s listening on 127.0.0.1:%d (pid=%d)",

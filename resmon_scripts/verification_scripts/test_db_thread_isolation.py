@@ -1,7 +1,7 @@
 """Database connections must not be shared across threads.
 
 One process-wide ``sqlite3.Connection`` used from FastAPI request threads and
-from every execution worker thread with no serialisation is a race, because
+from every execution worker thread with no serialization is a race, because
 sqlite3 connections are not safe for concurrent use. Python
 3.10 and 3.11 mostly hid it because their sqlite3 module holds the GIL across
 most operations; 3.12 releases it far more aggressively, so the race is lost
@@ -141,7 +141,7 @@ def test_concurrent_writes_do_not_corrupt_the_connection(tmp_path):
 
     def worker(n: int) -> None:
         try:
-            barrier.wait(timeout=30)  # maximise overlap
+            barrier.wait(timeout=30)  # maximize overlap
             conn = resmon_mod._get_db()
             for i in range(per_thread):
                 database.insert_execution(conn, {
@@ -226,7 +226,7 @@ def test_worker_thread_does_not_reuse_the_request_connection():
             observed["engine_db_id"] = id(self.db)
             done.set()
 
-    # _apply_ai_settings_to_engine expects a real SweepEngine; neutralise it so
+    # _apply_ai_settings_to_engine expects a real SweepEngine; neutralize it so
     # this test is about connection ownership and nothing else.
     import unittest.mock as _mock
     with _mock.patch.object(resmon_mod, "_apply_ai_settings_to_engine", lambda *a, **k: None):

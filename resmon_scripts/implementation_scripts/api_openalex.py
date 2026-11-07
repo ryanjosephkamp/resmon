@@ -3,8 +3,9 @@
 
 import logging
 
-from .api_base import (Author, BaseAPIClient, NormalizedResult, RateLimiter,
-                       bare_orcid, read_json_body, safe_request, sent_params)
+from .api_base import (Author, BaseAPIClient, LookupUnsupported, NormalizedResult, RateLimiter,
+                       bare_orcid, either, note_not_found, path_after, read_json_body,
+                       safe_request, sent_params)
 
 logger = logging.getLogger(__name__)
 
@@ -12,19 +13,57 @@ _OPENALEX_API_URL = "https://api.openalex.org/works"
 
 # Polite pool: 10 req/s with mailto
 _RATE_LIMITER = RateLimiter(requests_per_second=10.0)
-_MAILTO = "resmon@example.com"
 
 
 class OpenAlexClient(BaseAPIClient):
     """OpenAlex repository API client."""
 
-    describe_request = staticmethod(sent_params("search", "filter"))
+    describe_request = staticmethod(either(sent_params("search", "filter"),
+                                           path_after(_OPENALEX_API_URL)))
 
     def __init__(self, mailto: str | None = None):
-        self._mailto = mailto or _MAILTO
+        # The address set in Settings › Sources, or None, when nothing is sent (``source_contact``).
+        self._mailto = mailto
 
     def get_name(self) -> str:
         return "OpenAlex"
+
+    def lookup(self, kind: str, value: str, max_results: int = 5) -> list[NormalizedResult]:
+        """A DOI or a PMID as OpenAlex's own external-id path (``/works/doi:…``); a title as ``title.search``.
+
+        The path answers one work, or 404 for an id OpenAlex does not hold,
+        which is its answer. ``title.search`` is a filter on the title alone,
+        relevance-ranked; its first records are candidates, matched locally.
+        """
+        contact = {"mailto": self._mailto} if self._mailto else {}
+        if kind in ("doi", "pmid"):
+            try:
+                response = safe_request("GET", f"{_OPENALEX_API_URL}/{kind}:{value.strip()}",
+                                        params=contact or None, rate_limiter=_RATE_LIMITER)
+            except Exception:
+                logger.exception("OpenAlex lookup failed")
+                return []
+            if response.status_code == 404:
+                note_not_found()
+                return []
+            if response.status_code != 200:
+                return []
+            data = read_json_body(response, "OpenAlex")
+            parsed = self._parse_work(data) if data else None
+            return [parsed] if parsed is not None else []
+        if kind == "title":
+            params = {"filter": f"title.search:{value.replace(',', ' ')}", "per-page": max_results, **contact}
+            try:
+                response = safe_request("GET", _OPENALEX_API_URL, params=params, rate_limiter=_RATE_LIMITER)
+            except Exception:
+                logger.exception("OpenAlex lookup failed")
+                return []
+            if response.status_code != 200:
+                return []
+            data = read_json_body(response, "OpenAlex")
+            works = (data or {}).get("results") or []
+            return [p for p in (self._parse_work(w) for w in works if isinstance(w, dict)) if p][:max_results]
+        raise LookupUnsupported(f"OpenAlex cannot be asked for a paper by {kind}.")
 
     def search_entity(
         self,
@@ -86,7 +125,7 @@ class OpenAlexClient(BaseAPIClient):
                 "search": query,
                 "page": page,
                 "per-page": per_page,
-                "mailto": self._mailto,
+                **({"mailto": self._mailto} if self._mailto else {}),
             }
 
             # 2.1 — OpenAlex is the only source with a real **identifier**
@@ -210,6 +249,7 @@ class OpenAlexClient(BaseAPIClient):
             if name:
                 categories.append(name)
 
+        locations, identifiers = _open_access(work)
         return NormalizedResult(
             source_repository="openalex",
             external_id=external_id,
@@ -220,7 +260,56 @@ class OpenAlexClient(BaseAPIClient):
             publication_date=publication_date,
             url=url,
             categories=categories[:10],  # Limit to top 10
+            open_access=locations,
+            identifiers=identifiers,
         )
+
+
+def _open_access(work: dict) -> tuple[list, list]:
+    """The open copies OpenAlex lists for a work, and its PMID, PMCID and arXiv id.
+
+    OpenAlex's ``locations`` are Unpaywall's: every place the work is hosted,
+    each with ``is_oa``, a ``pdf_url`` and a ``landing_page_url``, the
+    ``license`` OpenAlex records for that copy (``cc-by``, ``publisher-specific-oa``,
+    or none) and its ``version``. Only the ones marked open are kept;
+    ``best_oa_location`` is one of them and adds nothing. An arXiv copy names
+    its id in its address, and ``ids`` carries the PMID and PMCID as URLs.
+    """
+    from . import open_access  # noqa: PLC0415 - a cycle through api_base otherwise
+
+    locations = []
+    seen: set[str] = set()
+    identifiers: list[tuple[str, str]] = []
+    nodes = list(work.get("locations") or [])
+    best = work.get("best_oa_location")
+    if isinstance(best, dict):
+        nodes.append(best)
+    for node in nodes:
+        if not isinstance(node, dict) or node.get("is_oa") is not True:
+            continue
+        found = open_access.location(
+            "openalex", pdf_url=node.get("pdf_url"), landing_url=node.get("landing_page_url"),
+            license=node.get("license"), version=node.get("version"))
+        if found is None or found.location in seen:
+            continue
+        seen.add(found.location)
+        arxiv_id = open_access.bare_arxiv_id(found.landing_url or found.pdf_url or "")
+        if arxiv_id and open_access.host_of(found.location) in ("arxiv.org", "www.arxiv.org"):
+            # arXiv's own copy is recorded once, from the id, with its license
+            # read from arXiv; OpenAlex's record of it adds its license when
+            # OpenAlex states one.
+            identifiers.append(("arxiv", arxiv_id))
+            if found.license is None:
+                continue
+        locations.append(found)
+    ids = work.get("ids") if isinstance(work.get("ids"), dict) else {}
+    pmid = str(ids.get("pmid") or "").rstrip("/").rsplit("/", 1)[-1]
+    if pmid.isdigit():
+        identifiers.append(("pmid", pmid))
+    pmcid = str(ids.get("pmcid") or "").rstrip("/").rsplit("/", 1)[-1]
+    if pmcid.upper().startswith("PMC"):
+        identifiers.append(("pmcid", pmcid.upper()))
+    return locations, identifiers
 
 
 # ---------------------------------------------------------------------------

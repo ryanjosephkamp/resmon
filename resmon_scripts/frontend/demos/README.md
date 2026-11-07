@@ -20,8 +20,8 @@ ffmpeg on hand:
 ```bash
 npm run build                                   # the demos launch the built app
 
-# 1. The collection: about 1,700 public papers, most from arXiv, three watches and their runs,
-#    two searches, a library of three PDFs, and the map. Needs the network; about
+# 1. The collection: about 1,800 public papers, most from arXiv, three watches and their runs,
+#    three searches, a library of three PDFs, and the map. Needs the network; about
 #    half an hour, most of it waiting on arXiv's rate limit while the library's
 #    papers are checked for their licenses. The folder must not exist.
 ../../.venv/bin/python demos/build_collection.py ~/resmon-demo-collection
@@ -42,45 +42,67 @@ Record soon after building the collection: its runs are dated around the day it 
 built, and Today counts from the moment the build marked it read.
 
 Then look at every GIF and at the video before committing them. `media.ts` prints each
-GIF's length and size and says when one is over 3 MB; together they stay under 15 MB.
+GIF's length and size and checks that none exceeds 3 MB and the set stays under 15 MB.
+If the set needs less space, the largest clips are made at 12 fps first.
+
+For the site, set `RESMON_DEMO_TOUR` to `../../site/public/media/resmon-tour.mp4`.
+Its chapters are written beside it, and the joined master stays in the takes' `media/`
+folder. The README's GIF joins Today, a Deep Sweep, and Health without their title cards.
+The poster is the tour's frame at 0:09, encoded as WebP. The social card renders the
+site's own plate, headline, and mark in the dark theme at 1200 × 630; both images carry
+their origin and creation time in a `.json` file beside them.
+
+Export the same collection with `demos/export_site.py <collection>`, using the engine's
+interpreter. From `site/`, run `npm run build`, `npm run verify`, and
+`node scripts/check-tokens.mjs`. Build once more and compare `docs/` to the first build;
+the output must be identical.
 
 ## What the collection reconstructs
 
 The papers are real, and so is most of what is done with them; one part is laid out
 rather than run, and the recordings show it.
 
-- **Real:** every paper, fetched from arXiv's public API (titles, authors and abstracts
-  are arXiv's metadata, which arXiv releases under CC0); today's run of each watch; the
-  Deep Sweep and the Deep Dive made during the build; and every source outcome those
-  runs recorded. CORE has no key here, and today's run of the protein watch recorded
+- **Real:** every paper: the watches' from arXiv's public API (titles, authors and
+  abstracts are arXiv's metadata, which arXiv releases under CC0), and the searches'
+  from the sources they asked; today's run of each watch; the three searches made
+  during the build; and every source outcome those runs recorded. CORE has no key here, and today's run of the protein watch recorded
   that, so the Watchdog's "CORE has no API key configured" is the engine's own finding.
 - **Reconstructed:** the watches' daily runs before today. Each topic's papers are laid
   out as the runs that would have collected them, by each paper's own publication date:
   the times are made up, the papers are not, and CORE is recorded on each as the engine
-  records a source with no key. The Source wall draws those runs, and the Watchdog's
-  "'Protein structure' has found nothing new in its last 5 runs" is drawn from them: the
-  newest arXiv papers on that topic were several days old when the collection was built,
-  so the reconstructed runs of the days since found nothing.
+  records a source with no key. The Source wall draws those runs. Any Watchdog finding
+  about a watch's recent yield is computed from those runs and the real run of the day.
 
 ## The papers in the Library recording
 
 The Library demo shows a paper's own pages, and the recordings are public, so the build
 takes the library's PDFs only from papers whose license allows that: CC BY 4.0,
 CC BY-SA 4.0 or CC0, as arXiv's OAI-PMH metadata records it. arXiv's default license lets
-arXiv distribute a paper and nobody else, so a paper under it is passed over. Papers whose
-filmed pages show no email address come first. The build writes what it chose to
+arXiv distribute a paper and nobody else, so a paper under it is passed over. The build
+also passes over papers with an email address detected on the first three pages, including
+grouped addresses such as `{first, second}@domain`. It stops if fewer than three qualify.
+The build writes what it chose to
 `library.json` beside the collection. The recordings committed here show:
 
 | Paper | Authors | License |
 |---|---|---|
-| [Difficulty Calibration Across Time for Membership Inference in Diffusion Models](https://arxiv.org/abs/2610.40616) (arXiv:2610.40616), the one the demo opens | Michael Joseph, Yedid Hoshen | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
-| [Localizing Concepts in Visual Autoregressive Models](https://arxiv.org/abs/2610.40061) (arXiv:2610.40061), named in the file list only | Nanxiang Jiang, Yang Liu, Yuanhao Wang, Min Xu | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
-| [PROTEAN: Beyond De Novo Generation - Can LLM Agents Perform Text-Guided Protein Structure Editing?](https://arxiv.org/abs/2610.17765) (arXiv:2610.17765), named in the file list only | Encheng Su and 13 others | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| [Wireless Link Scheduling with Graph Signal Diffusion](https://arxiv.org/abs/2611.08274) (arXiv:2611.08274), the one the demo opens | Teresa Shang, Romina Garcia Camargo, Yiğit Berkay Uslu, and Alejandro Ribeiro | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| [ProteinGeoBench: Frontier Structural-Biology Agents Are Fluent at Lookup but Lost in Geometry](https://arxiv.org/abs/2610.26829) (arXiv:2610.26829), shown as a PDF cover in Your files | Matt Turk, Brandon L. Neel, Diana M. Lopez, Zachary D. Smith, Grace N. Johnecheck, and James B. Golden | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| [Blitz: Accelerating the Diffusion Modules of AlphaFold3 and Boltz-2](https://arxiv.org/abs/2610.23703) (arXiv:2610.23703), shown as a PDF cover in Your files | Vinay Saji Mathew, Soundar Kumara, Gretta Kellogg, and William K. M. Lai | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 
 The filmed pages of the first show its authors and affiliation and no email address. The
 pages are shown unchanged; the recording adds the app's pointer and a text selection.
 The tour video shows the same paper, so its description on YouTube should credit it the
 same way.
+
+The Library recording starts on the Your files gallery and uses the chosen paper's Read
+button. It chooses the first paper in `library.json`, rather than the gallery's first
+card, since the gallery orders files by when they were added. Getting around opens Runs
+with ⌘4 in the default top-bar order.
+
+The searches filter the source catalog by each source's name before choosing it, then
+clear the filter. This keeps each checkbox above the fixed form footer. The steps check
+that every requested source is selected before starting the run.
 
 ## What to know
 

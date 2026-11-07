@@ -1,4 +1,4 @@
-# Selected-evidence answers, version 1
+# Selected-evidence answers
 
 A project can send an explicit selection of retained file versions, physical PDF
 pages, complete canonical text pages or exact Unicode codepoint passages to an
@@ -47,7 +47,7 @@ untrusted data; there is no automatic secret-removal guarantee.
 
 Every route uses the existing Evidence origin/`X-Resmon-Library: 1` guards,
 explicit vault identity, bounded request bodies and `Cache-Control: no-store`.
-No selected-answer MCP tool is added. Paths below begin with
+There is no selected-answer MCP tool. Paths below begin with
 `/api/evidence/projects/{project_id}`.
 
 | Method and suffix | Purpose |
@@ -109,7 +109,7 @@ Schema 17→18 adds exactly `evidence_answers` and
 `idx_evidence_answers_project_order` (plus SQLite's implicit UNIQUE indexes).
 There is no historical backfill or rewrite. The immutable request and private
 owner binding are inserted at admission. Admitted/running rows have one terminal
-CAS winner: succeeded/refused/failed/cancelled/interrupted. Checkpoints and ordered
+CAS winner: `succeeded`/`refused`/`failed`/`cancelled`/`interrupted`. Checkpoints and ordered
 reports are bounded; terminal updates preserve the final available prefix. A
 restarted backend preserves the last durable prefix, records interrupted and
 unknown completion/cleanup, and never automatically extracts, invokes or resumes.
@@ -130,9 +130,8 @@ are cleaned. It is not a full-paper archive, encrypted backup or restore format.
 ## Portable HTML, selected-answer-html/v1
 
 `format=html` extends that same guarded endpoint; omitted and unknown formats
-refuse. Schema remains 18, with 165 app route decorators (19 Evidence routes,
-including the same seven selected-answer routes) and unchanged 25-tool MCP
-inventory. Export reads exactly one validated `selected_evidence.detail` public
+refuse. Schema is 18, with 207 app routes (19 Evidence routes, including the same
+seven selected-answer routes) and the 25-tool MCP inventory. Export reads exactly one validated `selected_evidence.detail` public
 snapshot, using its existing single read transaction. No originals, runtime,
 private binding or native-session history is consulted.
 
@@ -149,12 +148,12 @@ The response is `text/html; charset=utf-8`, with fixed attachment filename
 
 The final document, after escaping, is at most 4,194,304 bytes; app-authored CSS
 is at most 65,536 bytes. Oversize returns `export_limit`/413 before advertising a
-download. Cancellable render/write work uses the existing owned spool/chunks and
+download. Cancelable render/write work uses the existing owned spool/chunks and
 cleanup; a failure does not mutate saved rows or claim a complete file.
 
 The renderer escapes every untrusted value as text, retaining CR codepoints with
 character references. It emits only index-derived IDs and fragment links, native
-details, semantic headings and wrapping system-font CSS. There are no scripts,
+details, semantic headings and wrapping system-font CSS with ligatures off. There are no scripts,
 active resources, forms, interpreted Markdown, auto-linked URLs or embedded PDFs.
 CSP is early in the file and also in HTTP: default/script/connect/image/media/
 object/frame/font sources are none; base-uri and form-action are none; style-src
@@ -171,13 +170,13 @@ reported usage remain separate. No source URL becomes an external link.
 The frontend validates exact headers/identities, bounded bytes, SHA256, UTF-8,
 document envelope and owned cancellation before creating a download object URL.
 It never inserts export HTML into the app DOM. Changing the answer/project/vault
-retires the prior export and its status. The legacy three-argument
-`downloadSelectedAnswer(project, answer, signal)` still selects ZIP. For an
-identical saved snapshot, ZIP bytes, member order/names and public JSON/Markdown
-remain unchanged; HTML is not inserted into the ZIP.
+retires the prior export and its status. The three-argument
+`downloadSelectedAnswer(project, answer, signal)` selects ZIP. For an identical
+saved snapshot, ZIP bytes, member order/names and public JSON/Markdown are the
+same whether or not an HTML export is made; HTML is not inserted into the ZIP.
 
-Checks: `test_portable_briefing.py`, additions to the selected export/boundary
-suites and renderer download/view suites, and `e2e/portable-briefing.spec.ts`.
+Checks: `test_portable_briefing.py`, the selected export/boundary suites and
+renderer download/view suites, and `e2e/portable-briefing.spec.ts`.
 The latter uses real HTTP and scripted download destinations, then a separate
 file reader after app shutdown with request observation/cancellation installed
 before loading. It does not establish physical Android, human native Save/Cancel

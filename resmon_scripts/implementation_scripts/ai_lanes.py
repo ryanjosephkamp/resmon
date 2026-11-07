@@ -95,7 +95,7 @@ DEFAULT_SUBSCRIPTION_DOC_CAP = 50
 # on the corpus that matters -- real abstracts. The one configuration where ten
 # won was synthetic abstracts on claude, by a tenth of a second per paper.
 #
-# The reason batching stops paying is that it amortises the fixed cost of a
+# The reason batching stops paying is that it amortizes the fixed cost of a
 # call and cannot touch the generation itself, which is the same work whether
 # it happens in one call or ten. Past a handful of documents there is little
 # fixed cost left to spread.
@@ -104,7 +104,7 @@ DEFAULT_SUBSCRIPTION_DOC_CAP = 50
 # stricter plan or a different CLI can change it without a release.
 #
 # Every other lane kind is 1 by construction. An HTTP request to an API-key
-# provider has no fixed cost worth amortising, and batching there would trade a
+# provider has no fixed cost worth amortizing, and batching there would trade a
 # real accuracy risk -- several abstracts in one context -- for nothing.
 DEFAULT_SUBSCRIPTION_BATCH_SIZE = 5
 
@@ -264,7 +264,7 @@ def _lane_from_entry(entry: Any, index: int) -> Optional[AILane]:
         return text or None
 
     # A cap that will not parse, or that is zero or negative, falls back to the
-    # default rather than being honoured. "0" would read as "no documents at
+    # default rather than being honored. "0" would read as "no documents at
     # all", which nobody means by it, and a corrupt value must not be the thing
     # that removes the guard.
     doc_cap: Optional[int] = None

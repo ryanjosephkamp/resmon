@@ -37,6 +37,9 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from implementation_scripts import database  # noqa: E402
+from verification_scripts.test_cumulative_upgrade import (  # noqa: E402
+    _MARKERS_A_LAUNCH_MAY_ADD, _as_recounted,
+)
 
 INDEX = "idx_documents_metadata_hash"
 SCHEMA_21_FIXTURE = Path(__file__).parent / "fixtures/schema-21/corpus.sql"
@@ -105,7 +108,7 @@ def test_a_fresh_database_answers_the_duplicate_check_from_the_index(tmp_path):
     database.init_db(str(tmp_path / "fresh.db"))
     conn = _open(tmp_path / "fresh.db")
     try:
-        assert database.get_schema_version(conn) == database.SCHEMA_VERSION == 24
+        assert database.get_schema_version(conn) == database.SCHEMA_VERSION == 27
         plan = _plan(conn)
         assert any(INDEX in step for step in plan), plan
         assert not any(step.startswith("SCAN") for step in plan), plan
@@ -153,9 +156,15 @@ def test_the_schema_21_corpus_gains_the_index_and_nothing_else(tmp_path):
     """21 -> 22 over a database a schema 21 resmon wrote, as its next launch does.
 
     The launch also takes the steps past 22: schema 23 adds two tables, schema
-    24 rebuilds ``assistant_session_choices`` with its rows, and the marker
-    moves to 24. Those are those steps', and are named here so that nothing
-    else can arrive or change unnoticed.
+    24 rebuilds ``assistant_session_choices`` with its rows, schema 25 rebuilds
+    ``library_files`` with its rows and adds the empty ``library_removed``,
+    schema 26 adds the collections (filing every paper in the default one) and
+    ``routines.collection_id``, schema 27 rebuilds ``executions`` with
+    ``find_paper`` in its type CHECK, adds the four full-text tables and
+    ``routines.download_full_text``, and the marker moves to 27. Those are those
+    steps', and are named here so that nothing else can arrive or change
+    unnoticed. Any launch also recounts the runs' new papers once; the rows are
+    compared with the fixture as that recount leaves it (``_as_recounted``).
     """
     path = tmp_path / "schema21.db"
     conn = _open(path)
@@ -165,7 +174,10 @@ def test_the_schema_21_corpus_gains_the_index_and_nothing_else(tmp_path):
     plan = _plan(conn)
     assert any(step.startswith("SCAN") for step in plan), (
         f"the schema 21 corpus should scan for a hash; its plan was {plan}")
-    objects_before, rows_before = _objects(conn), _rows(conn)
+    recounted = _as_recounted(conn)
+    objects_before, rows_before = _objects(conn), _rows(recounted)
+    recounted.close()
+    before_library_columns = list(conn.execute("PRAGMA table_info(library_files)"))
     conn.close()
 
     database.init_db(str(path))            # the launch
@@ -173,25 +185,55 @@ def test_the_schema_21_corpus_gains_the_index_and_nothing_else(tmp_path):
     conn = _open(path)
     try:
         objects_after, rows_after = _objects(conn), _rows(conn)
-        assert set(objects_after) - set(objects_before) == {INDEX} | set(database._ANSWER_RECORDS_V23_DDL)
+        # Schema 25 adds ``library_removed``; its autoindexes have no stored SQL.
+        assert set(objects_after) - set(objects_before) == (
+            {INDEX} | set(database._ANSWER_RECORDS_V23_DDL) | {"library_removed"}
+            | set(database._COLLECTIONS_TABLES) | set(database._COLLECTIONS_TRIGGERS)
+            | set(database._FULL_TEXT_DDL))
         assert set(objects_before) - set(objects_after) == set()
+        # Schema 24 rebuilds ``assistant_session_choices``, schema 25 rebuilds
+        # ``library_files``, schema 26 adds ``routines.collection_id``, and
+        # schema 27 rebuilds ``executions`` and adds
+        # ``routines.download_full_text``, on purpose; everything else is
+        # untouched.
+        rebuilt = {"assistant_session_choices", "library_files", "routines", "executions"}
         assert all(objects_after[n] == objects_before[n] for n in objects_before
-                   if n != "assistant_session_choices")
+                   if n not in rebuilt)
         assert "'codex_cli'" in objects_after["assistant_session_choices"]
+        assert "'text/x-tex'" in objects_after["library_files"]
+        assert "collection_id INTEGER REFERENCES collections(id)" in objects_after["routines"]
+        assert "download_full_text INTEGER NOT NULL DEFAULT 0" in objects_after["routines"]
+        assert objects_after["executions"] == objects_before["executions"].replace(
+            "'automated_sweep')", "'automated_sweep', 'find_paper')")
+        assert [r[1] for r in conn.execute("PRAGMA table_info(library_files)")] == [
+            r[1] for r in before_library_columns]
         assert objects_after[INDEX] == (
             "CREATE INDEX idx_documents_metadata_hash ON documents(metadata_hash)")
 
         settings_before = dict(rows_before.pop("app_settings"))
         settings_after = dict(rows_after.pop("app_settings"))
         assert settings_before.pop("schema_version") == "21"
-        assert settings_after.pop("schema_version") == "24"
+        assert settings_after.pop("schema_version") == "27"
         # One-shot backfill markers this build writes on any launch, which the
         # cumulative-upgrade test names; they are not this step's doing.
-        settings_after.pop("document_facets_backfilled", None)
+        for marker in _MARKERS_A_LAUNCH_MAY_ADD:
+            settings_after.pop(marker, None)
         assert settings_after == settings_before
         # Schema 23's tables arrive empty; they are that step's, not this one's.
         assert rows_after.pop("assistant_turn_failures") == []
         assert rows_after.pop("execution_ai_models") == []
+        # Schema 25's removed-file record arrives empty.
+        assert rows_after.pop("library_removed") == []
+        # Schema 26 files every paper in the default collection, and each
+        # watch gains ``collection_id`` at the end of its row, pointing there.
+        assert [r[:3] for r in rows_after.pop("collections")] == [(1, "Your collection", 0)]
+        assert sorted(r[1] for r in rows_after.pop("collection_documents")) == sorted(
+            r[0] for r in rows_before["documents"])
+        assert rows_after.pop("routines") == [r + (1, 0) for r in rows_before.pop("routines")]
+        # Schema 27's four tables arrive empty.
+        for table in database._FULL_TEXT_DDL:
+            if not table.startswith("idx_"):
+                assert rows_after.pop(table) == []
         assert rows_after == rows_before
 
         assert any(INDEX in step for step in _plan(conn))
@@ -202,7 +244,7 @@ def test_the_schema_21_corpus_gains_the_index_and_nothing_else(tmp_path):
     conn = _open(path)
     try:
         assert _objects(conn) == objects_after
-        assert database.get_schema_version(conn) == 24
+        assert database.get_schema_version(conn) == 27
     finally:
         conn.close()
 

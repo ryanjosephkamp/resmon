@@ -20,8 +20,11 @@
  * - **the video segment**, title card included: 1920 x 1080 at 30 fps, the
  *   1440 x 900 window scaled to the full height and set on its own ground.
  *
- * With every take present, the segments are joined into the tour: H.264,
- * 1920 x 1080, 30 fps, no audio.
+ * With every take present, the segments are joined into the tour's master
+ * (`media/resmon-tour-master.mp4`, for YouTube), and the tour a page plays is
+ * that master at CRF 30: H.264, 1920 x 1080, 30 fps, no audio. Its chapters
+ * are written beside it
+ * (`resmon-tour.json`: where each segment starts, and its title and line).
  *
  * Environment: `RESMON_DEMO_OUT` (where the takes are; also where the masters
  * and segments go), `RESMON_DEMO_GIFS` (where the GIFs and stills go; the
@@ -86,7 +89,7 @@ function speedAt(marks: Mark[], t: number): number {
  * demuxer rounds each frame up to a 25 fps tick, so a take drawn 40 frames a
  * second would run long.
  */
-function timeline(take: Take, dir: string, from: number, sequence: string): number {
+export function timeline(take: Take, dir: string, from: number, sequence: string): number {
   const end = mark(take, 'end');
   const marks = [...take.marks].sort((a, b) => a.t - b.t);
   // Film time of a take moment, integrated in 10 ms steps.
@@ -94,7 +97,13 @@ function timeline(take: Take, dir: string, from: number, sequence: string): numb
   let clock = from;
   let elapsed = 0;
   const filmAt = (t: number): number => {
-    for (; clock < t; clock += 0.01) elapsed += Math.min(0.01, t - clock) / speedAt(marks, clock);
+    // A partial step must advance the clock by that fraction too. Advancing
+    // a full tick while counting only its fraction drops time at every frame.
+    while (clock < t) {
+      const next = Math.min(clock + 0.01, t);
+      elapsed += (next - clock) / speedAt(marks, clock);
+      clock = next;
+    }
     return elapsed;
   };
   const frames = take.frames.filter((f) => f.t <= end);
@@ -102,7 +111,7 @@ function timeline(take: Take, dir: string, from: number, sequence: string): numb
   const length = filmAt(end);
   fs.rmSync(sequence, { recursive: true, force: true });
   fs.mkdirSync(sequence, { recursive: true });
-  const count = Math.floor(length * FPS);
+  const count = Math.floor(length * FPS + 1e-6);
   let at = 0;
   for (let k = 0; k < count; k++) {
     while (at + 1 < frames.length && film[at + 1]! <= k / FPS) at++;
@@ -139,11 +148,12 @@ function stillFrame(take: Take, dir: string): string | null {
 }
 
 /** The GIF and its still: two passes, the palette first. */
-function gif(slug: string, file: string, start: number, out: string, gifs: string, still: string | null): { gif: string; fps: number; bytes: number } {
+function gif(slug: string, file: string, start: number, out: string, gifs: string, still: string | null,
+  rates: readonly number[] = [15, 12]): { gif: string; fps: number; bytes: number } {
   const palette = path.join(out, `${slug}-palette.png`);
   const target = path.join(gifs, `${slug}.gif`);
   let made = { gif: target, fps: 0, bytes: Infinity };
-  for (const fps of [15, 12]) {
+  for (const fps of rates) {
     const scale = `fps=${fps},scale=${GIF_WIDTH}:-1:flags=lanczos`;
     ffmpeg(['-ss', start.toFixed(3), '-i', file, '-vf', `${scale},palettegen=max_colors=256:stats_mode=full`, palette]);
     ffmpeg(['-ss', start.toFixed(3), '-i', file, '-i', palette, '-lavfi',
@@ -175,6 +185,7 @@ function main(): void {
   fs.mkdirSync(media, { recursive: true });
   const asked = process.argv.slice(2);
   const segments: string[] = [];
+  const recordings: { slug: string; film: string; start: number; still: string | null; made: ReturnType<typeof gif> }[] = [];
   for (const d of DEMOS) {
     const dir = path.join(out, 'takes', d.slug);
     const takeFile = path.join(dir, 'take.json');
@@ -189,11 +200,30 @@ function main(): void {
     }
     const take = JSON.parse(fs.readFileSync(takeFile, 'utf8')) as Take;
     const { master: film, gifStart } = master(take, dir, media);
-    const made = gif(d.slug, film, gifStart, media, gifs, stillFrame(take, dir));
+    const still = stillFrame(take, dir);
+    const made = gif(d.slug, film, gifStart, media, gifs, still);
+    recordings.push({ slug: d.slug, film, start: gifStart, still, made });
     segments.push(segment(d.slug, film, take.theme ?? 'light', media));
     const length = seconds(film) - gifStart;
     console.log(`${d.slug}: GIF ${length.toFixed(1)} s at ${made.fps} fps, ${(made.bytes / 1024 / 1024).toFixed(2)} MB`
       + (made.bytes > GIF_LIMIT ? ' — OVER 3 MB' : ''));
+  }
+  if (recordings.length === DEMOS.length) {
+    let total = recordings.reduce((n, recording) => n + recording.made.bytes, 0);
+    // A set can exceed its budget even when every GIF fits on its own. Keep
+    // 15 fps where it fits, reducing the largest clips first when it does not.
+    for (const recording of [...recordings].sort((a, b) => b.made.bytes - a.made.bytes)) {
+      if (total < 15_000_000) break;
+      if (recording.made.fps === 12) continue;
+      const before = recording.made.bytes;
+      recording.made = gif(recording.slug, recording.film, recording.start, media, gifs, recording.still, [12]);
+      total += recording.made.bytes - before;
+      console.log(`${recording.slug}: 12 fps for the set's budget, ${recording.made.bytes} bytes`);
+    }
+    console.log(`tutorial GIFs: ${total} bytes in all`);
+    if (total >= 15_000_000 || recordings.some((r) => r.made.bytes > GIF_LIMIT)) {
+      throw new Error('The tutorial GIFs exceed their size budget.');
+    }
   }
   if (segments.length !== DEMOS.length) {
     console.log(`The tour needs all ${DEMOS.length} segments; ${segments.length} are made.`);
@@ -202,9 +232,26 @@ function main(): void {
   const tour = path.resolve(process.env.RESMON_DEMO_TOUR || path.join(out, 'resmon-tour.mp4'));
   const list = path.join(media, 'tour.txt');
   fs.writeFileSync(list, segments.map((s) => `file '${s}'`).join('\n') + '\n');
-  // Every segment was encoded with the same settings, so they join without re-encoding.
-  ffmpeg(['-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', '-an', '-movflags', '+faststart', tour]);
-  console.log(`tour: ${seconds(tour).toFixed(1)} s, ${(fs.statSync(tour).size / 1024 / 1024).toFixed(1)} MB → ${tour}`);
+  // Every segment was encoded with the same settings, so they join without re-encoding, into the
+  // master (for YouTube). The tour a page plays is the master at CRF 30: a screen of text and flat
+  // panels holds its edges there, at under half the size.
+  const tourMaster = path.join(media, 'resmon-tour-master.mp4');
+  ffmpeg(['-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', '-an', '-movflags', '+faststart', tourMaster]);
+  ffmpeg(['-i', tourMaster, ...BT709, '-c:v', 'libx264', '-preset', 'slow', '-crf', '30', '-profile:v', 'high',
+    '-pix_fmt', 'yuv420p', '-an', '-movflags', '+faststart', tour]);
+  console.log(`tour: ${seconds(tour).toFixed(1)} s, ${(fs.statSync(tour).size / 1024 / 1024).toFixed(1)} MB → ${tour}`
+    + ` (master ${(fs.statSync(tourMaster).size / 1024 / 1024).toFixed(1)} MB → ${tourMaster})`);
+  // Its chapters, beside it, for a page that shows the tour: where each segment starts, measured from
+  // the segments as joined, and what each one is (`titles.ts`).
+  let at = 0;
+  const chapters = DEMOS.map((d, k) => {
+    const start = at;
+    at += seconds(segments[k] ?? '');
+    return { slug: d.slug, title: d.title, line: d.line, start: Math.round(start * 10) / 10 };
+  });
+  const chaptersFile = tour.replace(/\.mp4$/, '.json');
+  fs.writeFileSync(chaptersFile, `${JSON.stringify({ seconds: Math.round(seconds(tour) * 100) / 100, chapters }, null, 1)}\n`);
+  console.log(`chapters → ${chaptersFile}`);
 }
 
-main();
+if (require.main === module) main();

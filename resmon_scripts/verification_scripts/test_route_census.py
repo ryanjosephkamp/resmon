@@ -117,7 +117,7 @@ def test_nothing_in_the_suite_still_types_the_route_total():
 
     Matches a line carrying the current total as a standalone integer *and* the
     word "route", which is what distinguishes a counter from a byte offset or a
-    colour channel that happens to be the same number.
+    color channel that happens to be the same number.
     """
     total = route_census.contract_total()
     pattern = re.compile(rf"\b{total}\b")

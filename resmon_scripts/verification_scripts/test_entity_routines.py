@@ -25,6 +25,7 @@ import json
 import sqlite3
 import sys
 from pathlib import Path
+from urllib.parse import unquote
 
 import pytest
 
@@ -442,6 +443,65 @@ def test_the_retractions_mode_surfaces_the_findings_on_this_profiles_papers(fire
     assert "Retraction Watch" in report
 
 
+def test_a_retractions_run_counts_the_finding_it_recorded_as_new(fired, monkeypatch):
+    """`new_result_count` is the findings this run was the first to record.
+
+    A finding's `first_seen_at` is SQLite's `datetime('now')` and the run's start
+    is `now_iso()`. Compared as text, a finding recorded the day its run started
+    read as older than the run, and the run counted none as new.
+    """
+    from implementation_scripts import lifecycle as lifecycle_real  # noqa: PLC0415
+
+    profile = _profile_over_api(fired, identifiers={"orcid": {"value": ORCID}})
+    conn = _conn(fired)
+    try:
+        conn.execute(
+            "INSERT INTO documents (source_repository, external_id, title, "
+            "metadata_hash) VALUES ('fixture', 'hers', 'Her paper', 'hers')")
+        doc = conn.execute(
+            "SELECT id FROM documents WHERE external_id = 'hers'").fetchone()["id"]
+        conn.execute(
+            "INSERT INTO watch_profile_matches (document_id, profile_id, basis, "
+            "matched_author) VALUES (?, ?, 'identifier', 'Jane Doe')",
+            (doc, profile["id"]))
+        # A finding recorded before this run, a minute back: the stored times
+        # have one-second resolution.
+        conn.execute(
+            "INSERT INTO document_lifecycle (document_id, kind, severity, "
+            "notice_key, label, notice_url, provider, first_seen_at) VALUES "
+            "(?, 'retraction', 'critical', 'n1', 'Retraction', "
+            "'https://doi.org/10.1/n1', 'crossref', datetime('now', '-1 minute'))", (doc,))
+        conn.commit()
+    finally:
+        resmon_mod._close_db(conn)
+
+    real_check = lifecycle_real.check_documents
+
+    def check_and_find_a_correction(db, document_ids, **kwargs):
+        summary = real_check(db, document_ids, **kwargs)
+        db.execute(
+            "INSERT INTO document_lifecycle (document_id, kind, severity, "
+            "notice_key, label, notice_url, provider) VALUES "
+            "(?, 'correction', 'caution', 'n2', 'Correction', "
+            "'https://doi.org/10.1/n2', 'crossref')", (doc,))
+        db.commit()
+        return summary
+
+    monkeypatch.setattr(lifecycle_real, "check_documents", check_and_find_a_correction)
+    routine = fired.post("/api/routines", json=_routine_body(
+        profile["id"], mode="retractions", repositories=["fixture"])).json()
+    fired.post(f"/api/routines/{routine['id']}/run")
+
+    conn = _conn(fired)
+    try:
+        row = conn.execute(
+            "SELECT status, result_count, new_result_count FROM executions "
+            "ORDER BY id DESC LIMIT 1").fetchone()
+    finally:
+        resmon_mod._close_db(conn)
+    assert (row["status"], row["result_count"], row["new_result_count"]) == ("completed", 2, 1)
+
+
 def test_a_retractions_report_never_says_nothing_has_happened(fired):
     """Zero findings is a claim about the record, not about the world."""
     profile = _profile_over_api(fired, identifiers={"orcid": {"value": ORCID}})
@@ -460,7 +520,7 @@ def test_a_retractions_report_never_says_nothing_has_happened(fired):
     assert "have been checked for retractions and updates" in report
 
 
-def test_a_cancelled_retractions_run_stops_before_it_asks_anybody(fired, monkeypatch):
+def test_a_canceled_retractions_run_stops_before_it_asks_anybody(fired, monkeypatch):
     """The Cancel button does something, and the log says what.
 
     Everything before the checkpoint reads the local database; everything after
@@ -481,14 +541,16 @@ def test_a_cancelled_retractions_run_stops_before_it_asks_anybody(fired, monkeyp
         profile["id"], mode="retractions", repositories=["fixture"])).json()
 
     from implementation_scripts.progress import progress_store  # noqa: PLC0415
-    original = progress_store.should_cancel
-    monkeypatch.setattr(progress_store, "should_cancel", lambda _exec_id: True)
-    try:
-        fired.post(f"/api/routines/{routine['id']}/run")
-    finally:
-        monkeypatch.setattr(progress_store, "should_cancel", original)
+    register = progress_store.register
 
-    assert checked == [], "the run asked a provider after being cancelled"
+    def register_and_stop(exec_id):
+        register(exec_id)
+        assert progress_store.request_cancel(exec_id) is True
+
+    monkeypatch.setattr(progress_store, "register", register_and_stop)
+    fired.post(f"/api/routines/{routine['id']}/run")
+
+    assert checked == [], "the run asked a provider after being canceled"
 
     conn = _conn(fired)
     try:
@@ -500,9 +562,40 @@ def test_a_cancelled_retractions_run_stops_before_it_asks_anybody(fired, monkeyp
     # The run leaves a report, and it cannot be read as a check that found nothing.
     report = Path(row["result_path"]).read_text(encoding="utf-8")
     assert report.startswith("# Watch report — ")
-    assert "(cancelled)" in report.splitlines()[0]
-    assert "cancelled before it checked any paper" in report
+    assert "(canceled)" in report.splitlines()[0]
+    assert "canceled before it checked any paper" in report
     assert "## Findings" not in report
+
+
+def test_a_stop_during_the_retractions_pass_is_refused_not_ignored(fired, monkeypatch):
+    """Past the checkpoint the pass cannot be interrupted, so a stop says so.
+
+    A stop answered 200 would be followed by a run that completes anyway.
+    """
+    from implementation_scripts import lifecycle as lifecycle_real  # noqa: PLC0415
+    from implementation_scripts.progress import progress_store  # noqa: PLC0415
+    answers: list = []
+
+    def during_the_pass(*a, **k):
+        for exec_id in progress_store.get_active_ids():
+            answers.append(progress_store.request_cancel(exec_id))
+            answers.append(fired.post(f"/api/executions/{exec_id}/cancel").status_code)
+        return {"checked_now": 0, "eligible": 0, "selected": 0, "errors": [],
+                "checked_at": ""}
+
+    monkeypatch.setattr(lifecycle_real, "check_documents", during_the_pass)
+    profile = _profile_over_api(fired, identifiers={"orcid": {"value": ORCID}})
+    routine = fired.post("/api/routines", json=_routine_body(
+        profile["id"], mode="retractions", repositories=["fixture"])).json()
+    fired.post(f"/api/routines/{routine['id']}/run")
+
+    assert answers == [False, 409]
+    conn = _conn(fired)
+    try:
+        row = conn.execute("SELECT status FROM executions ORDER BY id DESC LIMIT 1").fetchone()
+    finally:
+        resmon_mod._close_db(conn)
+    assert row["status"] == "completed"
 
 
 # ---------------------------------------------------------------------------
@@ -707,7 +800,9 @@ def test_no_askable_client_rewrites_the_query_it_is_handed():
             # rather than in a query string, and a recorder that read only
             # `params` would have reported it as dropping the syntax.
             payload = {**(kwargs.get("params") or {}), **(kwargs.get("json") or {})}
-            seen.append(str(url))
+            # Decoded: DOAJ percent-encodes its one path segment so a DOI's
+            # slash stays inside it, and what reaches DOAJ is the decoded text.
+            seen.append(unquote(str(url)))
             seen.extend(str(v) for v in payload.values())
             return _Recorded()
 
@@ -728,8 +823,8 @@ def test_no_askable_client_rewrites_the_query_it_is_handed():
             module.safe_request = original
 
         # **The field and the name must both survive**, rather than the byte
-        # string. A client may legitimately reformat: INSPIRE parenthesises when
-        # a date is present, and NDL canonicalises `creator="X"` into CQL's
+        # string. A client may legitimately reformat: INSPIRE parenthesizes when
+        # a date is present, and NDL canonicalizes `creator="X"` into CQL's
         # `creator = "X"`. What must never happen is the arXiv and NDL defect —
         # the field being swallowed, so the query silently becomes a search of
         # some other field or of the whole record.

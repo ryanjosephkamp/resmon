@@ -18,9 +18,10 @@ The honesty problem, and why it is the feature
 resmon cannot know why an upstream source returned a paper. Most of the fifteen
 sources are relevance-ranked -- their backends score documents against the query
 and return the best matches, so a paper can legitimately come back without
-containing any of the terms literally. resmon also stores only title, abstract,
-authors and categories: the match may be in the full text, in publisher
-keywords, or in a MeSH term, none of which it holds.
+containing any of the terms literally. resmon also checks keywords only against
+title, abstract, authors, and categories: the match may be in the full text (even
+of a PDF it keeps), in publisher keywords, or in a MeSH term, none of which it
+reads for a match.
 
 So this module never claims to explain the upstream's decision. It reports what
 is **locally verifiable** and states plainly where its knowledge stops, using
@@ -54,6 +55,7 @@ import sqlite3
 from collections import defaultdict
 
 from . import repo_catalog
+from .paper_collections import RUN_COLLECTION_SQL, documents_in
 
 # Sources where resmon performs the keyword filtering itself, so the local
 # explanation is complete rather than partial. Derived from the catalog's
@@ -71,7 +73,7 @@ _FIELD_LABELS = {
     "authors": "the author list",
 }
 
-# Uppercase boolean tokens some upstreams honour inside a single keyword chip.
+# Uppercase boolean tokens some upstreams honor inside a single keyword chip.
 _OPERATOR_RE = re.compile(r"(?:^|\s)(AND|OR|NOT)(?:\s|$)")
 
 # Minimum papers before a keyword's unique-contribution share is reported as a
@@ -147,6 +149,10 @@ def keywords_for_execution(execution: dict) -> list[str]:
             raw = None
     if not isinstance(raw, dict):
         return []
+    # A find looked one paper up by its DOI, id or title: what was typed is an
+    # identifier, not keywords, and checking a paper for it says nothing.
+    if raw.get("find"):
+        return []
 
     keywords = raw.get("keywords")
     if isinstance(keywords, list):
@@ -189,10 +195,10 @@ def _limits(source: dict | None, slug: str) -> list[str]:
     reasoning, and the difference matters to anyone defending a search strategy.
     """
     limits = [
-        "resmon stores each paper's title, abstract, authors and categories — "
-        "not its full text. A keyword could appear in the body of the paper, in "
-        "publisher-supplied keywords, or in an indexing term such as MeSH, and "
-        "resmon would have no way to see it.",
+        "resmon checks keywords against each paper's title, abstract, authors, and "
+        "categories, never its full text, even when it keeps the PDF. A keyword could "
+        "appear in the body of the paper, in publisher-supplied keywords, or in an "
+        "indexing term such as MeSH, and resmon would not see it there.",
     ]
     combination = (source or {}).get("keyword_combination") or ""
     notes = (source or {}).get("keyword_combination_notes") or ""
@@ -305,6 +311,16 @@ def explain_document(
 
     matched = [m for m in matches if m["matched"]]
     verdict, headline = _verdict(slug, source, matches, matched)
+    finds = [run for run in runs if run["execution_type"] == "find_paper"]
+    if finds and not matches:
+        how = conn.execute(
+            "SELECT matched_by FROM execution_find_results WHERE document_id = ? AND outcome = 'found' "
+            "ORDER BY execution_id DESC LIMIT 1", (int(document_id),)).fetchone()
+        verdict = "found_by_find"
+        headline = (
+            f"Find a paper looked it up, and {(source or {}).get('name') or slug} answered with this "
+            f"record{_FIND_MATCH_WORDS.get(how[0] if how else '', '')}. A find is not a keyword search, so "
+            "there are no keywords to check it against.")
 
     return {
         "document": {
@@ -344,6 +360,16 @@ def _describe_fields(fields: list[str]) -> str:
     return ", ".join(labels[:-1]) + ", and " + labels[-1]
 
 
+#: How a find matched the record it kept, as the paper's account says it.
+_FIND_MATCH_WORDS = {
+    "doi": ", which carries the DOI asked for",
+    "arxiv": ", which carries the arXiv id asked for",
+    "pmid": ", which carries the PMID asked for",
+    "exact_title": ", whose title is the title asked for",
+    "close_title": ", whose title is close to the title asked for",
+}
+
+
 def _verdict(
     slug: str,
     source: dict | None,
@@ -379,7 +405,7 @@ def _verdict(
         return (
             "no_local_evidence",
             f"{name} is filtered by resmon itself, so a paper with no matching "
-            "term is unexpected here. It may predate a change to this routine's "
+            "term is unexpected here. It may predate a change to this watch's "
             "keywords.",
         )
 
@@ -417,11 +443,14 @@ def _join_keywords(keywords: list[str]) -> str:
 def keyword_contribution(
     conn: sqlite3.Connection,
     execution_id: int | None = None,
+    collection_id: int | None = None,
 ) -> dict:
     """Per keyword: papers it brought in that no other keyword did.
 
     Scoped to one execution when ``execution_id`` is given, otherwise to every
-    keyword the user has ever searched, against the whole corpus.
+    keyword the user has ever searched, against the whole corpus; with
+    ``collection_id``, to the keywords of the runs that put papers in that
+    collection, against its papers.
 
     A keyword whose every paper is also matched by another keyword is
     contributing nothing on its own. That is the actionable finding, and it is
@@ -452,9 +481,9 @@ def keyword_contribution(
         ).fetchall()
         scope = {"type": "execution", "execution_id": int(execution_id)}
     else:
-        keywords = _all_keywords(conn)
+        keywords = _all_keywords(conn, collection_id)
         documents = conn.execute(
-            "SELECT id, title, abstract, categories, authors FROM documents"
+            f"SELECT id, title, abstract, categories, authors FROM {documents_in(collection_id)}"
         ).fetchall()
         scope = {"type": "corpus"}
 
@@ -526,10 +555,13 @@ def keyword_contribution(
     }
 
 
-def _all_keywords(conn: sqlite3.Connection) -> list[str]:
-    """Every distinct keyword across every execution, in first-seen order."""
+def _all_keywords(conn: sqlite3.Connection, collection_id: int | None = None) -> list[str]:
+    """Every distinct keyword across every execution (or every one that put
+    papers in a collection), in first-seen order."""
     rows = conn.execute(
-        "SELECT parameters FROM executions ORDER BY start_time ASC, id ASC"
+        "SELECT parameters FROM executions"
+        + ("" if collection_id is None else f" WHERE {RUN_COLLECTION_SQL} = {int(collection_id)}")
+        + " ORDER BY start_time ASC, id ASC"
     ).fetchall()
     seen: dict[str, None] = {}
     for row in rows:

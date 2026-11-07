@@ -307,6 +307,11 @@ def _runs(conn: sqlite3.Connection, rng: random.Random, runs: int, today: dateti
             "UPDATE documents SET first_seen_at = ? WHERE id = ?",
             [(started.strftime("%Y-%m-%d %H:%M:%S"), doc) for doc in new],
         )
+        # The paper's arrival in its collection, which Today reads, is the same moment.
+        conn.executemany(
+            "UPDATE collection_documents SET added_at = ? WHERE document_id = ?",
+            [(started.strftime("%Y-%m-%d %H:%M:%S"), doc) for doc in new],
+        )
         ended = started + timedelta(seconds=rng.randint(8, 240))
         database.update_execution_status(
             conn, exec_id, final, end_time=_iso(ended),

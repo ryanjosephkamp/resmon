@@ -57,9 +57,11 @@ def test_a_stale_lock_or_none_means_reopening_restores(monkeypatch):
 
 def test_each_platform_names_a_real_restart(monkeypatch):
     for platform, expected in (
-        ("darwin", "launchctl kickstart -k gui/$(id -u)/com.resmon.daemon"),
+        # No Terminal on a Mac: the switch in Settings stops and starts the service.
+        ("darwin", "off and on again in Settings › In the background"),
         ("linux", "systemctl --user restart resmon-daemon"),
         ("win32", "Task Scheduler"),
     ):
         monkeypatch.setattr(sys, "platform", platform)
         assert expected in resmon_mod._restart_instructions()[0]
+        assert "launchctl" not in resmon_mod._restart_instructions()[0]

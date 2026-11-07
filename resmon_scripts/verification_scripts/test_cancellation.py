@@ -77,6 +77,30 @@ class TestCancelEndpoint:
             barrier.set()
             time.sleep(0.5)
 
+    def test_cancel_of_a_finishing_execution_is_refused(self):
+        """Once the run is past its last cancellation check, Stop is answered 409."""
+        client = _make_client()
+        _global_ps.register(777)
+        try:
+            assert _global_ps.begin_finishing(777) is True
+            resp = client.post("/api/executions/777/cancel")
+            assert resp.status_code == 409
+            assert "too late" in resp.json()["detail"]
+            assert not _global_ps.should_cancel(777)
+        finally:
+            _global_ps.cleanup(777)
+
+    def test_a_requested_stop_is_seen_by_the_last_check(self):
+        """A stop answered True is never lost: the last check reports it."""
+        from implementation_scripts.progress import ProgressStore
+        store = ProgressStore()
+        store.register(5)
+        assert store.request_cancel(5) is True
+        assert store.begin_finishing(5) is False
+        store.register(6)
+        assert store.begin_finishing(6) is True
+        assert store.request_cancel(6) is False
+
     def test_cancel_inactive_execution(self):
         """Cancel returns 409 for execution that is not running."""
         client = _make_client()

@@ -223,7 +223,7 @@ def _events(client, exec_id):
 def test_the_configured_cli_path_reaches_the_resolved_lane(client, tmp_path):
     """Third clause: ``engine.ai_lane.binary_path`` is what was PUT.
 
-    The endpoint honouring ``ai_cli_path`` and the *engine* honouring it are
+    The endpoint honoring ``ai_cli_path`` and the *engine* honoring it are
     two different things: they read through different key lists, and a key
     missing from either is lost.
     """
@@ -427,13 +427,13 @@ def test_the_lane_row_counts_documents_not_calls(client, tmp_path):
     assert row["outcome"] == "ok"
 
 
-def test_cancelling_during_a_batch_terminates_the_cli(client, tmp_path):
+def test_canceling_during_a_batch_terminates_the_cli(client, tmp_path):
     """The process holding ten documents is killed, not waited out.
 
     A batched call is one long silence where ten short calls would not be, so a
-    cancel honoured only between calls would make the user sit through the
+    cancel honored only between calls would make the user sit through the
     whole batch. The assertion is on the clock as well as the status: a
-    30-second CLI, cancelled, must not take 30 seconds to stop.
+    30-second CLI, canceled, must not take 30 seconds to stop.
     """
     import time as _t
 
@@ -461,7 +461,7 @@ def test_cancelling_during_a_batch_terminates_the_cli(client, tmp_path):
             _t.sleep(0.25)
         assert spawn_count(counter) == 1, "the batch never started"
 
-        cancelled_at = _t.monotonic()
+        canceled_at = _t.monotonic()
         assert client.post(f"/api/executions/{exec_id}/cancel").status_code == 200
 
         for _ in range(80):
@@ -470,7 +470,7 @@ def test_cancelling_during_a_batch_terminates_the_cli(client, tmp_path):
                 break
             _t.sleep(0.25)
 
-    elapsed = _t.monotonic() - cancelled_at
+    elapsed = _t.monotonic() - canceled_at
     assert ex["status"] == "cancelled", ex
     assert elapsed < 20, (
         f"cancellation took {elapsed:.1f}s against a 30s CLI call — it waited "
@@ -478,12 +478,12 @@ def test_cancelling_during_a_batch_terminates_the_cli(client, tmp_path):
     )
     assert spawn_count(counter) == 1, "no further batch may be spawned after cancel"
 
-    # Cancelled mid-summary, after the papers were stored: the report says so,
+    # Canceled mid-summary, after the papers were stored: the report says so,
     # lists them, and does not read like a finished run's.
     report = client.get(f"/api/executions/{exec_id}/report")
     assert report.status_code == 200
     text = report.json()["report_text"]
-    assert text.startswith("# resmon Literature Report (cancelled)\n")
+    assert text.startswith("# resmon Literature Report (canceled)\n")
     assert "**Collected before the cancel:** 10 results (10 new)" in text
     assert "stopped while they were being summarized" in text
     assert "**Total Results:**" not in text
