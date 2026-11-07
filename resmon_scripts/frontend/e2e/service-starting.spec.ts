@@ -399,3 +399,102 @@ test('a launch while this build\'s service holds the profile asks it for the win
     removeStateDir(stateDir);
   }
 });
+
+test('a window asked for while the service\'s engine is still starting opens once the service can answer it', async () => {
+  test.setTimeout(180_000);
+  const { say, step } = stepsWithin('SERVICE STARTING', 180_000, TEARDOWN_MS);
+  const stateDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-service-starting-')));
+  const port = await freePort();
+  expect(port).not.toBe(8742);
+  const env = atlasEnv(launchEnv(stateDir, true));
+  env.RESMON_DAEMON_PORT = String(port);
+  delete env.RESMON_SERVICE_AT_LAUNCH;
+  const profileDir = path.join(stateDir, 'electron-user-data');
+  const profile = `--user-data-dir=${profileDir}`;
+
+  const apps: Launched[] = [];
+  let second: ChildProcess | null = null;
+  let passed = false;
+  let fromService: { out: () => string; all: () => string } | null = null;
+  try {
+    const service = await step(`the service starts, on port ${port} and ${stateDir}`, 90_000,
+      (ms) => electron.launch({ args: ['.', '--service', `--port=${port}`, profile], cwd: FRONTEND_ROOT, env, timeout: ms }));
+    apps.push({ app: service, child: service.process() });
+    fromService = capture(service);
+    // At once, while the service's engine starts: a plain launch on the same
+    // profile asks the service for a window and quits.
+    const exe = path.join(FRONTEND_ROOT, 'node_modules', 'electron', 'dist', 'Electron.app', 'Contents', 'MacOS', 'Electron');
+    const asked = Date.now();
+    second = spawn(exe, ['.', profile], { cwd: FRONTEND_ROOT, env, stdio: 'ignore' });
+    const early = !fromService.out().includes('[main] The service is running');
+    say(early ? 'the window was asked for before the service\'s engine answered' : 'the engine had already answered');
+    expect(await step('the second launch exits', 30_000, () => exited(second!))).toBe(0);
+    const opened = await step('the service opens a window', 60_000, (ms) => service.firstWindow({ timeout: ms }));
+    await step('the window draws Atlas', 60_000, (ms) => opened.locator(ATLAS_LANDMARK).waitFor({ timeout: ms }));
+    const took = Date.now() - asked;
+    say(`the window drew Atlas ${took} ms after it was asked for`);
+    // A preload that asks before the IPC is answered waits 30 s in sendSync.
+    expect(took).toBeLessThan(15_000);
+    expect(await opened.evaluate(() => (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort()))
+      .toBe(String(port));
+    say('done');
+    passed = true;
+  } finally {
+    if (!passed && fromService) tellWrote('SERVICE STARTING', 'THE SERVICE', fromService.all());
+    if (second && second.exitCode === null && second.signalCode === null && second.pid) {
+      try { process.kill(second.pid, 'SIGKILL'); } catch { /* gone */ }
+    }
+    say('putting away what the test started');
+    await putAway(apps, profileDir, port);
+    removeStateDir(stateDir);
+  }
+});
+
+test('a service whose engine stops before it answers quits, and a window asked for meanwhile does not keep it running', async () => {
+  test.setTimeout(150_000);
+  const { say, step } = stepsWithin('SERVICE STARTING', 150_000, TEARDOWN_MS);
+  const stateDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-service-starting-')));
+  const port = await freePort();
+  expect(port).not.toBe(8742);
+  const env = atlasEnv(launchEnv(stateDir, true));
+  env.RESMON_DAEMON_PORT = String(port);
+  delete env.RESMON_SERVICE_AT_LAUNCH;
+  // An engine that runs for 3 s and then exits with an error, so the window is
+  // asked for while the service still waits for it, and the service's start fails.
+  const failing = path.join(stateDir, 'failing-engine.sh');
+  fs.writeFileSync(failing, '#!/bin/sh\nsleep 3\nexit 1\n', { mode: 0o755 });
+  const serviceEnv = { ...env, RESMON_PYTHON: failing };
+  const profileDir = path.join(stateDir, 'electron-user-data');
+  const profile = `--user-data-dir=${profileDir}`;
+
+  const apps: Launched[] = [];
+  let second: ChildProcess | null = null;
+  let passed = false;
+  let fromService: { out: () => string; all: () => string } | null = null;
+  try {
+    const service = await step(`the service starts, on port ${port} and ${stateDir}`, 90_000,
+      (ms) => electron.launch({ args: ['.', '--service', `--port=${port}`, profile], cwd: FRONTEND_ROOT, env: serviceEnv, timeout: ms }));
+    const serviceProcess = service.process();
+    apps.push({ app: service, child: serviceProcess });
+    fromService = capture(service);
+    const opened: string[] = [];
+    service.on('window', (page) => { opened.push(page.url()); });
+    const exe = path.join(FRONTEND_ROOT, 'node_modules', 'electron', 'dist', 'Electron.app', 'Contents', 'MacOS', 'Electron');
+    second = spawn(exe, ['.', profile], { cwd: FRONTEND_ROOT, env, stdio: 'ignore' });
+    expect(await step('the launch that asked for a window exits', 30_000, () => exited(second!))).toBe(0);
+    expect(fromService.all(), 'the window was asked for after the service had already failed').not.toContain('the service is stopping');
+    await step('the service quits once its engine has stopped', 30_000, () => exited(serviceProcess));
+    expect(fromService.all()).toContain('[main] The engine exited (code 1, signal null); the service is stopping.');
+    expect(opened).toEqual([]);
+    say('done');
+    passed = true;
+  } finally {
+    if (!passed && fromService) tellWrote('SERVICE STARTING', 'THE SERVICE', fromService.all());
+    if (second && second.exitCode === null && second.signalCode === null && second.pid) {
+      try { process.kill(second.pid, 'SIGKILL'); } catch { /* gone */ }
+    }
+    say('putting away what the test started');
+    await putAway(apps, profileDir, port);
+    removeStateDir(stateDir);
+  }
+});
