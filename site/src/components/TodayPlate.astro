@@ -1113,8 +1113,12 @@ const paired = rings
     line-height: var(--leading-snug);
   }
 
-  /* The key under the plate: with the papers colored, the colors' key takes the place of the days. */
-  .today .key-live {
+  /*
+   * The key under the plate: with the papers colored, the colors' key takes the place of the days.
+   * Its entries wrap with the key's own, so the row is never wider than the column: `.today .key li`
+   * would otherwise make it a row that does not wrap, and on a phone the page would widen to fit it.
+   */
+  .today .key .key-live {
     display: contents;
   }
 
