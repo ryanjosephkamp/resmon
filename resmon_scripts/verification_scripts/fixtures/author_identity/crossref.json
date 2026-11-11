@@ -1,0 +1,39 @@
+{
+ "message": {
+  "items": [
+   {
+    "DOI": "10.1109/acpr.2015.7486451",
+    "title": [
+     "IAPR keynote lecture IV: Deep learning"
+    ],
+    "URL": "https://doi.org/10.1109/acpr.2015.7486451",
+    "author": [
+     {
+      "given": "Yoshua",
+      "family": "Bengio",
+      "sequence": "first",
+      "affiliation": [
+       {
+        "name": "University of Montreal, Canada"
+       }
+      ],
+      "role": [
+       {
+        "role": "author",
+        "vocabulary": "crossref"
+       }
+      ]
+     }
+    ],
+    "issued": {
+     "date-parts": [
+      [
+       2015,
+       11
+      ]
+     ]
+    }
+   }
+  ]
+ }
+}

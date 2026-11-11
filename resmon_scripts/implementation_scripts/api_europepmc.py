@@ -1,0 +1,231 @@
+# resmon_scripts/implementation_scripts/api_europepmc.py
+"""EuropePMC API client — JSON, Lucene query syntax, cursor-based pagination."""
+
+import logging
+
+from .api_base import (Author, BaseAPIClient, NormalizedResult, RateLimiter,
+                       bare_orcid, read_json_body, safe_request, sent_params)
+from . import search_terms
+
+logger = logging.getLogger(__name__)
+
+_EUROPEPMC_API_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
+
+# Conservative: 5 req/s
+_RATE_LIMITER = RateLimiter(requests_per_second=5.0)
+
+
+class EuropepmcClient(BaseAPIClient):
+    """EuropePMC repository API client."""
+
+    describe_request = staticmethod(sent_params("query"))
+
+    def get_name(self) -> str:
+        return "EuropePMC"
+
+    def search(
+        self,
+        query: str,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        max_results: int = 100,
+        **kwargs,
+    ) -> list[NormalizedResult]:
+        # Build Lucene query with optional date filtering
+        terms = kwargs.get("terms")
+        search_query = search_terms.boolean(terms) if terms else query
+        if date_from or date_to:
+            d_from = date_from or "1900-01-01"
+            d_to = date_to or "2099-12-31"
+            # In parentheses, so the date clause applies to the whole query.
+            # Appended bare, it changed what an explicit OR meant: on October
+            # 30, 2026, `climate OR model AND FIRST_PDATE:[January 2024]` matched
+            # 63,394 where `(climate OR model) AND ...` matched 66,427.
+            # DataCite, ERIC, Open Library and Zenodo already group theirs.
+            date_clause = f"FIRST_PDATE:[{d_from} TO {d_to}]"
+            search_query = (
+                f"({search_query}) AND {date_clause}"
+                if search_query.strip() else date_clause
+            )
+
+        results: list[NormalizedResult] = []
+        cursor_mark = "*"
+        page_size = min(max_results, 1000)
+
+        while len(results) < max_results:
+            params = {
+                "query": search_query,
+                "format": "json",
+                "pageSize": min(page_size, max_results - len(results)),
+                "cursorMark": cursor_mark,
+                "resultType": "core",
+            }
+
+            try:
+                response = safe_request(
+                    "GET", _EUROPEPMC_API_URL,
+                    params=params,
+                    rate_limiter=_RATE_LIMITER,
+                )
+                if response.status_code != 200:
+                    logger.error("EuropePMC API returned %d", response.status_code)
+                    break
+            except Exception:
+                logger.exception("EuropePMC API request failed")
+                break
+
+            data = read_json_body(response, "EuropePMC")
+            if data is None:
+                break
+
+            result_list = data.get("resultList", {}).get("result", [])
+            if not result_list:
+                break
+
+            for item in result_list:
+                parsed = self._parse_result(item)
+                if parsed is not None:
+                    results.append(parsed)
+
+            next_cursor = data.get("nextCursorMark")
+            if not next_cursor or next_cursor == cursor_mark:
+                break
+            cursor_mark = next_cursor
+
+        return results[:max_results]
+
+    @staticmethod
+    def _parse_result(item: dict) -> NormalizedResult | None:
+        title = item.get("title")
+        if not title:
+            return None
+
+        external_id = item.get("id", "")
+        source = item.get("source", "")
+        # Compose a unique ID from source + id
+        if source:
+            external_id = f"{source}:{external_id}"
+
+        doi = item.get("doi")
+
+        # 2.1 — Europe PMC's `authorList` carries an `authorId` whose type is
+        # sometimes ORCID: **23 of 65 authors in the 2026-09-06 sample**. The
+        # author objects carry **no affiliation at all** (0 of 65), so none is
+        # claimed from here even though the word appears elsewhere in the
+        # document; that is what the catalog capability records.
+        #
+        # `authorString` remains the fallback, because it is present on every
+        # result type and `authorList` is not.
+        authors = []
+        structured = (item.get("authorList") or {}).get("author") or []
+        for entry in structured:
+            name = (entry.get("fullName") or "").strip()
+            if not name:
+                continue
+            identifier = entry.get("authorId") or {}
+            orcid = (bare_orcid(identifier.get("value"))
+                     if str(identifier.get("type") or "").upper() == "ORCID" else None)
+            authors.append(Author(name=name, orcid=orcid))
+
+        if not authors:
+            author_str = item.get("authorString", "")
+            if author_str:
+                # EuropePMC returns "Author A, Author B, Author C."
+                for name in author_str.rstrip(".").split(", "):
+                    name = name.strip()
+                    if name:
+                        authors.append(Author(name=name))
+
+        abstract = item.get("abstractText")
+
+        # Date
+        pub_date_str = item.get("firstPublicationDate")  # YYYY-MM-DD
+        publication_date = pub_date_str if pub_date_str else None
+
+        # URL
+        pmid = item.get("pmid")
+        if pmid:
+            url = f"https://europepmc.org/article/MED/{pmid}"
+        elif doi:
+            url = f"https://doi.org/{doi}"
+        else:
+            url = f"https://europepmc.org/search?query={external_id}"
+
+        categories = []
+        mesh_terms = item.get("meshHeadingList", {}).get("meshHeading", [])
+        for mesh in mesh_terms:
+            name = mesh.get("descriptorName")
+            if name:
+                categories.append(name)
+
+        locations, identifiers = _open_access(item)
+        return NormalizedResult(
+            source_repository="europepmc",
+            external_id=external_id,
+            doi=doi,
+            title=title,
+            authors=authors,
+            abstract=abstract,
+            publication_date=publication_date,
+            url=url,
+            categories=categories[:10],
+            open_access=locations,
+            identifiers=identifiers,
+        )
+
+
+#: Europe PMC's ``availabilityCode`` for a copy anyone can read: ``OA`` (open
+#: access) and ``F`` (free to read). ``S`` is a subscription.
+_READABLE = frozenset({"OA", "F"})
+#: The ``site`` values of Europe PMC's own copies, the ones its record's
+#: ``license`` is for. A record also lists the publisher's copy (``DOI``) and
+#: Unpaywall's (``Unpaywall``), marked ``OA`` from elsewhere; Europe PMC does
+#: not state their license.
+_OWN_SITES = frozenset({"Europe_PMC", "PubMedCentral"})
+
+
+def _open_access(item: dict) -> tuple[list, list]:
+    """The PDFs a ``resultType=core`` record lists, and its PMID and PMCID.
+
+    ``fullTextUrlList`` names each copy's site, style and availability. A PDF
+    on Europe PMC's or PubMed Central's own site that is open access (``OA``)
+    carries the record's ``license`` when the record says ``isOpenAccess: Y``.
+    Any other copy carries none: one that is only free to read (``F``), and one
+    on another site (a publisher's, Unpaywall's), whose license the record does
+    not state.
+    """
+    from . import open_access  # noqa: PLC0415
+
+    licensed = str(item.get("isOpenAccess") or "").upper() == "Y"
+    license_text = item.get("license") if licensed else None
+    locations = []
+    seen: set[str] = set()
+    for entry in ((item.get("fullTextUrlList") or {}).get("fullTextUrl") or []):
+        if not isinstance(entry, dict):
+            continue
+        code = str(entry.get("availabilityCode") or "").upper()
+        if code not in _READABLE or str(entry.get("documentStyle") or "").lower() != "pdf":
+            continue
+        own = str(entry.get("site") or "") in _OWN_SITES
+        found = open_access.location(
+            "europepmc", pdf_url=entry.get("url"),
+            license=license_text if code == "OA" and own else None)
+        if found is not None and found.location not in seen:
+            seen.add(found.location)
+            locations.append(found)
+    identifiers: list[tuple[str, str]] = []
+    if str(item.get("pmid") or "").isdigit():
+        identifiers.append(("pmid", str(item["pmid"])))
+    if str(item.get("pmcid") or "").upper().startswith("PMC"):
+        identifiers.append(("pmcid", str(item["pmcid"]).upper()))
+    return locations, identifiers
+
+
+# ---------------------------------------------------------------------------
+# Registry auto-registration
+# ---------------------------------------------------------------------------
+def _register():
+    from .api_registry import register_client
+    register_client("europepmc", EuropepmcClient)
+
+_register()

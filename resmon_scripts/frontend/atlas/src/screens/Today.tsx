@@ -1,0 +1,529 @@
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { answer, engine, EngineError } from '../api/client';
+import { ChartTip, tipWords, type TipAnchor, type TipContent } from '../charts/ChartTip';
+import type { components } from '../api/schema';
+import { useAppearance } from '../theme/appearance';
+import { useMinute } from '../lib/useMinute';
+import { FirstRun } from './today/FirstRun';
+import { answerKey, useOpening } from './today/opening';
+import { Plate, PlateKey, type PlateHandle, type PlateHover } from './today/Plate';
+import { TodayIndex, type IndexPaper, type Region } from './today/TodayIndex';
+import { authors, count, daysAgo, fullDate, nextRunsWords, number, when } from './today/format';
+import { useLifecycleFor } from './lifecycle/LifecycleMarks';
+import { emptiestCorner, epochDay, gridCell, watchShape, type Sky } from './today/model';
+import { collectionSky } from './sky/collectionSky';
+import { ColorKey, DimKey, MapBar } from './sky/MapControls';
+import { MapPaper } from './sky/MapPaper';
+import { SaveLit } from './sky/SaveLit';
+import { filterCount } from './sky/look';
+import { useMapLook } from './sky/useMapLook';
+import { invalidateFor, mapKey, readMap, todayKey, useRunsEnded } from './today/freshness';
+import { collectionParam, useCollection, useCollectionWords } from '../collections/current';
+import type { CollectionWords } from '../collections/words';
+
+type CollectionMap = components['schemas']['CollectionMap'];
+type TodayData = components['schemas']['Today'];
+type Brief = components['schemas']['DocumentBrief'];
+type TodayPaper = components['schemas']['TodayPaper'];
+
+/** New papers read after the first page, and where the next read starts. */
+interface Earlier {
+  /** The first page's end these pages continue from; pages read from another end are not used. */
+  after: string;
+  papers: TodayPaper[];
+  cursor: string | null;
+}
+
+/**
+ * Today, the morning edition: where last night's papers landed in the whole
+ * collection, and the papers themselves beside it.
+ *
+ * Three reads, each saying only what it knows: `/api/map` for where every
+ * paper sits (and on what basis), `/api/today` for what is new since the last
+ * Mark all read, and `/api/scheduler/status` for whether the next run will
+ * actually happen.
+ *
+ * `/api/today` answers the newest 1,000 new papers; the index's List earlier
+ * papers reads the ones before them from `/api/today/papers`, a page at a time,
+ * until every new paper is listed. Pages read are kept while the first page
+ * ends where it did; when new papers move its end, the list starts again from
+ * the first page, and the earlier papers are listed again on request.
+ */
+
+/** A day as a heading names it: "today" is Today. */
+function titleDay(day: string): string {
+  return day.charAt(0).toUpperCase() + day.slice(1);
+}
+export function Today() {
+  const client = useQueryClient();
+  const { theme, shown } = useAppearance();
+  const { id: collection } = useCollection();
+  const place = useCollectionWords();
+  const map = useQuery({
+    queryKey: mapKey(collection),
+    queryFn: () => readMap(collection),
+    // A map being fitted, or refitted, is asked for again until it is done;
+    // otherwise once a minute and on returning to the window, like Today.
+    refetchInterval: (query) => {
+      const data = query.state.data as CollectionMap | undefined;
+      return data && (data.state === 'fitting' || data.refitting) ? 2_000 : 60_000;
+    },
+    refetchOnWindowFocus: true,
+  });
+  // Papers arrive while the app is open (a watch runs overnight), so Today is
+  // read again once a minute and on returning to the window. Read once, it
+  // went on saying "nothing collected" over a collection that had grown.
+  const today = useQuery({
+    queryKey: todayKey(collection),
+    queryFn: () => answer(engine().GET('/api/today', { params: { query: collectionParam(collection) } })),
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+  });
+  const status = useQuery({ queryKey: ['scheduler-status'], queryFn: () => answer(engine().GET('/api/scheduler/status')) });
+  const catalog = useQuery({
+    queryKey: ['catalog'], staleTime: Infinity,
+    queryFn: () => answer(engine().GET('/api/repositories/catalog')),
+  });
+  const backup = useQuery({
+    queryKey: ['backup-last'],
+    queryFn: () => answer(engine().GET('/api/backup/last')) as Promise<{ last_backup?: { created_at_utc?: string; path?: string } | null }>,
+  });
+
+  // Said to the reader as the time (the plate's date line, "Backed up …", "Next run …"), so it advances by the minute.
+  const now = useMinute();
+  const day = epochDay(now);
+  // New papers mean new stars: when Today's count moves, the map is asked
+  // again. Not on arrival, when the count is the cached one: the map is read
+  // on arrival anyway, and asking again then fetched the whole map twice.
+  const total = today.data?.total;
+  const seenTotal = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (total === undefined) return;
+    const before = seenTotal.current;
+    seenTotal.current = total;
+    if (before === undefined || before === total) return;
+    void invalidateFor(client, 'papers-arrived');
+  }, [total, client]);
+  // Kept between visits (`freshness.ts`): a run that ended since is read in.
+  useRunsEnded();
+  const plate = useRef<PlateHandle>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [pointedId, setPointedId] = useState<number | null>(null);
+  const [hover, setHover] = useState<PlateHover | null>(null);
+  const [away, setAway] = useState(false);
+  const [saved, setSaved] = useState<Map<number, boolean>>(new Map());
+
+  const names = useMemo(() => new Map((catalog.data ?? []).map((entry) => [entry.slug, entry.name])), [catalog.data]);
+  const sourceName = useCallback((slug: string) => names.get(slug) ?? slug, [names]);
+
+  const ready = map.data?.state === 'ready' ? map.data : null;
+  // Built once for every page that draws the whole collection, and again only when the day turns.
+  const built = useMemo(() => (ready ? collectionSky(ready, day) : null), [ready, day]);
+  const sky = built?.sky ?? null;
+  const field = built?.field ?? null;
+  const corner = useMemo(() => (sky ? emptiestCorner(sky) : 'tr'), [sky]);
+  const shapes = useMemo(() => {
+    if (!sky || !ready || !today.data) return [];
+    return today.data.watches.filter((w) => w.members.length > 0).map((w) => watchShape(sky, ready.regions, w));
+  }, [sky, ready, today.data]);
+  const regionsById = useMemo(
+    () => new Map<number, Region>((ready?.regions ?? []).map((r) => [r.id, { id: r.id, label: r.label }])),
+    [ready],
+  );
+  const mapLook = useMapLook('today', sky, sourceName);
+
+  // The pages read before the first page's papers. Kept only while the first
+  // page ends where they continue from: a read answered after new papers moved
+  // that end is set aside rather than leaving a gap between the two.
+  const [earlier, setEarlier] = useState<Earlier | null>(null);
+  const firstEnd = today.data ? `${today.data.since ?? ''}|${today.data.next_cursor ?? ''}` : null;
+  const read = earlier && earlier.after === firstEnd ? earlier : null;
+  const nextCursor = read ? read.cursor : today.data?.next_cursor ?? null;
+  const readEarlier = useMutation({
+    mutationFn: async ({ after, cursor }: { after: string; cursor: string }) => ({
+      after, page: await answer(engine().GET('/api/today/papers', { params: { query: { cursor, ...collectionParam(collection) } } })),
+    }),
+    onSuccess: ({ after, page }) => setEarlier((was) => ({
+      after,
+      papers: [...(was && was.after === after ? was.papers : []), ...page.papers],
+      cursor: page.next_cursor ?? null,
+    })),
+  });
+
+  // Numbers follow the order papers were collected: 1 is the first to arrive,
+  // counted over every new paper, so a paper keeps its number as earlier ones are read.
+  const papers = useMemo<IndexPaper[]>(() => {
+    const newest = [...(today.data?.papers ?? []), ...(read?.papers ?? [])];
+    const total = today.data?.total ?? newest.length;
+    return newest.map((paper, k) => {
+      const at = sky?.indexOf.get(paper.id);
+      return {
+        ...paper,
+        n: total - k,
+        cell: sky && at !== undefined ? gridCell(sky.x[at] ?? 0, sky.y[at] ?? 0, sky.bounds) : null,
+        regionId: sky && at !== undefined ? (sky.region[at] ?? null) : null,
+      };
+    }).reverse();
+  }, [today.data, read, sky]);
+  const firstNumber = papers[0]?.n ?? 1;
+  const arrivals = useMemo(() => {
+    if (!sky) return [];
+    const out: number[] = [];
+    for (const paper of papers) {
+      const at = sky.indexOf.get(paper.id);
+      if (at !== undefined) out.push(at);
+    }
+    return out;
+  }, [papers, sky]);
+  const listed = useMemo(() => new Map(papers.map((p) => [p.id, p])), [papers]);
+  // A paper collected last week can have been retracted since; its entry says so.
+  const listedIds = useMemo(() => papers.map((p) => p.id), [papers]);
+  const lifecycle = useLifecycleFor(listedIds);
+
+  // The opening: the plate settles, then the new papers light in the order
+  // they arrived, their numbers in the index lighting with them (`opening.ts`),
+  // once for each answer this window has not opened. Without motion everything
+  // is lit from the start, and papers that arrive after the opening (a later
+  // read) are lit at once.
+  const [still] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const opening = useOpening(sky && today.data ? answerKey(today.data.papers[0]) : null, still);
+
+  const looked = useMutation({
+    mutationFn: () => answer(engine().POST('/api/today/looked', { params: { query: collectionParam(collection) } })),
+    onSuccess: () => invalidateFor(client, 'looked'),
+  });
+
+
+  const hovered = hover ? sky?.ids[hover.index] ?? null : null;
+  const brief = useQuery({
+    queryKey: ['brief', hovered],
+    enabled: hovered !== null && !listed.has(hovered),
+    staleTime: Infinity,
+    queryFn: async () => (await answer(engine().POST('/api/documents/briefs', { body: { ids: [hovered ?? 0] } })))[0] ?? null,
+  });
+
+  const zoomTo = useCallback((target: { watchId?: number; regionId?: number; paperId?: number }) => {
+    if (!sky || !ready) return;
+    if (target.paperId !== undefined) {
+      setSelectedId(target.paperId);
+      const at = sky.indexOf.get(target.paperId);
+      // Close enough to see its neighbors, far enough to keep its surroundings.
+      if (at !== undefined) plate.current?.flyTo({ x: sky.x[at] ?? 0, y: sky.y[at] ?? 0, r: sky.bounds.size * 0.22 });
+      return;
+    }
+    if (target.regionId !== undefined) {
+      const region = ready.regions.find((r) => r.id === target.regionId);
+      if (region) plate.current?.flyTo({ x: region.x, y: region.y, r: region.r });
+      return;
+    }
+    const shape = shapes.find((s) => s.id === target.watchId);
+    if (shape && shape.outline.length) {
+      const xs = shape.outline.flatMap(([a, , c]) => [a, c]);
+      const ys = shape.outline.flatMap(([, b, , d]) => [b, d]);
+      const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+      plate.current?.flyTo({ x: (x0 + x1) / 2, y: (y0 + y1) / 2, r: Math.max(x1 - x0, y1 - y0) / 2 });
+    }
+  }, [sky, ready, shapes]);
+
+  // Enter in the find steps through its matches, each chosen and flown to as a click on it would be.
+  const step = (direction: 1 | -1) => {
+    const found = mapLook.look?.found;
+    if (!sky || !found || found.length === 0) return;
+    const at = selectedId !== null ? found.indexOf(sky.indexOf.get(selectedId) ?? -1) : -1;
+    const next = at < 0 ? (direction === 1 ? 0 : found.length - 1) : (at + direction + found.length) % found.length;
+    const id = sky.ids[found[next] ?? 0];
+    if (id !== undefined) zoomTo({ paperId: id });
+  };
+
+  if (map.isError || today.isError) {
+    const failure = map.error ?? today.error;
+    return (
+      <section className="page page-narrow" aria-labelledby="page-title">
+        <h1 id="page-title" className="page-title">Today</h1>
+        <p className="page-lede" role="alert">
+          {/* The engine's own sentence where it answered with one; otherwise what failed. */}
+          {failure instanceof EngineError && failure.detail ? failure.detail : `The engine did not answer: ${failure?.message}.`}
+          {' '}Nothing here is shown from memory.
+        </p>
+      </section>
+    );
+  }
+
+  const data = today.data;
+  const sinceWord = data ? when(data.since, now) : '';
+  const heading = data?.window === 'first_look' ? 'New This Week' : `New Since ${titleDay(sinceWord.split(' at ')[0] ?? '')}`;
+  const selectedIndex = selectedId !== null ? sky?.indexOf.get(selectedId) ?? null : null;
+  const pointedIndex = pointedId !== null ? sky?.indexOf.get(pointedId) ?? null : null;
+  const basis = basisSentence(ready, map.data);
+  const fires = new Map((status.data?.routines ?? []).map((r) => [r.id, r.will_fire]));
+  // A paper chosen on the map that the list does not hold opens beside it, in the list's place.
+  const opened = selectedId !== null && !listed.has(selectedId) ? selectedId : null;
+  const look = mapLook.look;
+  // Escape clears a chosen paper wherever the keyboard is, as it does on the map. Not once something else has
+  // taken the key, not from a text field (the find has its own Escape), and not while a dialog or popover is
+  // open. A paper the list does not hold is MapPaper's, which answers Escape itself. When the keyboard was in
+  // the list, it goes to the paper's title, where the reader was.
+  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key !== 'Escape' || event.defaultPrevented || selectedId === null || !listed.has(selectedId)) return;
+    const from = event.target instanceof Element ? event.target : null;
+    if (from?.closest('input, textarea, select, [contenteditable]') || document.querySelector('dialog[open], :popover-open')) return;
+    event.preventDefault();
+    setSelectedId(null);
+    if (from?.closest('.index')) {
+      event.currentTarget.querySelector<HTMLElement>(`[data-paper="${selectedId}"] .entry-title`)?.focus();
+    }
+  };
+
+  return (
+    <section className="today" aria-label="Today" onKeyDown={onKeyDown}>
+      <div className="today-plate">
+        {sky && ready && (
+          <MapBar regions={mapLook.regions} name="today" view={mapLook.view} onView={mapLook.setView} look={look} facts={mapLook.facts}
+            facetsError={mapLook.facetsError} total={sky.count} names={sourceName} find={mapLook.find}
+            findAt={findPosition(sky, look?.found, selectedId)} onStep={step} onWant={mapLook.wantFacets} keepError={mapLook.saveError}
+            save={<SaveLit sky={sky} look={look} finding={mapLook.find.finding} waiting={mapLook.find.waiting} />} />
+        )}
+        {sky && field && ready ? (
+          <Plate
+            ref={plate}
+            sky={sky}
+            regions={ready.regions}
+            shapes={shapes}
+            field={field}
+            arrivals={arrivals}
+            firstNumber={firstNumber}
+            opening={opening}
+            selected={selectedIndex}
+            pointed={pointedIndex}
+            onSelect={(index) => setSelectedId(index === null ? null : sky.ids[index] ?? null)}
+            onHover={setHover}
+            onKeyed={setHover}
+            paletteKey={`${theme}:${shown.accent ?? ''}`}
+            label={`Map of ${place.papers(sky.count)}${place.named ? ',' : ''} in ${count(ready.regions.length, 'region')}${papers.length ? `; ${count(papers.length, 'new paper')} ringed and numbered` : ''}. Choose any paper to open it beside the map.`}
+            onAway={setAway}
+            toolsAt={corner === 'bl' ? 'right' : 'left'}
+            look={mapLook.plateLook}
+          >
+            {data && (
+              <Cartouche data={data} now={now} away={away} corner={corner} basis={basis} skyCount={sky.count}
+                unplaced={ready.unplaced} sinceWord={sinceWord} />
+            )}
+            {hover && (
+              <Tip hover={hover} paper={hovered !== null ? listed.get(hovered) : undefined}
+                brief={brief.data ?? undefined} now={now} cell={gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds)}
+                sourceName={sourceName}
+                opens={hover.via === 'keyboard' || hovered === selectedId ? undefined
+                  : hovered !== null && listed.has(hovered) ? 'Chooses it in the list beside the map' : 'Opens it beside the map'} />
+            )}
+          </Plate>
+        ) : (
+          <div className="plate plate-waiting">
+            <p role="status">{waitingSentence(map.data, map.isPending, place)}</p>
+            <FirstRun />
+          </div>
+        )}
+        {/* The paper the keyboard chose, said as its tip says it: the map itself is one picture to a screen reader. */}
+        <p className="sr-only" aria-live="polite" data-map-said="">
+          {hover?.via === 'keyboard' && sky ? tipWords(paperTip({
+            paper: hovered !== null ? listed.get(hovered) : undefined, brief: brief.data ?? undefined, now, sourceName,
+            cell: gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds),
+          })) : ''}
+        </p>
+        <PlateKey newLabel={heading.replace(/^New/, 'new')} showWatches={shapes.length > 0}
+          colors={look && look.legend.length > 0 ? <ColorKey look={look} /> : undefined}
+          extra={<DimKey look={look} finding={mapLook.find.finding} filtered={filterCount(mapLook.view) > 0} />} />
+      </div>
+
+      {opened !== null && sky ? (
+        <MapPaper
+          key={opened}
+          id={opened}
+          cell={placeOf(sky, opened)}
+          region={regionsById.get(sky.region[sky.indexOf.get(opened) ?? -1] ?? -1)?.label || null}
+          sourceName={sourceName}
+          backLabel="Back to the list"
+          onBack={() => { setSelectedId(null); plate.current?.focus(); }}
+          onShow={() => zoomTo({ paperId: opened })}
+        />
+      ) : data ? (
+        <TodayIndex
+          papers={papers}
+          total={data.total}
+          fromSearches={data.from_searches}
+          collectionSize={map.data?.state === 'empty' ? 0 : sky ? sky.count : null}
+          watches={data.watches}
+          regions={regionsById}
+          sourceName={sourceName}
+          heading={heading}
+          opening={opening}
+          selected={selectedId}
+          now={now}
+          saved={saved}
+          lifecycle={lifecycle.data?.events}
+          marking={looked.isPending}
+          busy={today.isFetching}
+          earlier={nextCursor && firstEnd ? {
+            reading: readEarlier.isPending,
+            failed: readEarlier.isError ? readEarlier.error.message : null,
+            read: () => readEarlier.mutate({ after: firstEnd, cursor: nextCursor }),
+          } : null}
+          onSelect={(id) => { setSelectedId(id); zoomTo({ paperId: id }); }}
+          onPoint={setPointedId}
+          onZoomTo={zoomTo}
+          onSavedMany={(ids) => setSaved((prev) => {
+            const next = new Map(prev);
+            for (const id of ids) next.delete(id);
+            return next;
+          })}
+          onMarkRead={() => looked.mutate()}
+          by={mapLook.view.list_by}
+          onBy={(by) => mapLook.setView({ ...mapLook.view, list_by: by })}
+          footer={<Footer data={data} fires={fires} state={status.data?.state ?? null} now={now}
+            backupAt={backup.data?.last_backup?.created_at_utc ?? null} />}
+        />
+      ) : (
+        <section className="index" aria-busy="true"><div className="index-bar"><h2>Today</h2></div></section>
+      )}
+    </section>
+  );
+}
+
+/** "B3", the grid cell a paper sits in, or null when the map has not placed it. */
+function placeOf(sky: Sky, id: number): string | null {
+  const at = sky.indexOf.get(id);
+  return at === undefined ? null : gridCell(sky.x[at] ?? 0, sky.y[at] ?? 0, sky.bounds);
+}
+
+/** Where the chosen paper falls among the find's matches, counting from 1; 0 when it is not one. */
+export function findPosition(sky: Sky, found: Int32Array | undefined, selectedId: number | null): number {
+  if (!found || selectedId === null) return 0;
+  const at = sky.indexOf.get(selectedId);
+  return at === undefined ? 0 : found.indexOf(at) + 1;
+}
+
+function basisSentence(ready: CollectionMap | null, map: CollectionMap | undefined): string {
+  if (!ready) return '';
+  if (ready.basis === 'embeddings') {
+    return `placed by how close their meaning is, as your embedding model ${ready.model ? `(${ready.model}) ` : ''}reads it`;
+  }
+  const coverage = map?.embedding_coverage;
+  const pending = coverage && coverage.total > 0
+    ? ` Your embedding model has read ${Math.floor((coverage.embedded / coverage.total) * 100)}% of them; at 90% the map is redrawn by meaning.`
+    : '';
+  return `placed by how much wording they share, worked out on this computer.${pending}`;
+}
+
+function waitingSentence(map: CollectionMap | undefined, pending: boolean, place: CollectionWords): string {
+  if (pending || !map) return `Reading the map of ${place.name}…`;
+  if (map.state === 'empty') {
+    return place.named
+      ? `${place.Name} holds no papers yet. Papers its watches and searches find, and papers you move or copy there, will appear here, placed by how similar their text is.`
+      : 'This collection is empty. Papers your watches and searches find will appear here, placed by how similar their text is.';
+  }
+  if (map.state === 'failed') return `The map could not be drawn: ${map.error ?? 'the engine gave no reason'}.`;
+  return `Drawing the map of ${place.name}. The first map of a large collection takes up to half a minute; later ones are kept.`;
+}
+
+function Cartouche({ data, now, away, corner, basis, skyCount, unplaced, sinceWord }: {
+  data: TodayData; now: Date; away: boolean; corner: string; basis: string; skyCount: number;
+  unplaced: CollectionMap['unplaced']; sinceWord: string;
+}) {
+  const fromWatches = data.watches.filter((w) => w.new_count > 0);
+  const off = unplaced.no_text + unplaced.not_embedded;
+  return (
+    <aside className={`cartouche ${corner}${away ? ' away' : ''}`} aria-label="Today in brief">
+      <p className="date">{fullDate(now)}</p>
+      <h1>{data.total === 0 ? 'Nothing new' : count(data.total, 'new paper')}</h1>
+      <p className="since">
+        {data.window === 'first_look'
+          ? 'in the last seven days. Mark All Read, and Today starts from then.'
+          : `since you marked them read ${sinceWord}`}
+      </p>
+      <p className="plt">
+        The plate: all {number(skyCount)} papers on the map, {basis}
+        {off > 0 && ` ${count(off, 'paper')} with too little to place ${off === 1 ? 'is' : 'are'} not on it.`}
+      </p>
+      {(fromWatches.length > 0 || data.from_searches > 0) && (
+        <div className="split">
+          {fromWatches.map((w) => (
+            <div key={w.id}><b>{number(w.new_count)}</b> from <span className="it">{w.name}</span></div>
+          ))}
+          {data.from_searches > 0 && <div><b>{number(data.from_searches)}</b> from your own searches</div>}
+        </div>
+      )}
+    </aside>
+  );
+}
+
+/**
+ * What the pointer is over on a map, in the charts' tip: the paper's title,
+ * its authors, and where it came from, or its grid cell while those are read.
+ * The tip is set beside a small box drawn at the paper, so it never covers the
+ * paper it names, and over the page, so a map's edge never cuts it off.
+ */
+export function Tip({ hover, paper, brief, now, cell, sourceName, opens }: {
+  hover: PlateHover; paper?: IndexPaper; brief?: Brief; now: Date; cell: string;
+  sourceName: (slug: string) => string;
+  /** What a click on the paper does on this map, said only where it does something. */
+  opens?: string;
+}) {
+  const [at, setAt] = useState<HTMLSpanElement | null>(null);
+  // The box moves with the pointer's paper; the tip is placed beside it again on each render.
+  const anchor = useMemo<TipAnchor | null>(() => (at ? { element: at, pointer: null } : null), [at]);
+  return (
+    <>
+      <span ref={setAt} className="plate-tip-at" style={{ left: hover.screenX, top: hover.screenY }} aria-hidden="true" />
+      <ChartTip anchor={anchor} content={paperTip({ paper, brief, now, cell, sourceName, opens })} />
+    </>
+  );
+}
+
+/** A paper's tip on a map: its number and title, its authors, its source, its cell, and when it was collected. */
+export function paperTip({ paper, brief, now, cell, sourceName, opens }: {
+  paper?: IndexPaper; brief?: Brief; now: Date; cell: string; sourceName: (slug: string) => string; opens?: string;
+}): TipContent {
+  const info = paper ?? brief;
+  if (!info) return { value: cell, opens };
+  const ago = daysAgo(info.first_seen_at, now);
+  const collected = ago === null ? '' : ` · collected ${ago === 0 ? 'today' : ago === 1 ? 'yesterday' : `${number(ago)} days ago`}`;
+  return {
+    value: `${paper ? `${paper.n}. ` : ''}${info.title}`,
+    notes: [authors(info.authors), `${sourceName(info.source)} · ${cell}${collected}`].filter(Boolean),
+    opens,
+  };
+}
+
+const WILL_NOT_RUN: Record<string, string> = {
+  no_service: 'Your watches will not run: no background service is set up.',
+  service_stopped: 'Your watches will not run while the background service is stopped.',
+  service_unreachable: 'Your watches may not run: the background service did not answer.',
+  service_other_version: 'Your watches will not run: the background service is another version of resmon.',
+  scheduler_off: 'Your watches will not run: scheduling is off in this process.',
+};
+
+function Footer({ data, fires, state, now, backupAt }: {
+  data: TodayData; fires: Map<number, boolean | null>; state: string | null; now: Date; backupAt: string | null;
+}) {
+  // A next run is stated only for a watch something will actually fire.
+  const next = data.watches
+    .filter((w) => w.is_active && w.next_fire_at)
+    .map((w) => ({ w, at: w.next_fire_at ?? '', fire: fires.get(w.id) }))
+    .sort((a, b) => a.at.localeCompare(b.at));
+  const certain = next.filter((n) => n.fire === true);
+  const unsure = next.filter((n) => n.fire === null || n.fire === undefined);
+  return (
+    <>
+      <span>{backupAt ? `Backed up ${when(backupAt, now)}.` : 'No backup made yet.'}</span>
+      <span className="r">
+        {certain.length > 0
+          ? `Next: ${nextRunsWords(certain.map((n) => n.at), now)}`
+          : unsure.length > 0
+            ? `Next run ${when(unsure[0]?.at, now)}, if the background service is running`
+            : data.watches.some((w) => w.is_active)
+              ? (state && WILL_NOT_RUN[state]) ?? 'Nothing will run your watches as things stand.'
+              : 'No watch is active.'}
+      </span>
+    </>
+  );
+}

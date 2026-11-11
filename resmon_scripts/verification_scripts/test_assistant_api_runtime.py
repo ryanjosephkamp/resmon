@@ -1,0 +1,514 @@
+"""The API-key assistant runtime: P14.
+
+Two boundaries, and each property below says which:
+
+* **real dependency, in-process** — a loopback HTTP server speaking each
+  family's shape (``provider_server.py``). The socket, the HTTP stack, the JSON
+  and the status codes are real; the model is not. This is where P14a, P14c and
+  P14e live, because "what resmon sends" is only observable in a request body
+  something actually received.
+* **hermetic** — the conversion functions and the tables, where there is no
+  dependency to be real about.
+
+What neither can see is that a *real* provider accepts these schemas. Nothing in
+this file spends a token.
+"""
+
+from __future__ import annotations
+
+import json
+import socket
+import sys
+from contextlib import contextmanager
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import mcp_server                                              # noqa: E402
+from implementation_scripts import assistant_api_runtime as ak  # noqa: E402
+from implementation_scripts import assistant_runtime as ar      # noqa: E402
+from implementation_scripts.assistant_constitution import (     # noqa: E402
+    load_assistant_constitution,
+)
+from implementation_scripts.assistant_tool_calling import (     # noqa: E402
+    FAMILIES, PROVIDER_TOOL_CALLING, tool_calling,
+)
+from provider_server import ProviderServer                      # noqa: E402
+
+# One provider per family, so a family cannot be tested through the same
+# provider twice and a family without one cannot hide.
+PROVIDER_FOR_FAMILY = {"anthropic": "anthropic", "openai": "openai", "google": "google"}
+_BACKEND_ABSENCE_PROOFS: list[dict] = []
+
+
+def runtime_for(family: str, base_url: str, **kwargs) -> ak.ApiKeyRuntime:
+    return ak.ApiKeyRuntime(
+        provider=PROVIDER_FOR_FAMILY[family],
+        model="test-model",
+        base_url=base_url,
+        api_key="sk-test-not-a-real-key",
+        **kwargs,
+    )
+
+
+@contextmanager
+def _owned_backend_absence():
+    """Name one live-owned endpoint where no server can listen.
+
+    Keeping the reserved socket connected to ``buddy`` keeps its local port
+    owned while HTTPX makes the real health request.  The request therefore
+    receives the OS refusal from this exact endpoint; no released port, port
+    8742, or authored transport exception stands in for backend absence.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as buddy:
+        buddy.bind(("127.0.0.1", 0))
+        buddy.listen(1)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reserved:
+            reserved.bind(("127.0.0.1", 0))
+            port = reserved.getsockname()[1]
+            assert port != 8742
+            reserved.connect(buddy.getsockname())
+            peer, _ = buddy.accept()
+            with peer:
+                base = f"http://127.0.0.1:{port}"
+                previous_base = mcp_server.backend._base
+                previous_tried = list(mcp_server.backend._tried)
+                proof = {"base": base, "port": port}
+                mcp_server.backend._base = None
+                mcp_server.backend._tried = []
+                try:
+                    with patch.object(mcp_server, "_candidate_ports", return_value=[port]):
+                        yield proof
+                finally:
+                    proof.update(
+                        tried=list(mcp_server.backend._tried),
+                        reservation_open=reserved.fileno() >= 0,
+                    )
+                    _BACKEND_ABSENCE_PROOFS.append(proof)
+                    mcp_server.backend._base = previous_base
+                    mcp_server.backend._tried = previous_tried
+
+
+def run(runtime: ak.ApiKeyRuntime, prompt: str = "how many routines?", **kwargs) -> list[dict]:
+    with _owned_backend_absence() as absence:
+        events = list(runtime.run_turn(1, prompt, **kwargs))
+        health_calls = [
+            event for event in events
+            if event["type"] == "tool_call" and event["tool_name"] == "health"
+        ]
+        if health_calls:
+            assert mcp_server.backend._tried == [absence["base"]]
+    return events
+
+
+# ---------------------------------------------------------------------------
+# P14a — the constitution arrives on the provider's system channel
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("family", FAMILIES)
+def test_the_constitution_arrives_on_the_system_channel_and_not_in_the_turn(family):
+    """P14a, at the only boundary that can show it: the request body.
+
+    The failure to rule out is a lane that tells a model to follow rules it was
+    never given, so that the model invents a file search rather than admit it.
+    That the runtime *loads* the constitution proves nothing; that this server
+    *received* it, on the field the provider treats as a system instruction, is
+    the claim.
+    """
+    with ProviderServer(family) as server:
+        server.script = [{"text": "hello", "calls": []}]
+        events = run(runtime_for(family, server.base_url))
+
+    assert [e["type"] for e in events][:2] == ["started", "text_delta"]
+    call = server.calls[0]
+    constitution = load_assistant_constitution()
+    assert server.system_text(call) == constitution
+    assert constitution not in server.user_text(call), (
+        "the rules must sit above the conversation, not inside it")
+    assert "how many routines?" in server.user_text(call)
+
+
+def test_every_family_has_a_transmission_case():
+    """The denominator behind the parametrization above.
+
+    ``FAMILIES`` is the list the runtime dispatches on, so a fourth request
+    shape cannot arrive without a case here — the same guard shape as
+    ``test_every_runtime_kind_has_a_transmission_test``, one level down, because
+    "the runtime sends it" can be true of the runtime and false of some of its
+    paths.
+    """
+    assert set(PROVIDER_FOR_FAMILY) == set(FAMILIES)
+    for family in FAMILIES:
+        assert tool_calling(PROVIDER_FOR_FAMILY[family]).family == family
+
+
+# ---------------------------------------------------------------------------
+# P14e — the tools offered are exactly mcp_server.TOOLS
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("family", FAMILIES)
+def test_the_session_is_offered_exactly_the_tool_table(family):
+    """P14e's denominator: `mcp_server.TOOLS`, not a hand-written list."""
+    with ProviderServer(family) as server:
+        server.script = [{"text": "ok", "calls": []}]
+        run(runtime_for(family, server.base_url))
+
+    offered = server.tool_names(server.calls[0])
+    # Every tool but the one that reads attached files, which a conversation
+    # without any is not offered (``mcp_server.offered_tools``).
+    expected = [t["name"] for t in mcp_server.TOOLS if t["name"] not in mcp_server.CONVERSATION_TOOLS]
+    assert sorted(offered) == sorted(expected)
+    assert len(offered) == len(mcp_server.TOOLS) - len(mcp_server.CONVERSATION_TOOLS)
+
+
+@pytest.mark.parametrize("family", FAMILIES)
+@pytest.mark.parametrize("tool", [t["name"] for t in mcp_server.TOOLS])
+def test_every_tool_converts_for_every_family(family, tool):
+    """One case per tool per family, so a failure names the tool.
+
+    A schema that a family rejects is a tool the assistant silently cannot use,
+    and a whole-table assertion would only say "something is wrong".
+    """
+    with mcp_server.in_conversation(1):
+        converted = ak.tools_for_family(family)
+    if family == "google":
+        converted = converted[0]["function_declarations"]
+        entry = next(c for c in converted if c["name"] == tool)
+        # Gemini rejects JSON-Schema keywords it does not know rather than
+        # ignoring them, and several resmon schemas carry ``default``. The
+        # keyword, not the word: a description may say "the default collection".
+        assert '"default":' not in json.dumps(entry["parameters"])
+    elif family == "anthropic":
+        entry = next(c for c in converted if c["name"] == tool)
+        assert entry["input_schema"]["type"] == "object"
+    else:
+        entry = next(c for c in converted if c["function"]["name"] == tool)
+        assert entry["type"] == "function"
+        assert entry["function"]["parameters"]["type"] == "object"
+    assert (entry.get("description") or entry.get("function", {}).get("description")), (
+        f"{tool} would be offered with no description")
+
+
+def test_a_default_the_model_cannot_see_is_still_applied_by_the_tool():
+    """Stripping ``default`` for Gemini does not change what the tool does.
+
+    The handler reads its arguments and applies its own defaults, so removing
+    the keyword from the *schema* costs the model a hint and costs the call
+    nothing. Asserted rather than assumed, because "it is only a hint" is
+    exactly the sort of claim that is wrong once.
+    """
+    assert mcp_server._limit({}) == mcp_server.DEFAULT_LIMIT
+    assert mcp_server._limit({"limit": 3}) == 3
+
+
+# ---------------------------------------------------------------------------
+# P14c — the events are the same normalized set
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("family", FAMILIES)
+def test_the_events_are_the_ones_the_panel_already_knows(family):
+    with ProviderServer(family) as server:
+        server.script = [
+            {"text": "let me look", "calls": [{"name": "health", "arguments": {}}]},
+            {"text": "it is running", "calls": []},
+        ]
+        events = run(runtime_for(family, server.base_url))
+
+    kinds = [e["type"] for e in events]
+    assert set(kinds) <= set(ar.EVENT_TYPES), set(kinds) - set(ar.EVENT_TYPES)
+    assert kinds[0] == "started" and kinds[-1] == "done"
+    assert "tool_call" in kinds and "tool_result" in kinds
+
+
+@pytest.mark.parametrize("family", FAMILIES)
+def test_a_tool_call_is_announced_run_and_reported(family):
+    """The loop's whole job, against a real socket."""
+    proof_count = len(_BACKEND_ABSENCE_PROOFS)
+    with ProviderServer(family) as server:
+        server.script = [
+            {"text": "", "calls": [{"name": "health", "arguments": {}}]},
+            {"text": "resmon is not running", "calls": []},
+        ]
+        events = run(runtime_for(family, server.base_url))
+
+    assert len(_BACKEND_ABSENCE_PROOFS) == proof_count + 1
+    absence = _BACKEND_ABSENCE_PROOFS[-1]
+    assert absence["tried"] == [absence["base"]]
+    assert absence["port"] != 8742 and absence["reservation_open"] is True
+
+    call = next(e for e in events if e["type"] == "tool_call")
+    result = next(e for e in events if e["type"] == "tool_result")
+    assert call["tool_name"] == "health"
+    assert result["tool_use_id"] == call["tool_use_id"]
+    # No backend is running in this test, so the tool honestly fails — and the
+    # failure is *reported back to the model*, which is what keeps a turn going
+    # rather than dying.
+    assert result["is_error"] is True
+    assert "backend_unavailable" in result["content"]
+
+    second = server.calls[1]
+    assert "backend_unavailable" in server.user_text(second), (
+        "the tool's answer has to reach the next request, or the model is "
+        "answering with nothing")
+
+
+def test_a_cost_is_reported_as_unknown_rather_than_computed():
+    """resmon maintains no price list, so it reports tokens and not money.
+
+    A computed dollar figure would be a measurement nobody made — the same line
+    the panel already draws with "cost not reported".
+    """
+    with ProviderServer("openai") as server:
+        server.script = [{"text": "ok", "calls": []}]
+        events = run(runtime_for("openai", server.base_url))
+    done = events[-1]
+    assert done["cost_usd"] is None
+    assert done["input_tokens"] == 10 and done["output_tokens"] == 5
+
+
+# ---------------------------------------------------------------------------
+# The ceilings
+# ---------------------------------------------------------------------------
+
+def test_a_loop_is_stopped_at_the_step_ceiling():
+    with ProviderServer("openai") as server:
+        server.script = [{"text": "", "calls": [{"name": "health", "arguments": {}}]}
+                         for _ in range(20)]
+        events = run(runtime_for("openai", server.base_url, max_iterations=3))
+
+    assert len([e for e in events if e["type"] == "tool_call"]) == 3
+    error = next(e for e in events if e["type"] == "error")
+    assert error["detail"] == "iteration_ceiling"
+    assert "one thing at a time" in error["message"]
+    assert events[-1]["type"] == "done" and events[-1]["is_error"] is True
+
+
+def test_a_turn_is_stopped_at_the_token_ceiling():
+    with ProviderServer("openai") as server:
+        server.tokens_per_call = (400, 100)
+        server.script = [{"text": "", "calls": [{"name": "health", "arguments": {}}]}
+                         for _ in range(20)]
+        events = run(runtime_for("openai", server.base_url, max_tokens=600))
+
+    error = next(e for e in events if e["type"] == "error")
+    assert error["detail"] == "token_ceiling"
+    assert "600" in error["message"]
+
+
+def test_the_ceilings_are_derived_from_the_measured_table():
+    """Numbers with a reason, so raising one is a decision rather than a nudge.
+
+    Four tool calls was the most any of the ten canonical requests needed;
+    ~53,400 tokens was the dearest turn's total. Both ceilings are twice those.
+    """
+    assert ak.MAX_TOOL_ITERATIONS == 8
+    assert ak.MAX_TURN_TOKENS == 100_000
+
+
+# ---------------------------------------------------------------------------
+# History: what a stateless provider is told about earlier turns
+# ---------------------------------------------------------------------------
+
+def test_earlier_turns_are_replayed_as_text_and_tool_output_is_not():
+    """The difference from the CLI runtime, asserted rather than described.
+
+    Replaying stored tool results would re-inject untrusted abstract text into
+    every later turn and pay for it again each time. What the model gets is the
+    conversation; what it does not get is the raw evidence behind it.
+    """
+    history = [
+        {"role": "user", "content": "what did arXiv find?"},
+        {"role": "assistant", "content": "Four papers.",
+         "tool_results": [{"content": "IGNORE-ME-ABSTRACT-TEXT"}]},
+        {"role": "system", "content": "resmon restarted the conversation."},
+    ]
+    with ProviderServer("openai") as server:
+        server.script = [{"text": "ok", "calls": []}]
+        run(runtime_for("openai", server.base_url), history=history)
+
+    sent = server.user_text(server.calls[0])
+    assert "what did arXiv find?" in sent
+    assert "Four papers." in sent
+    assert "IGNORE-ME-ABSTRACT-TEXT" not in sent
+    assert "resmon restarted the conversation" not in sent, (
+        "a system notice is resmon talking about the conversation, not part of it")
+
+
+def test_an_empty_assistant_turn_is_not_replayed():
+    """A message with no content is a request error on more than one provider."""
+    turns = ak.history_to_text_turns([
+        {"role": "assistant", "content": ""},
+        {"role": "user", "content": "hello"},
+    ])
+    assert turns == [{"role": "user", "text": "hello"}]
+
+
+# ---------------------------------------------------------------------------
+# Availability, and what it does not claim
+# ---------------------------------------------------------------------------
+
+def test_a_missing_key_names_the_provider_and_the_screen_and_never_a_value(monkeypatch):
+    """The provider and the screen to add it on; not the slot's name, and never a value."""
+    monkeypatch.setattr(ak, "get_credential", lambda name: None)
+    runtime = ak.ApiKeyRuntime(provider="openai", model="gpt-4o-mini")
+    status = runtime.status()
+    assert status.available is False
+    assert status.reason == (
+        "No openai API key is stored. Add one in Settings › AI; resmon reads it "
+        "from your system keychain and never puts it in a conversation.")
+    assert "openai_api_key" not in status.reason
+    assert "sk-" not in status.reason
+
+
+def test_availability_never_claims_the_key_works():
+    """Nothing here has spent a token, so nothing here knows the key is good."""
+    runtime = ak.ApiKeyRuntime(provider="openai", model="gpt-4o-mini",
+                               api_key="sk-test")
+    status = runtime.status()
+    assert status.available is True
+    assert "not known until the first turn" in status.reason
+    for word in ("ready", "working", "verified", "valid"):
+        assert word not in status.reason.lower()
+
+
+def test_a_provider_resmon_cannot_drive_says_so_rather_than_failing_later():
+    runtime = ak.ApiKeyRuntime(provider="local", model="gemma4:e2b", api_key="x")
+    status = runtime.status()
+    assert status.available is False
+    assert "Ollama" in status.reason
+
+
+def test_an_unavailable_runtime_answers_with_an_error_event_not_an_exception():
+    events = run(ak.ApiKeyRuntime(provider="", model=""))
+    assert [e["type"] for e in events] == ["error"]
+    assert events[0]["detail"] == "unavailable"
+
+
+def test_a_provider_failure_becomes_an_error_event_without_the_key_in_it():
+    with ProviderServer("openai") as server:
+        server.mode = "unauthorized"
+        events = run(runtime_for("openai", server.base_url))
+    error = next(e for e in events if e["type"] == "error")
+    assert "sk-test-not-a-real-key" not in json.dumps(events)
+    assert error["message"]
+
+
+# ---------------------------------------------------------------------------
+# P14d — every provider has an answer
+# ---------------------------------------------------------------------------
+
+def _provider_denominator() -> set[str]:
+    """The lists in the code, not a hand count — `test_embeddings.py`'s shape."""
+    from implementation_scripts.ai_lanes import SUBSCRIPTION_PROVIDERS
+    from implementation_scripts.llm_remote import _SUPPORTED_PROVIDERS
+
+    return set(_SUPPORTED_PROVIDERS) | {"local"} | set(SUBSCRIPTION_PROVIDERS)
+
+
+def test_every_provider_resmon_lists_has_a_tool_calling_answer():
+    """P14d. 11 of 11, from the same denominator *can embed* uses."""
+    expected = _provider_denominator()
+    assert expected == set(PROVIDER_TOOL_CALLING), (
+        f"missing={expected - set(PROVIDER_TOOL_CALLING)}, "
+        f"extra={set(PROVIDER_TOOL_CALLING) - expected}")
+    assert len(expected) == 11
+
+
+@pytest.mark.parametrize("provider", sorted(_provider_denominator()))
+def test_each_answer_is_one_of_three_states_and_carries_its_evidence(provider):
+    answer = tool_calling(provider)
+    assert answer.state in ("yes", "no", "unknown")
+    assert answer.assistant in ("api_key_runtime", "cli_runtime", "no")
+    assert answer.reason.strip(), f"{provider} has no reason a user could read"
+    assert answer.evidence.strip(), f"{provider} claims {answer.state} with no evidence"
+    if answer.assistant == "no":
+        # A refusal has to say what the user should do instead, or it is a dead
+        # end wearing an explanation.
+        assert len(answer.assistant_reason) > 40
+    if answer.assistant == "api_key_runtime":
+        assert answer.family in FAMILIES
+
+
+def test_the_two_probed_answers_are_the_ones_a_live_check_established():
+    """Recorded here so moving a row is a change to this assertion.
+
+    xAI and Google are the only two providers whose tool-calling support was
+    established by a probe from outside; every other endpoint authenticates
+    before it validates, so the probe learned nothing and the row says
+    ``unknown``.
+    """
+    for provider in ("xai", "google"):
+        assert tool_calling(provider).state == "yes"
+        assert "control" in tool_calling(provider).evidence.lower() or \
+               "Model not found" in tool_calling(provider).evidence
+    for provider in ("meta", "deepseek", "alibaba"):
+        assert tool_calling(provider).state == "unknown"
+        assert "401" in tool_calling(provider).evidence
+
+
+def test_the_sdk_evidence_is_read_from_the_installed_sdk_not_from_the_comment():
+    """The two SDK rows are checkable offline, so they are checked.
+
+    A citation to a pinned dependency that nobody re-reads is a citation that
+    goes stale at the next upgrade.
+    """
+    import inspect
+
+    import anthropic
+    import openai
+
+    anthropic_params = inspect.signature(
+        anthropic.Anthropic(api_key="x").messages.create).parameters
+    openai_params = inspect.signature(
+        openai.OpenAI(api_key="x").chat.completions.create).parameters
+    assert "tools" in anthropic_params and "tool_choice" in anthropic_params
+    assert "tools" in openai_params and "tool_choice" in openai_params
+    assert anthropic.__version__ in tool_calling("anthropic").evidence
+    assert openai.__version__ in tool_calling("openai").evidence
+
+
+@pytest.mark.parametrize('provider', [p for p,c in PROVIDER_TOOL_CALLING.items() if c.offered])
+@pytest.mark.parametrize('mode', ['reported', 'missing', 'refused'])
+def test_r04c_actual_requests_reports_and_no_model_fallback(provider, mode):
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    import threading
+    captures = []
+    family = PROVIDER_TOOL_CALLING[provider].family
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args): pass
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            captures.append({'path':self.path,'body':body})
+            response = ({'content':[{'type':'text','text':'answer'}]} if family=='anthropic' else
+                        {'candidates':[{'content':{'parts':[{'text':'answer'}]}}]} if family=='google' else
+                        {'choices':[{'message':{'content':'answer'}}]})
+            if mode=='reported': response['modelVersion' if family=='google' else 'model']='different-concrete-model'
+            if mode=='refused': response={'error':{'message':'model refused by authored fixture'}}
+            data=json.dumps(response).encode();self.send_response(400 if mode=='refused' else 200)
+            self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
+    server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
+    assert server.server_port!=8742
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    try:
+        runtime=ak.ApiKeyRuntime(provider=provider,model='requested-model',api_key='fake-not-a-secret',base_url=f'http://127.0.0.1:{server.server_port}',custom_base_url=f'http://127.0.0.1:{server.server_port}' if provider=='custom' else None)
+        events=list(runtime.run_turn(1,'new message',history=[{'role':'user','content':'same chat'}, {'role':'assistant','content':'prior answer','tool_results':[{'do_not_replay':'old tool'}]}]))
+    finally: server.shutdown();server.server_close();thread.join()
+    assert len(captures)==1
+    body=captures[0]['body']; text=json.dumps(body)
+    assert 'effort' not in body and 'old tool' not in text
+    if family=='google': assert '/requested-model:generateContent' in captures[0]['path']
+    else: assert body['model']=='requested-model'
+    assert 'same chat' in text and 'new message' in text
+    reports=[e['model_report'] for e in events if e['type']=='model_report']
+    if mode=='reported':
+        assert [r['model'] for r in reports]==['different-concrete-model']
+        assert reports[0]['source']==('google_response_modelVersion' if family=='google' else 'api_response_model')
+    else: assert reports==[]
+    # The old start echo remains requested metadata only.
+    assert next(e for e in events if e['type']=='started')['model']=='requested-model'
+    assert any(e['type']=='error' for e in events)==(mode=='refused')

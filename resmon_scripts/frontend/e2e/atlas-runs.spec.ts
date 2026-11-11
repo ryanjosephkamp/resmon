@@ -1,0 +1,364 @@
+/**
+ * Atlas: what happens to runs, in the real app. How many run at once, set in
+ * Settings › In the Background and then met by a search, which waits its
+ * turn on the Runs tab rather than being refused, and can be taken out of the
+ * queue; the Runs tab's running run, live, with Stop; the history's
+ * selection, bundled and deleted after a question asked on the page, with a
+ * run still going left alone, and a run deleted from its own page; a search
+ * that waits and then starts on its own; and a watch's Run Now queued behind
+ * the one run allowed, whose page says when the queued run starts and ends.
+ *
+ * arXiv is a loopback server in this spec. It answers each query with one
+ * authored paper named for the query, and holds a query for "slow" open until
+ * the spec lets it go, so a run can be seen while it is still running. Every
+ * other connection the engine tries, and port 8742, is refused by the startup
+ * hook, and the spec fails if anything was.
+ *
+ * The runs a person would already have are started over the API; everything
+ * the spec checks is done with the controls themselves, and then read back
+ * from the engine.
+ */
+import { execFileSync } from 'child_process';
+import * as fs from 'fs';
+import * as http from 'http';
+import * as net from 'net';
+import * as os from 'os';
+import * as path from 'path';
+import { test, expect, _electron as electron, type Page } from '@playwright/test';
+import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
+
+const feed = (term: string) => `<feed xmlns="http://www.w3.org/2005/Atom"><entry>
+  <id>https://arxiv.org/abs/2610.${term.length}${term.charCodeAt(0)}v1</id><title>Authored Atlas runs fixture on ${term}</title>
+  <author><name>Ada Fixture</name></author><published>${new Date().toISOString().slice(0, 10)}T00:00:00Z</published>
+  <summary>Authored local fixture, not fetched scholarly content.</summary>
+</entry></feed>`;
+
+async function engine<T>(win: Page, route: string, method = 'GET', body?: unknown): Promise<{ status: number; body: T }> {
+  return win.evaluate(async ([r, m, b]) => {
+    const port = (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort();
+    const response = await e2eFetch(`http://127.0.0.1:${port}${r}`, {
+      method: m as string,
+      headers: b === undefined ? {} : { 'Content-Type': 'application/json' },
+      ...(b === undefined ? {} : { body: JSON.stringify(b) }),
+    });
+    return { status: response.status, body: await response.json().catch(() => null) };
+  }, [route, method, body] as const) as Promise<{ status: number; body: T }>;
+}
+
+interface RunRead { id: number; status: string; result_path: string | null; log_path: string | null }
+
+test('runs: how many at once, and the log\'s selection bundled and deleted', async () => {
+  test.setTimeout(300_000);
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-runs-'));
+  const held: http.ServerResponse[] = [];
+  let holding = true;
+  const source = http.createServer((req, res) => {
+    const query = decodeURIComponent(new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get('search_query') ?? '');
+    const term = /all:(\w+)/.exec(query)?.[1] ?? 'nothing';
+    res.writeHead(200, { 'Content-Type': 'application/atom+xml' });
+    if (term === 'slow' && holding) held.push(res);
+    else res.end(feed(term));
+  });
+  const release = () => {
+    holding = false;
+    for (const res of held.splice(0)) res.end(feed('slow'));
+  };
+  await new Promise<void>((resolve) => source.listen(0, '127.0.0.1', resolve));
+  const sourcePort = (source.address() as net.AddressInfo).port;
+  expect(sourcePort).not.toBe(8742);
+
+  const hookDir = path.join(stateDir, 'python-hook');
+  fs.mkdirSync(hookDir);
+  fs.writeFileSync(path.join(hookDir, 'sitecustomize.py'), `
+import ipaddress, json, socket, sys
+from pathlib import Path
+state = Path(${JSON.stringify(stateDir)})
+original_connect = socket.socket.connect
+def connect(self, address):
+    if isinstance(address, tuple):
+        host, port = address[:2]
+        try: local = ipaddress.ip_address(host).is_loopback
+        except ValueError: local = host == 'localhost'
+        if not local or port == 8742:
+            with (state / 'blocked.jsonl').open('a') as stream:
+                stream.write(json.dumps({'host': host, 'port': port}) + "\\n")
+            raise OSError('atlas-runs test guard refuses external/8742 connection')
+    return original_connect(self, address)
+socket.socket.connect = connect
+sys.path.insert(0, ${JSON.stringify(path.join(REPO_ROOT, 'resmon_scripts'))})
+from implementation_scripts import api_arxiv, config
+api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/query`)}
+# The held query is let go by the spec, never by a timeout.
+config.DEFAULT_REQUEST_TIMEOUT = 240
+`);
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
+  env.PYTHONPATH = [hookDir, env.PYTHONPATH].filter(Boolean).join(path.delimiter);
+  env.NO_PROXY = env.no_proxy = '127.0.0.1,localhost';
+
+  const app = await electron.launch({
+    args: ['.', `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`],
+    cwd: FRONTEND_ROOT, env, colorScheme: null, timeout: 180_000,
+  });
+  registerStateDir(stateDir);
+  try {
+    const win = await app.firstWindow({ timeout: 180_000 });
+    const problems: string[] = [];
+    win.on('pageerror', (e) => problems.push(e.message));
+    await win.getByRole('navigation', { name: 'Sections' }).waitFor({ timeout: 120_000 });
+    fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
+
+    // — In the Background: runs at once, and the watch runs that can wait ----
+    await win.evaluate(() => { window.location.hash = '#/settings/background'; });
+    const limits = win.locator('[data-limits="group"]');
+    await expect(limits).toHaveAttribute('aria-busy', 'false', { timeout: 60_000 });
+    await expect(win.locator('#limit-runs')).toHaveValue('3');
+    await expect(win.locator('#limit-queue')).toHaveValue('16');
+    // No service runs here, so the window's own engine takes the change, and
+    // the screen says the service reads it only when it starts.
+    await expect(limits.locator('[data-limits="reach"]')).toContainText('an engine it started itself, so a change applies to that engine at once');
+    await expect(limits.locator('[data-limits="reach"]')).toContainText('reads these limits when it starts');
+    await win.locator('#limit-runs').fill('0');
+    await expect(limits.getByRole('alert')).toHaveText('Runs at once must be a whole number from 1 to 8.');
+    await expect(limits.locator('[data-limits="save"]')).toBeDisabled();
+    await win.locator('#limit-runs').fill('1');
+    await win.locator('#limit-queue').fill('5');
+    const putLimits = win.waitForResponse((r) => r.url().endsWith('/api/settings/execution') && r.request().method() === 'PUT');
+    await limits.locator('[data-limits="save"]').click();
+    expect((await putLimits).ok()).toBe(true);
+    await expect(limits.locator('[data-limits="saved"]')).toHaveText('Saved.');
+    expect((await engine<Record<string, number>>(win, '/api/settings/execution')).body)
+      .toMatchObject({ max_concurrent_executions: 1, routine_fire_queue_limit: 5 });
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-settings-run-limits.png') });
+    await win.reload();
+    await expect(win.locator('#limit-runs')).toHaveValue('1', { timeout: 60_000 });
+    await expect(win.locator('#limit-queue')).toHaveValue('5');
+
+    // — The runs a person already has: two finished, one still going ---------
+    const dive = async (term: string): Promise<number> => {
+      const started = await engine<{ execution_id: number }>(win, '/api/search/dive', 'POST', {
+        repository: 'arxiv', query: term, keywords: [term], max_results: 5,
+      });
+      expect(started.status, JSON.stringify(started.body)).toBe(200);
+      return started.body.execution_id;
+    };
+    const settled = (id: number) => expect.poll(async () => (await engine<RunRead>(win, `/api/executions/${id}`)).body.status,
+      { timeout: 60_000 }).not.toBe('running');
+    const alpha = await dive('alpha');
+    await settled(alpha);
+    const beta = await dive('beta');
+    await settled(beta);
+    const slow = await dive('slow');
+    await expect.poll(() => held.length, { timeout: 30_000 }).toBe(1);
+    const alphaRun = (await engine<RunRead>(win, `/api/executions/${alpha}`)).body;
+    expect(alphaRun.status).toBe('completed');
+    expect(alphaRun.result_path && fs.existsSync(alphaRun.result_path), 'the finished run wrote no report').toBe(true);
+
+    // — One run at once: a search asked while one runs waits its turn on the Runs tab --------
+    await win.evaluate(() => { window.location.hash = '#/search/ask'; });
+    await expect(win.getByRole('heading', { name: 'Ask the Sources', level: 1 })).toBeVisible({ timeout: 60_000 });
+    // The column beside the form keeps the newest runs, and the way to the rest.
+    await expect(win.locator('.latest-runs .run-row')).toHaveCount(3, { timeout: 30_000 });
+    await expect(win.locator('.latest-runs [data-runs="all"]')).toHaveAttribute('href', '#/runs');
+    await win.getByRole('button', { name: 'Deep Sweep', exact: true }).click();
+    await win.locator('.source[data-source="arxiv"] input').check();
+    const terms = win.getByLabel('Search terms');
+    await terms.fill('queued');
+    await terms.press('Enter');
+    const asked = win.waitForResponse((r) => r.url().endsWith('/api/search/sweep') && r.request().method() === 'POST');
+    await win.getByRole('button', { name: 'Ask arXiv', exact: true }).click();
+    const queuedAnswer = await asked;
+    expect(queuedAnswer.status()).toBe(202);
+    const { ticket } = await queuedAnswer.json() as { ticket: string };
+    await expect.poll(() => win.evaluate(() => window.location.hash)).toBe('#/runs');
+    await expect(win.locator('[data-runs="queued"]')).toHaveText(
+      'resmon is already running 1 run, as many as it allows at once, so this Deep Sweep waits. It starts on its own '
+      + 'when a run finishes; there is nothing more to do.');
+    // Running Now: the slow run, live, with its source in the wall's mark and Stop.
+    const runningRow = win.locator(`[data-runs="running"] .active-row[data-run="${slow}"]`);
+    await expect(runningRow).toBeVisible({ timeout: 30_000 });
+    await expect(runningRow.locator('.src-marks li[data-source="arxiv"] .wall-mark')).toHaveAttribute('data-mark', 'asking');
+    await expect(runningRow.locator('[data-runs="said"]')).toHaveText('0 of 1 finished · asking arXiv');
+    await expect(runningRow.getByRole('button', { name: 'Stop slow' })).toBeEnabled();
+    const ticking = await runningRow.locator('[data-runs="elapsed"]').innerText();
+    await expect(runningRow.locator('[data-runs="elapsed"]')).not.toHaveText(ticking, { timeout: 3_000 });
+    // Waiting: the search just asked, next in line, which can be taken out before it starts.
+    const waitingRow = win.locator(`[data-runs="waiting"] .active-row[data-ticket="${ticket}"]`);
+    await expect(waitingRow).toContainText('queued');
+    await expect(waitingRow.locator('.active-meta')).toContainText(/^Deep Sweep · arXiv · asked at \d{1,2}:\d{2}\s(AM|PM) · next in line$/);
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-runs-tab-waiting.png') });
+    await waitingRow.getByRole('button', { name: 'Do Not Run queued' }).click();
+    await expect(waitingRow).toHaveCount(0, { timeout: 10_000 });
+    expect((await engine<{ waiting: unknown[] }>(win, '/api/executions/active')).body.waiting).toEqual([]);
+    expect((await engine<RunRead[]>(win, '/api/executions')).body.map((r) => r.id).sort((a, b) => a - b)).toEqual([alpha, beta, slow]);
+
+    // — The history's selection: bundled, then deleted with the running one left --
+    const row = (id: number) => win.locator(`[data-runs="history"] .run-row[data-run="${id}"]`);
+    await expect(row(slow).locator('.run-status')).toHaveAttribute('data-status', 'running', { timeout: 30_000 });
+    await row(alpha).getByRole('checkbox', { name: `Select run ${alpha}` }).check();
+    await row(beta).getByRole('checkbox', { name: `Select run ${beta}` }).check();
+    const bar = win.getByRole('group', { name: 'The selected runs' });
+    await expect(bar).toContainText('2 runs: export their papers as');
+
+    const bundleFile = path.join(stateDir, 'atlas-runs-bundle.zip');
+    let askedTheEngineToWrite = false;
+    win.on('request', (r) => { if (r.url().endsWith('/api/executions/export')) askedTheEngineToWrite = true; });
+    await app.evaluate(({ BrowserWindow }, target) => {
+      BrowserWindow.getAllWindows()[0].webContents.session.once('will-download', (_e, item) => {
+        item.setSavePath(target as string);
+      });
+    }, bundleFile);
+    await bar.locator('[data-runs="bundle"]').click();
+    await expect.poll(() => (fs.existsSync(bundleFile) ? fs.statSync(bundleFile).size : 0), { timeout: 60_000 }).toBeGreaterThan(0);
+    const members = JSON.parse(execFileSync(env.RESMON_PYTHON ?? 'python3', ['-c', `
+import json, sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as z:
+    assert z.testzip() is None
+    print(json.dumps({"names": z.namelist(), "manifest": json.loads(z.read("manifest.json"))}))
+`, bundleFile], { encoding: 'utf8' })) as { names: string[]; manifest: { id: number }[] };
+    expect(members.manifest.map((m) => m.id)).toEqual([alpha, beta]);
+    for (const id of [alpha, beta]) {
+      expect(members.names, `the bundle has no search record for run ${id}`).toContain(`execution_${id}/record/search-record.md`);
+      expect(members.names, `the bundle carries no report for run ${id}`).toContain(`execution_${id}/report/report.md`);
+    }
+    expect(askedTheEngineToWrite, 'the bundle went through the route that writes where the engine chooses').toBe(false);
+
+    await row(slow).getByRole('checkbox', { name: `Select run ${slow}` }).check();
+    await expect(bar).toContainText('3 runs: export their papers as');
+    await expect(bar.locator('[data-runs="still-running"]'))
+      .toHaveText(`Run ${slow} is still running. A run can be deleted once it has stopped.`);
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-runlog-selected.png') });
+
+    // The question is asked on the page, never in a system dialog.
+    const dialogs: string[] = [];
+    win.on('dialog', (d) => { dialogs.push(d.message()); void d.dismiss(); });
+    const deletes: string[] = [];
+    win.on('request', (r) => { if (r.method() === 'DELETE' && r.url().includes('/api/executions/')) deletes.push(r.url()); });
+    await bar.locator('[data-runs="delete"]').click();
+    const question = bar.locator('[data-confirm="delete-runs"]');
+    await expect(question).toBeFocused();
+    await expect(question.locator('.confirm-question')).toHaveText(
+      `Delete 2 runs (runs ${alpha} and ${beta})? resmon deletes their records, with each one’s line in the run log, what each `
+      + 'source answered, which papers it found, and where its report was sent. The papers stay in your collection, and '
+      + `their report and log files stay in the reports folder. Run ${slow} is still running, and is not deleted. This `
+      + 'cannot be undone.',
+    );
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-runs-tab-delete-question.png') });
+    // Escape is Not Now; nothing went.
+    await win.keyboard.press('Escape');
+    await expect(question).toHaveCount(0);
+    expect(deletes).toEqual([]);
+    await bar.locator('[data-runs="delete"]').click();
+    await question.getByRole('button', { name: 'Delete 2 Runs' }).click();
+    // Gone from the log as soon as the engine has said so, without waiting for the log's next read.
+    await expect(row(alpha)).toHaveCount(0, { timeout: 5_000 });
+    await expect(row(beta)).toHaveCount(0, { timeout: 5_000 });
+    await expect(win.locator('[data-runs="deleted"] [role="status"]')).toHaveText('Deleted 2 runs.');
+    await expect(row(slow)).toBeVisible();
+    await expect(row(slow).getByRole('checkbox')).toBeChecked();
+    await expect(bar).toContainText('1 run: export their papers as');
+    await expect(bar.locator('[data-runs="delete"]')).toBeDisabled();
+    expect(deletes.filter((url) => url.endsWith(`/api/executions/${slow}`)), 'the running run was sent to be deleted').toEqual([]);
+    // What the engine did: the two records are gone, the third and the files are not.
+    expect((await engine(win, `/api/executions/${alpha}`)).status).toBe(404);
+    expect((await engine(win, `/api/executions/${beta}`)).status).toBe(404);
+    expect((await engine<RunRead[]>(win, '/api/executions')).body.map((r) => r.id)).toEqual([slow]);
+    expect(fs.existsSync(alphaRun.result_path ?? ''), 'deleting the run deleted its report file').toBe(true);
+    expect(fs.existsSync(alphaRun.log_path ?? ''), 'deleting the run deleted its log file').toBe(true);
+    // And the papers they found stay in the collection: one each, and the slow run's is not stored yet.
+    const corpus = await engine<{ total: number }>(win, '/api/explorer/search', 'POST', { page: 1, page_size: 1 });
+    expect(corpus.body.total).toBe(2);
+
+    // — A run's own page: nothing to delete while it runs, then deleted -----
+    await row(slow).locator('.run-title').click();
+    const page = win.locator(`.run[data-run="${slow}"]`);
+    await expect(page).toHaveAttribute('data-status', 'running', { timeout: 30_000 });
+    await expect(page.locator('[data-run="delete"]')).toHaveCount(0);
+    // ← Runs goes to the Runs tab, and back again to the run.
+    await page.getByRole('link', { name: 'Runs', exact: true }).click();
+    await expect.poll(() => win.evaluate(() => window.location.hash)).toBe('#/runs');
+    await win.goBack();
+    await expect(page).toBeVisible();
+    release();
+    await expect(page).toHaveAttribute('data-status', 'completed', { timeout: 60_000 });
+
+    const remove = page.locator('[data-run="delete"]');
+    await expect(remove).toHaveText('Delete This Run');
+    await remove.click();
+    const pageQuestion = page.locator('[data-confirm="delete-run"]');
+    await expect(pageQuestion.locator('.confirm-question')).toHaveText(new RegExp(`^Delete run ${slow}, “slow”\\? resmon deletes its record, with `));
+    await expect(pageQuestion.locator('.confirm-question')).toContainText('its report and log files stay in the reports folder. This cannot be undone.');
+    await pageQuestion.getByRole('button', { name: 'Not Now' }).click();
+    await expect(pageQuestion).toHaveCount(0);
+    await expect(page).toBeVisible();
+    expect((await engine(win, `/api/executions/${slow}`)).status, 'a dismissed question deleted the run').toBe(200);
+
+    await remove.click();
+    await pageQuestion.getByRole('button', { name: 'Delete This Run' }).click();
+    await expect(win.getByRole('heading', { name: 'Runs', level: 1 })).toBeVisible({ timeout: 30_000 });
+    expect(await win.evaluate(() => window.location.hash)).toBe('#/runs');
+    await expect(win.locator('[data-runs="deleted"] [role="status"]')).toHaveText(`Deleted run ${slow}.`);
+    await expect(row(slow)).toHaveCount(0);
+    await expect(win.locator('[data-runs="history"] .index-empty')).toContainText('No runs yet.');
+    expect((await engine(win, `/api/executions/${slow}`)).status).toBe(404);
+    expect(dialogs, 'a system dialog was opened').toEqual([]);
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-runlog-deleted.png') });
+
+    // — A search past the limit waits, then starts on its own when the slot frees ------------
+    holding = true;
+    const holder = await dive('slow');
+    await expect.poll(() => held.length, { timeout: 30_000 }).toBe(1);
+    const waits = await engine<{ execution_id: number | null; queued: boolean; ticket: string }>(win, '/api/search/dive', 'POST', {
+      repository: 'arxiv', query: 'later', keywords: ['later'], max_results: 5, request_id: 'atlas-runs-later',
+    });
+    expect(waits.status).toBe(202);
+    expect(waits.body.execution_id).toBeNull();
+    await expect(win.locator('[data-runs="waiting"] .active-row[data-ticket="atlas-runs-later"]')).toBeVisible({ timeout: 30_000 });
+    release();
+    await expect(win.locator('[data-runs="waiting"]')).toHaveCount(0, { timeout: 60_000 });
+    await expect.poll(async () => (await engine<RunRead[]>(win, '/api/executions')).body.length, { timeout: 60_000 }).toBe(2);
+    const later = (await engine<(RunRead & { request_id: string | null })[]>(win, '/api/executions')).body
+      .find((r) => r.request_id === 'atlas-runs-later');
+    expect(later, 'the waiting search never became a run').toBeTruthy();
+    await expect(row(later!.id)).toBeVisible({ timeout: 30_000 });
+    await expect.poll(async () => (await engine<RunRead>(win, `/api/executions/${later!.id}`)).body.status, { timeout: 60_000 }).toBe('completed');
+    await expect(row(holder)).toBeVisible();
+
+    // — A watch's Run Now, queued behind the one run allowed: its page says when it starts and ends,
+    // on its own, without being left and opened again ---------------------------------------------
+    holding = true;
+    const blocking = await dive('slow');
+    await expect.poll(() => held.length, { timeout: 30_000 }).toBe(1);
+    const watch = await engine<{ id: number }>(win, '/api/routines', 'POST', {
+      name: 'Queued behind a search', schedule_cron: '0 9 * * *', is_active: false,
+      parameters: { repositories: ['arxiv'], keywords: ['queued'], query: 'queued', max_results: 5 },
+    });
+    expect(watch.status, JSON.stringify(watch.body)).toBeLessThan(300);
+    await win.evaluate((id) => { window.location.hash = `#/watches/${id}`; }, watch.body.id);
+    const queuedNow = win.waitForResponse((r) => r.url().endsWith(`/api/routines/${watch.body.id}/run`) && r.request().method() === 'POST');
+    await win.getByRole('button', { name: 'Run Now', exact: true }).click();
+    expect((await queuedNow).status()).toBe(202);
+    const said = win.locator('.run-now-said');
+    await expect(said).toHaveAttribute('data-run-queued', 'true');
+    await expect(said).toContainText('so this one is queued');
+    release();
+    await expect.poll(async () => (await engine<RunRead>(win, `/api/executions/${blocking}`)).body.status, { timeout: 60_000 }).toBe('completed');
+    await expect(said).toHaveAttribute('data-run-dequeued', 'true', { timeout: 30_000 });
+    await expect(said).toContainText('The queued run started and has ended: completed.', { timeout: 30_000 });
+    const started = Number(await said.getAttribute('data-run-started'));
+    expect(started).toBeGreaterThan(blocking);
+    await expect(said.getByRole('link', { name: `Open run ${started}` })).toHaveAttribute('href', `#/runs/${started}`);
+    await expect(win.locator(`.night[data-run="${started}"]`)).toHaveAttribute('data-status', 'completed');
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-watch-queued-ran.png') });
+
+    expect(problems).toEqual([]);
+  } finally {
+    release();
+    await app.close();
+    await new Promise<void>((resolve) => source.close(() => resolve()));
+    const blocked = fs.existsSync(path.join(stateDir, 'blocked.jsonl'))
+      ? fs.readFileSync(path.join(stateDir, 'blocked.jsonl'), 'utf8') : '';
+    expect(blocked).toBe('');
+    removeStateDir(stateDir);
+  }
+});

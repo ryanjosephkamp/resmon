@@ -1,0 +1,335 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Third-party notices · resmon</title><meta name="description" content="resmon itself is MIT-licensed (see LICENSE). This file carries the notices for third-party components that resmon redistributes inside its installers — where a copy of the license…"><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/third-party-notices/"><link rel="icon" href="/resmon/favicon.png" type="image/png" sizes="64x64"><link rel="apple-touch-icon" href="/resmon/apple-touch-icon.png"><link rel="preload" href="/resmon/static/geist-latin-wght-normal.BgDaEnEv.woff2" as="font" type="font/woff2" crossorigin><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="Third-party notices · resmon"><meta property="og:description" content="resmon itself is MIT-licensed (see LICENSE). This file carries the notices for third-party components that resmon redistributes inside its installers — where a copy of the license…"><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/third-party-notices/"><meta property="og:image" content="https://ryanjosephkamp.github.io/resmon/media/resmon-og.png"><meta name="twitter:card" content="summary_large_image"><script>
+      // A theme and color chosen on an earlier visit, set before the page paints. The top bar's
+      // appearance control (src/scripts/appearance.ts) keeps them; only its own names and colors are read.
+      // `scripted` lets a page hold room for what its scripts will draw.
+      document.documentElement.classList.add('scripted');
+      try {
+        const kept = JSON.parse(localStorage.getItem('resmon:appearance') || 'null');
+        if (kept) {
+          const root = document.documentElement;
+          if (kept.theme === 'light' || kept.theme === 'dark') root.dataset.theme = kept.theme;
+          for (const [name, value] of Object.entries(kept.tones || {})) {
+            if (/^--dial-(light|dark)-[a-z]+$/.test(name) && /^#[0-9a-f]{6}$/i.test(value)) root.style.setProperty(name, value);
+          }
+        }
+      } catch {}
+    </script><link rel="stylesheet" href="/resmon/static/_doc_.CrUxPVYO.css">
+<style>.cartouche[data-astro-cid-vyumnbmr]{margin-bottom:var(--space-6);padding:var(--space-5) var(--space-5) var(--space-4);background:var(--color-canvas);border:var(--border-width) solid var(--color-border-strong);box-shadow:inset 0 0 0 var(--space-1) var(--color-canvas),inset 0 0 0 calc(var(--space-1) + var(--border-width)) var(--color-border)}h1[data-astro-cid-vyumnbmr]{margin:0;font-size:var(--text-3xl);line-height:var(--leading-display)}.meta[data-astro-cid-vyumnbmr]{display:flex;flex-direction:column;gap:var(--space-1) var(--space-3);margin:var(--space-3) 0 0;max-width:var(--measure);color:var(--color-text-muted);font-size:var(--text-sm)}.section[data-astro-cid-vyumnbmr]{font-weight:var(--weight-semibold);color:var(--color-text)}@media(min-width:40rem){.meta[data-astro-cid-vyumnbmr]{flex-direction:row;flex-wrap:wrap}.section[data-astro-cid-vyumnbmr]:after{content:"·";margin-inline-start:var(--space-3);color:var(--color-text-faint)}}
+.doc[data-astro-cid-c2uqhu5p]{display:grid;gap:var(--space-6);padding-block:var(--space-6) var(--space-8)}.doc-body[data-astro-cid-c2uqhu5p]{min-width:0;max-width:var(--measure-wide)}.rail[data-astro-cid-c2uqhu5p]{order:2;font-size:var(--text-sm);border-top:var(--border-width) solid var(--color-border);padding-top:var(--space-4)}.rail-head[data-astro-cid-c2uqhu5p]{display:block;margin-bottom:var(--space-2);font-weight:var(--weight-semibold);color:var(--color-text);text-decoration:none}.rail[data-astro-cid-c2uqhu5p] ol[data-astro-cid-c2uqhu5p]{margin:0;padding:0;list-style:none;columns:2 11rem;column-gap:var(--space-5)}.rail[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:0}.rail[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p]{display:flex;align-items:center;gap:var(--space-2);padding-block:var(--space-1);color:var(--color-text-muted);text-decoration:none;break-inside:avoid;transition:color var(--duration-fast) var(--ease)}.rail[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p]:before{content:"";flex-shrink:0;width:var(--space-1);height:var(--space-1);border-radius:50%;background:var(--color-border-strong)}.rail[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p]:hover{color:var(--color-text)}.rail[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p][aria-current=page]{color:var(--color-text);font-weight:var(--weight-semibold)}.rail[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p][aria-current=page]:before{background:var(--color-accent-mark);outline:var(--border-width) solid var(--color-accent-mark);outline-offset:var(--border-width-heavy)}.contents[data-astro-cid-c2uqhu5p]{max-width:var(--measure);margin-bottom:var(--space-6);padding-block:var(--space-3);border-block:var(--border-width) solid var(--color-border)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-sm);font-weight:var(--weight-semibold);color:var(--color-text);border:0;padding:0}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm);columns:2 14rem;column-gap:var(--space-6)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}.contents[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p]{color:var(--color-text-muted)}.contents[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p]:hover{color:var(--color-text)}@media(min-width:64rem){.doc[data-astro-cid-c2uqhu5p].has-rail{grid-template-columns:var(--rail) minmax(0,1fr);gap:var(--space-7)}.rail[data-astro-cid-c2uqhu5p]{order:0;position:sticky;top:var(--space-5);align-self:start;border-top:0;padding-top:0}.rail[data-astro-cid-c2uqhu5p] ol[data-astro-cid-c2uqhu5p]{columns:auto}}@media(min-width:84rem){.doc[data-astro-cid-c2uqhu5p].has-rail.has-contents .doc-body[data-astro-cid-c2uqhu5p]{display:grid;grid-template-columns:minmax(0,var(--measure)) var(--rail);column-gap:var(--space-7);max-width:none;align-items:start}.doc[data-astro-cid-c2uqhu5p].has-rail.has-contents .doc-body[data-astro-cid-c2uqhu5p]>.cartouche{grid-column:1 / -1}.doc[data-astro-cid-c2uqhu5p].has-rail.has-contents .contents[data-astro-cid-c2uqhu5p]{grid-column:2;grid-row:2 / span 2;position:sticky;top:var(--space-5);border-block:0;border-inline-start:var(--border-width) solid var(--color-border);padding:0 0 0 var(--space-4)}.doc[data-astro-cid-c2uqhu5p].has-rail.has-contents .contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{columns:auto;padding-inline-start:0;list-style:none}.doc[data-astro-cid-c2uqhu5p].has-rail.has-contents .prose[data-astro-cid-c2uqhu5p],.doc[data-astro-cid-c2uqhu5p].has-rail.has-contents .doc-body[data-astro-cid-c2uqhu5p]>:not(.cartouche):not(.contents){grid-column:1}}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="lockup" href="/resmon/" aria-label="resmon, research monitor: home" data-astro-cid-5hce7sga> <img class="mark" src="/resmon/mark.webp" width="96" height="96" alt="" decoding="async" data-astro-cid-iifiznic>  <span class="lockup-words" aria-hidden="true" data-astro-cid-5hce7sga><b data-astro-cid-5hce7sga>res</b>earch <b data-astro-cid-5hce7sga>mon</b>itor</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/#sources" data-astro-cid-5hce7sga> Sources </a> </li><li class="nav-wide" data-astro-cid-5hce7sga> <a href="/resmon/#tour" data-astro-cid-5hce7sga> Tour </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" data-astro-cid-5hce7sga> Guide </a> </li><li class="nav-wide" data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li> <li class="nav-wide" data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>Source code</a> </li> </ul> </nav> <div class="mast-end" data-astro-cid-5hce7sga> <div class="appearance" data-appearance hidden data-astro-cid-5hce7sga> <button type="button" class="appearance-button" aria-expanded="false" aria-controls="appearance-panel" data-astro-cid-5hce7sga> <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" data-astro-cid-5hce7sga> <path d="M8 1.75s-4.25 4.6-4.25 7.6a4.25 4.25 0 0 0 8.5 0c0-3-4.25-7.6-4.25-7.6Z" data-astro-cid-5hce7sga></path> </svg> <span class="visually-hidden" data-astro-cid-5hce7sga>Theme and color</span> </button> <div class="appearance-panel" id="appearance-panel" hidden data-astro-cid-5hce7sga> <fieldset class="themes" data-astro-cid-5hce7sga> <legend data-astro-cid-5hce7sga>Theme</legend> <div class="seg" data-astro-cid-5hce7sga> <label data-astro-cid-5hce7sga> <input class="visually-hidden" type="radio" name="theme" value="system" data-astro-cid-5hce7sga> <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" data-astro-cid-5hce7sga><rect x="1.75" y="2.75" width="12.5" height="8.5" rx="1.5" /><path d="M5.5 14h5M8 11.25V14" /></svg> <span data-astro-cid-5hce7sga>Follow the system</span> </label><label data-astro-cid-5hce7sga> <input class="visually-hidden" type="radio" name="theme" value="light" data-astro-cid-5hce7sga> <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" data-astro-cid-5hce7sga><circle cx="8" cy="8" r="3" /><path d="M8 1.5v1.5M8 13v1.5M14.5 8H13M3 8H1.5M12.6 3.4l-1.06 1.06M4.46 11.54 3.4 12.6M12.6 12.6l-1.06-1.06M4.46 4.46 3.4 3.4" /></svg> <span data-astro-cid-5hce7sga>Light</span> </label><label data-astro-cid-5hce7sga> <input class="visually-hidden" type="radio" name="theme" value="dark" data-astro-cid-5hce7sga> <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" data-astro-cid-5hce7sga><path d="M13.5 9.6A5.75 5.75 0 0 1 6.4 2.5a5.75 5.75 0 1 0 7.1 7.1Z" /></svg> <span data-astro-cid-5hce7sga>Dark</span> </label> </div> </fieldset> <div class="dial" data-astro-cid-5hce7sga> <label for="hue" data-astro-cid-5hce7sga><i data-astro-cid-5hce7sga>Its color:</i> <span class="hue-name" data-astro-cid-5hce7sga>amber</span></label> <div class="dial-row" data-astro-cid-5hce7sga> <input id="hue" type="range" min="0" max="359" step="1" value="51" data-astro-cid-5hce7sga> <button type="button" class="hue-reset" data-astro-cid-5hce7sga>Use the default</button> </div> <p class="dial-note" data-astro-cid-5hce7sga>
+Only the hue turns. As in the app, each tone is then drawn light or deep enough to read on this
+                  page, in either theme.
+</p> </div> </div> </div> <a class="mast-action" href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Download</a> </div> </div> </header> <main id="main" class="shell main main-full" data-astro-cid-5hce7sga>  <div class="doc has-rail" data-astro-cid-c2uqhu5p> <nav class="rail" aria-label="Reference" data-astro-cid-c2uqhu5p> <a class="rail-head" href="/resmon/reference/" data-astro-cid-c2uqhu5p> Reference </a> <ol data-astro-cid-c2uqhu5p> <li data-astro-cid-c2uqhu5p> <a href="/resmon/adding-a-source/" data-astro-cid-c2uqhu5p> Adding a source to resmon </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/dblp-reliability/" data-astro-cid-c2uqhu5p> DBLP reliability contract </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/hal-reliability/" data-astro-cid-c2uqhu5p> HAL request reliability </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/local-api-security/" data-astro-cid-c2uqhu5p> Local API security model </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/portable-briefing/" data-astro-cid-c2uqhu5p> Read a saved answer offline </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/source-landscape/" data-astro-cid-c2uqhu5p> Scholarly source landscape </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/source-response-reliability/" data-astro-cid-c2uqhu5p> Source response reliability </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/backup/" data-astro-cid-c2uqhu5p> The backup bundle format </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/watchdog-field-test/" data-astro-cid-c2uqhu5p> The watchdog&#39;s zero rules, run against a real corpus </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/delivery/" data-astro-cid-c2uqhu5p> The webhook receiver contract </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/third-party-notices/" aria-current="page" data-astro-cid-c2uqhu5p> Third-party notices </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/source-answers/" data-astro-cid-c2uqhu5p> What a Source&#39;s Answer Means </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/zenodo-reliability/" data-astro-cid-c2uqhu5p> Zenodo search timing and outcomes </a> </li> </ol> </nav> <article class="doc-body" data-astro-cid-c2uqhu5p> <header class="cartouche" data-astro-cid-vyumnbmr> <h1 data-astro-cid-vyumnbmr>Third-party notices</h1> <p class="meta" data-astro-cid-vyumnbmr> <span class="section" data-astro-cid-vyumnbmr>Reference</span> <span data-astro-cid-vyumnbmr>docs/third-party-notices.md</span> </p>  </header>   <div class="prose" data-astro-cid-c2uqhu5p><p>resmon itself is MIT-licensed (see <a href="https://github.com/ryanjosephkamp/resmon/blob/main/LICENSE"><code>LICENSE</code></a>). This file carries the
+notices for third-party components that resmon <strong>redistributes inside its
+installers</strong> — where a copy of the license has to travel with the binary, and the
+upstream package does not put one there itself.</p>
+<p>It is not an inventory of everything resmon depends on. <code>requirements.txt</code> and
+<code>package.json</code> are that, and the great majority of those packages ship their own
+license file inside their own distribution, which the installer copies along with
+the package. This file exists for the ones that do not.</p>
+<hr>
+<h2 id="sqlite-vec-019">sqlite-vec 0.1.9</h2>
+<p><strong>What it is.</strong> A loadable SQLite extension providing vector storage and
+nearest-neighbor search. resmon ships the native binary inside the bundled
+Python runtime and loads it through
+<code>resmon_scripts/implementation_scripts/vector_index.py</code>. It backs semantic
+search, the similar-papers list, and the near-duplicate links.</p>
+<p><strong>Upstream.</strong> <a href="https://github.com/asg017/sqlite-vec">https://github.com/asg017/sqlite-vec</a> · Copyright (c) 2024 Alex Garcia.</p>
+<p><strong>License.</strong> Dual-licensed: <strong>MIT</strong> <em>or</em> <strong>Apache License 2.0</strong>, at the
+recipient’s option. Both texts are reproduced below.</p>
+<p><strong>Why they are reproduced here rather than linked.</strong> The published wheel
+(<code>sqlite_vec-0.1.9-py3-none-*.whl</code>) contains the native library, an <code>__init__.py</code>
+and a <code>dist-info</code> directory whose <code>METADATA</code> names the two licenses — and <strong>no
+license file of either kind</strong>. Checked against the installed wheel on
+September 5, 2026: <code>sqlite_vec-0.1.9.dist-info/</code> holds <code>INSTALLER</code>, <code>METADATA</code>,
+<code>RECORD</code>, <code>REQUESTED</code>, <code>WHEEL</code> and <code>top_level.txt</code>, and nothing else. So an
+installer that copied the wheel and stopped there would distribute the binary
+without the notice both licenses require. These texts are taken verbatim from
+the upstream repository at tag <code>v0.1.9</code>.</p>
+<hr>
+<h3 id="sqlite-vec--mit-license">sqlite-vec — MIT License</h3>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="plaintext"><code><span class="line"><span>MIT License</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>Copyright (c) 2024 Alex Garcia</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>Permission is hereby granted, free of charge, to any person obtaining a copy</span></span>
+<span class="line"><span>of this software and associated documentation files (the "Software"), to deal</span></span>
+<span class="line"><span>in the Software without restriction, including without limitation the rights</span></span>
+<span class="line"><span>to use, copy, modify, merge, publish, distribute, sublicense, and/or sell</span></span>
+<span class="line"><span>copies of the Software, and to permit persons to whom the Software is</span></span>
+<span class="line"><span>furnished to do so, subject to the following conditions:</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>The above copyright notice and this permission notice shall be included in all</span></span>
+<span class="line"><span>copies or substantial portions of the Software.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR</span></span>
+<span class="line"><span>IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,</span></span>
+<span class="line"><span>FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE</span></span>
+<span class="line"><span>AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER</span></span>
+<span class="line"><span>LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,</span></span>
+<span class="line"><span>OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE</span></span>
+<span class="line"><span>SOFTWARE.</span></span></code></pre>
+<hr>
+<h3 id="sqlite-vec--apache-license-version-20">sqlite-vec — Apache License, Version 2.0</h3>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="plaintext"><code><span class="line"><span>                                 Apache License</span></span>
+<span class="line"><span>                           Version 2.0, January 2004</span></span>
+<span class="line"><span>                        http://www.apache.org/licenses/</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>1.  Definitions.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    "License" shall mean the terms and conditions for use, reproduction,</span></span>
+<span class="line"><span>    and distribution as defined by Sections 1 through 9 of this document.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    "Licensor" shall mean the copyright owner or entity authorized by</span></span>
+<span class="line"><span>    the copyright owner that is granting the License.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    "Legal Entity" shall mean the union of the acting entity and all</span></span>
+<span class="line"><span>    other entities that control, are controlled by, or are under common</span></span>
+<span class="line"><span>    control with that entity. For the purposes of this definition,</span></span>
+<span class="line"><span>    "control" means (i) the power, direct or indirect, to cause the</span></span>
+<span class="line"><span>    direction or management of such entity, whether by contract or</span></span>
+<span class="line"><span>    otherwise, or (ii) ownership of fifty percent (50%) or more of the</span></span>
+<span class="line"><span>    outstanding shares, or (iii) beneficial ownership of such entity.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    "You" (or "Your") shall mean an individual or Legal Entity</span></span>
+<span class="line"><span>    exercising permissions granted by this License.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    "Source" form shall mean the preferred form for making modifications,</span></span>
+<span class="line"><span>    including but not limited to software source code, documentation</span></span>
+<span class="line"><span>    source, and configuration files.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    "Object" form shall mean any form resulting from mechanical</span></span>
+<span class="line"><span>    transformation or translation of a Source form, including but</span></span>
+<span class="line"><span>    not limited to compiled object code, generated documentation,</span></span>
+<span class="line"><span>    and conversions to other media types.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    "Work" shall mean the work of authorship, whether in Source or</span></span>
+<span class="line"><span>    Object form, made available under the License, as indicated by a</span></span>
+<span class="line"><span>    copyright notice that is included in or attached to the work</span></span>
+<span class="line"><span>    (an example is provided in the Appendix below).</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    "Derivative Works" shall mean any work, whether in Source or Object</span></span>
+<span class="line"><span>    form, that is based on (or derived from) the Work and for which the</span></span>
+<span class="line"><span>    editorial revisions, annotations, elaborations, or other modifications</span></span>
+<span class="line"><span>    represent, as a whole, an original work of authorship. For the purposes</span></span>
+<span class="line"><span>    of this License, Derivative Works shall not include works that remain</span></span>
+<span class="line"><span>    separable from, or merely link (or bind by name) to the interfaces of,</span></span>
+<span class="line"><span>    the Work and Derivative Works thereof.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    "Contribution" shall mean any work of authorship, including</span></span>
+<span class="line"><span>    the original version of the Work and any modifications or additions</span></span>
+<span class="line"><span>    to that Work or Derivative Works thereof, that is intentionally</span></span>
+<span class="line"><span>    submitted to Licensor for inclusion in the Work by the copyright owner</span></span>
+<span class="line"><span>    or by an individual or Legal Entity authorized to submit on behalf of</span></span>
+<span class="line"><span>    the copyright owner. For the purposes of this definition, "submitted"</span></span>
+<span class="line"><span>    means any form of electronic, verbal, or written communication sent</span></span>
+<span class="line"><span>    to the Licensor or its representatives, including but not limited to</span></span>
+<span class="line"><span>    communication on electronic mailing lists, source code control systems,</span></span>
+<span class="line"><span>    and issue tracking systems that are managed by, or on behalf of, the</span></span>
+<span class="line"><span>    Licensor for the purpose of discussing and improving the Work, but</span></span>
+<span class="line"><span>    excluding communication that is conspicuously marked or otherwise</span></span>
+<span class="line"><span>    designated in writing by the copyright owner as "Not a Contribution."</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    "Contributor" shall mean Licensor and any individual or Legal Entity</span></span>
+<span class="line"><span>    on behalf of whom a Contribution has been received by Licensor and</span></span>
+<span class="line"><span>    subsequently incorporated within the Work.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>2.  Grant of Copyright License. Subject to the terms and conditions of</span></span>
+<span class="line"><span>    this License, each Contributor hereby grants to You a perpetual,</span></span>
+<span class="line"><span>    worldwide, non-exclusive, no-charge, royalty-free, irrevocable</span></span>
+<span class="line"><span>    copyright license to reproduce, prepare Derivative Works of,</span></span>
+<span class="line"><span>    publicly display, publicly perform, sublicense, and distribute the</span></span>
+<span class="line"><span>    Work and such Derivative Works in Source or Object form.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>3.  Grant of Patent License. Subject to the terms and conditions of</span></span>
+<span class="line"><span>    this License, each Contributor hereby grants to You a perpetual,</span></span>
+<span class="line"><span>    worldwide, non-exclusive, no-charge, royalty-free, irrevocable</span></span>
+<span class="line"><span>    (except as stated in this section) patent license to make, have made,</span></span>
+<span class="line"><span>    use, offer to sell, sell, import, and otherwise transfer the Work,</span></span>
+<span class="line"><span>    where such license applies only to those patent claims licensable</span></span>
+<span class="line"><span>    by such Contributor that are necessarily infringed by their</span></span>
+<span class="line"><span>    Contribution(s) alone or by combination of their Contribution(s)</span></span>
+<span class="line"><span>    with the Work to which such Contribution(s) was submitted. If You</span></span>
+<span class="line"><span>    institute patent litigation against any entity (including a</span></span>
+<span class="line"><span>    cross-claim or counterclaim in a lawsuit) alleging that the Work</span></span>
+<span class="line"><span>    or a Contribution incorporated within the Work constitutes direct</span></span>
+<span class="line"><span>    or contributory patent infringement, then any patent licenses</span></span>
+<span class="line"><span>    granted to You under this License for that Work shall terminate</span></span>
+<span class="line"><span>    as of the date such litigation is filed.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>4.  Redistribution. You may reproduce and distribute copies of the</span></span>
+<span class="line"><span>    Work or Derivative Works thereof in any medium, with or without</span></span>
+<span class="line"><span>    modifications, and in Source or Object form, provided that You</span></span>
+<span class="line"><span>    meet the following conditions:</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    (a) You must give any other recipients of the Work or</span></span>
+<span class="line"><span>    Derivative Works a copy of this License; and</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    (b) You must cause any modified files to carry prominent notices</span></span>
+<span class="line"><span>    stating that You changed the files; and</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    (c) You must retain, in the Source form of any Derivative Works</span></span>
+<span class="line"><span>    that You distribute, all copyright, patent, trademark, and</span></span>
+<span class="line"><span>    attribution notices from the Source form of the Work,</span></span>
+<span class="line"><span>    excluding those notices that do not pertain to any part of</span></span>
+<span class="line"><span>    the Derivative Works; and</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    (d) If the Work includes a "NOTICE" text file as part of its</span></span>
+<span class="line"><span>    distribution, then any Derivative Works that You distribute must</span></span>
+<span class="line"><span>    include a readable copy of the attribution notices contained</span></span>
+<span class="line"><span>    within such NOTICE file, excluding those notices that do not</span></span>
+<span class="line"><span>    pertain to any part of the Derivative Works, in at least one</span></span>
+<span class="line"><span>    of the following places: within a NOTICE text file distributed</span></span>
+<span class="line"><span>    as part of the Derivative Works; within the Source form or</span></span>
+<span class="line"><span>    documentation, if provided along with the Derivative Works; or,</span></span>
+<span class="line"><span>    within a display generated by the Derivative Works, if and</span></span>
+<span class="line"><span>    wherever such third-party notices normally appear. The contents</span></span>
+<span class="line"><span>    of the NOTICE file are for informational purposes only and</span></span>
+<span class="line"><span>    do not modify the License. You may add Your own attribution</span></span>
+<span class="line"><span>    notices within Derivative Works that You distribute, alongside</span></span>
+<span class="line"><span>    or as an addendum to the NOTICE text from the Work, provided</span></span>
+<span class="line"><span>    that such additional attribution notices cannot be construed</span></span>
+<span class="line"><span>    as modifying the License.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    You may add Your own copyright statement to Your modifications and</span></span>
+<span class="line"><span>    may provide additional or different license terms and conditions</span></span>
+<span class="line"><span>    for use, reproduction, or distribution of Your modifications, or</span></span>
+<span class="line"><span>    for any such Derivative Works as a whole, provided Your use,</span></span>
+<span class="line"><span>    reproduction, and distribution of the Work otherwise complies with</span></span>
+<span class="line"><span>    the conditions stated in this License.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>5.  Submission of Contributions. Unless You explicitly state otherwise,</span></span>
+<span class="line"><span>    any Contribution intentionally submitted for inclusion in the Work</span></span>
+<span class="line"><span>    by You to the Licensor shall be under the terms and conditions of</span></span>
+<span class="line"><span>    this License, without any additional terms or conditions.</span></span>
+<span class="line"><span>    Notwithstanding the above, nothing herein shall supersede or modify</span></span>
+<span class="line"><span>    the terms of any separate license agreement you may have executed</span></span>
+<span class="line"><span>    with Licensor regarding such Contributions.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>6.  Trademarks. This License does not grant permission to use the trade</span></span>
+<span class="line"><span>    names, trademarks, service marks, or product names of the Licensor,</span></span>
+<span class="line"><span>    except as required for reasonable and customary use in describing the</span></span>
+<span class="line"><span>    origin of the Work and reproducing the content of the NOTICE file.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>7.  Disclaimer of Warranty. Unless required by applicable law or</span></span>
+<span class="line"><span>    agreed to in writing, Licensor provides the Work (and each</span></span>
+<span class="line"><span>    Contributor provides its Contributions) on an "AS IS" BASIS,</span></span>
+<span class="line"><span>    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or</span></span>
+<span class="line"><span>    implied, including, without limitation, any warranties or conditions</span></span>
+<span class="line"><span>    of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A</span></span>
+<span class="line"><span>    PARTICULAR PURPOSE. You are solely responsible for determining the</span></span>
+<span class="line"><span>    appropriateness of using or redistributing the Work and assume any</span></span>
+<span class="line"><span>    risks associated with Your exercise of permissions under this License.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>8.  Limitation of Liability. In no event and under no legal theory,</span></span>
+<span class="line"><span>    whether in tort (including negligence), contract, or otherwise,</span></span>
+<span class="line"><span>    unless required by applicable law (such as deliberate and grossly</span></span>
+<span class="line"><span>    negligent acts) or agreed to in writing, shall any Contributor be</span></span>
+<span class="line"><span>    liable to You for damages, including any direct, indirect, special,</span></span>
+<span class="line"><span>    incidental, or consequential damages of any character arising as a</span></span>
+<span class="line"><span>    result of this License or out of the use or inability to use the</span></span>
+<span class="line"><span>    Work (including but not limited to damages for loss of goodwill,</span></span>
+<span class="line"><span>    work stoppage, computer failure or malfunction, or any and all</span></span>
+<span class="line"><span>    other commercial damages or losses), even if such Contributor</span></span>
+<span class="line"><span>    has been advised of the possibility of such damages.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>9.  Accepting Warranty or Additional Liability. While redistributing</span></span>
+<span class="line"><span>    the Work or Derivative Works thereof, You may choose to offer,</span></span>
+<span class="line"><span>    and charge a fee for, acceptance of support, warranty, indemnity,</span></span>
+<span class="line"><span>    or other liability obligations and/or rights consistent with this</span></span>
+<span class="line"><span>    License. However, in accepting such obligations, You may act only</span></span>
+<span class="line"><span>    on Your own behalf and on Your sole responsibility, not on behalf</span></span>
+<span class="line"><span>    of any other Contributor, and only if You agree to indemnify,</span></span>
+<span class="line"><span>    defend, and hold each Contributor harmless for any liability</span></span>
+<span class="line"><span>    incurred by, or claims asserted against, such Contributor by reason</span></span>
+<span class="line"><span>    of your accepting any such warranty or additional liability.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>END OF TERMS AND CONDITIONS</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>APPENDIX: How to apply the Apache License to your work.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>      To apply the Apache License to your work, attach the following</span></span>
+<span class="line"><span>      boilerplate notice, with the fields enclosed by brackets "[]"</span></span>
+<span class="line"><span>      replaced with your own identifying information. (Don't include</span></span>
+<span class="line"><span>      the brackets!)  The text should be enclosed in the appropriate</span></span>
+<span class="line"><span>      comment syntax for the file format. We also recommend that a</span></span>
+<span class="line"><span>      file or class name and description of purpose be included on the</span></span>
+<span class="line"><span>      same "printed page" as the copyright notice for easier</span></span>
+<span class="line"><span>      identification within third-party archives.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>Copyright 2024 Alex Garcia</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>Licensed under the Apache License, Version 2.0 (the "License");</span></span>
+<span class="line"><span>you may not use this file except in compliance with the License.</span></span>
+<span class="line"><span>You may obtain a copy of the License at</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>       http://www.apache.org/licenses/LICENSE-2.0</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>Unless required by applicable law or agreed to in writing, software</span></span>
+<span class="line"><span>distributed under the License is distributed on an "AS IS" BASIS,</span></span>
+<span class="line"><span>WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.</span></span>
+<span class="line"><span>See the License for the specific language governing permissions and</span></span>
+<span class="line"><span>limitations under the License.</span></span></code></pre>
+<hr>
+<h2 id="pdfjs-63289-browser-distribution">PDF.js 6.3.289 browser distribution</h2>
+<p>Source: Mozilla PDF.js tag <a href="https://github.com/mozilla/pdf.js/releases/tag/v6.3.289">v6.3.289</a>,
+published <code>pdfjs-dist</code> archive SHA256
+<code>06f25e887adc6489f04c9fcb14198c77e4e5623a59a0bba5c4cea5838a4f1241</code>.
+resmon redistributes exactly 188 unchanged browser module, CMap, standard-font
+and notice files (3,700,085 bytes), without installing the npm runtime package
+or running its package scripts. The display and worker source modules retain
+publisher bytes; the build aliases their <code>.mjs</code> names to <code>.js</code> for the
+local HTTP server’s JavaScript MIME handling.</p>
+<p>The exact upstream notices travel with the selected assets under
+<code>resmon_scripts/frontend/vendor/pdfjs/6.3.289/</code> and with the desktop renderer at
+<code>dist/atlas/pdfjs/6.3.289/</code>:</p>
+<ul>
+<li><a href="https://github.com/ryanjosephkamp/resmon/blob/main/resmon_scripts/frontend/vendor/pdfjs/6.3.289/LICENSE">PDF.js Apache License 2.0</a></li>
+<li><a href="https://github.com/ryanjosephkamp/resmon/blob/main/resmon_scripts/frontend/vendor/pdfjs/6.3.289/cmaps/LICENSE">Adobe CMap notice</a></li>
+<li><a href="https://github.com/ryanjosephkamp/resmon/blob/main/resmon_scripts/frontend/vendor/pdfjs/6.3.289/standard_fonts/LICENSE_FOXIT">Foxit standard-font notice</a></li>
+<li><a href="https://github.com/ryanjosephkamp/resmon/blob/main/resmon_scripts/frontend/vendor/pdfjs/6.3.289/standard_fonts/LICENSE_LIBERATION">Liberation font notice</a></li>
+</ul>
+<h2 id="pypdf-6181">pypdf 6.18.1</h2>
+<p>Source: <a href="https://pypi.org/project/pypdf/6.18.1/">pypdf 6.18.1 on PyPI</a>.
+The pure-Python wheel <code>pypdf-6.18.1-py3-none-any.whl</code> is 394,327 bytes, SHA256
+<code>ee93a2665670ecf57ee81d197a4ca548f3dc15f9cefc56e59b8140866aaa3de5</code>.
+resmon uses this pinned dependency without optional extras. Its BSD-3-Clause
+notice is also included in the upstream wheel; the following bytes reproduce
+that wheel’s <code>pypdf-6.18.1.dist-info/licenses/LICENSE</code> verbatim.</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="plaintext"><code><span class="line"><span>Copyright (c) 2006-2008, Mathieu Fenniak</span></span>
+<span class="line"><span>Some contributions copyright (c) 2007, Ashish Kulkarni &#x3C;kulkarni.ashish@gmail.com></span></span>
+<span class="line"><span>Some contributions copyright (c) 2014, Steve Witham &#x3C;switham_github@mac-guyver.com></span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>All rights reserved.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>Redistribution and use in source and binary forms, with or without</span></span>
+<span class="line"><span>modification, are permitted provided that the following conditions are</span></span>
+<span class="line"><span>met:</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>* Redistributions of source code must retain the above copyright notice,</span></span>
+<span class="line"><span>this list of conditions and the following disclaimer.</span></span>
+<span class="line"><span>* Redistributions in binary form must reproduce the above copyright notice,</span></span>
+<span class="line"><span>this list of conditions and the following disclaimer in the documentation</span></span>
+<span class="line"><span>and/or other materials provided with the distribution.</span></span>
+<span class="line"><span>* The name of the author may not be used to endorse or promote products</span></span>
+<span class="line"><span>derived from this software without specific prior written permission.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"</span></span>
+<span class="line"><span>AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE</span></span>
+<span class="line"><span>IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE</span></span>
+<span class="line"><span>ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE</span></span>
+<span class="line"><span>LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR</span></span>
+<span class="line"><span>CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF</span></span>
+<span class="line"><span>SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS</span></span>
+<span class="line"><span>INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN</span></span>
+<span class="line"><span>CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)</span></span>
+<span class="line"><span>ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE</span></span>
+<span class="line"><span>POSSIBILITY OF SUCH DAMAGE.</span></span></code></pre></div>   </article> </div>  </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell footer-inner" data-astro-cid-5hce7sga> <p class="footer-line" data-astro-cid-5hce7sga> <img class="mark" src="/resmon/mark.webp" width="96" height="96" alt="" decoding="async" data-astro-cid-iifiznic>  <span data-astro-cid-5hce7sga>
+resmon is free and open source under the MIT license. What it collects stays on your
+            computer unless you switch on summaries, delivery, or a backup, and then goes only where
+            you point it.
+</span> </p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source code</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/" data-astro-cid-5hce7sga>Guide</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/reference/" data-astro-cid-5hce7sga>Reference</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> </ul> <div class="credit" data-astro-cid-if6ord5i> <p class="made" data-astro-cid-if6ord5i>Made by <a href="https://ryanjosephkamp.github.io/" data-astro-cid-if6ord5i>Ryan Kamp</a></p> <ul class="social" aria-label="Ryan Kamp online" data-astro-cid-if6ord5i> <li data-astro-cid-if6ord5i> <a href="https://ryanjosephkamp.github.io/" aria-label="Ryan Kamp’s website" title="Website" data-astro-cid-if6ord5i> <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.2"/><path d="M2.8 12h18.4M12 2.8c2.6 2.6 3.9 5.7 3.9 9.2s-1.3 6.6-3.9 9.2c-2.6-2.6-3.9-5.7-3.9-9.2S9.4 5.4 12 2.8Z"/></g> </svg> </a> </li><li data-astro-cid-if6ord5i> <a href="https://github.com/ryanjosephkamp/" aria-label="Ryan Kamp on GitHub" title="GitHub" data-astro-cid-if6ord5i> <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <path fill="currentColor" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/> </svg> </a> </li><li data-astro-cid-if6ord5i> <a href="https://www.linkedin.com/in/rjk1999" aria-label="Ryan Kamp on LinkedIn" title="LinkedIn" data-astro-cid-if6ord5i> <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <path fill="currentColor" d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/> </svg> </a> </li><li data-astro-cid-if6ord5i> <a href="https://x.com/ryanjosephkamp" aria-label="Ryan Kamp on X" title="X" data-astro-cid-if6ord5i> <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <path fill="currentColor" d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"/> </svg> </a> </li><li data-astro-cid-if6ord5i> <a href="https://m.youtube.com/@RyanJosephKamp" aria-label="Ryan Kamp on YouTube" title="YouTube" data-astro-cid-if6ord5i> <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <path fill="currentColor" d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/> </svg> </a> </li> </ul> <a class="sponsor" href="https://github.com/sponsors/ryanjosephkamp" data-astro-cid-if6ord5i> <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <path d="M10 16.8S3 12.6 3 7.6A3.6 3.6 0 0 1 10 6a3.6 3.6 0 0 1 7 1.6c0 5-7 9.2-7 9.2Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" data-astro-cid-if6ord5i></path> </svg>
+Sponsor on GitHub
+</a> </div>  </div> </footer> <script type="module" src="/resmon/static/Base.astro_astro_type_script_index_0_lang.nXCB1RqC.js"></script> </body> </html>  

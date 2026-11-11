@@ -1,0 +1,12 @@
+.ev-column-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
+.ev-column-controls kbd { margin-left: 8px; font-size: 11px; color: var(--ink-3); }
+.evidence-page[data-files-folded="true"] .ev-projects,
+.evidence-page[data-files-folded="true"] .ev-members,
+.evidence-page[data-notes-folded="true"] .ev-body:not([data-focus="true"]) .ev-notes { display: none; }
+.evidence-page[data-files-folded="true"] .evidence-split { grid-template-columns: minmax(0, 1fr); }
+.evidence-page[data-files-folded="true"] .ev-body { grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr); }
+.evidence-page[data-notes-folded="true"] .ev-body { grid-template-columns: minmax(180px, 240px) minmax(0, 1fr); }
+.evidence-page[data-files-folded="true"][data-notes-folded="true"] .ev-body { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 1280px) {
+  .evidence-page[data-files-folded] .ev-body { grid-template-columns: minmax(0, 1fr); }
+}

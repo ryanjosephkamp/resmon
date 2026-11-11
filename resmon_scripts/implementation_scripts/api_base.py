@@ -1,0 +1,1603 @@
+# resmon_scripts/implementation_scripts/api_base.py
+"""API client framework: NormalizedResult, BaseAPIClient, RateLimiter, retry, safe_request."""
+
+import asyncio
+import email.utils
+import logging
+import math
+import os
+import re
+import threading
+import time
+import functools
+from abc import ABC, abstractmethod
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from datetime import date, datetime, timezone
+from typing import Callable, Mapping, Optional
+
+import httpx
+
+from . import config
+
+logger = logging.getLogger(__name__)
+
+# Transient HTTP status codes eligible for retry
+_TRANSIENT_CODES = {429, 500, 502, 503, 504}
+
+# Read once as the engine imports its source layer. With no setting, neither
+# tape initialization nor its exchange code participates in a source request.
+_SOURCE_TAPE = None
+if os.environ.get("RESMON_SOURCE_TAPE"):
+    from .source_tape import SourceTape
+
+    _SOURCE_TAPE = SourceTape(os.environ["RESMON_SOURCE_TAPE"])
+
+
+def source_today(live_today: Callable[[], date], *, utc: bool = False) -> date:
+    """Keep implicit source bounds on the recording's day in both tape modes."""
+    return _SOURCE_TAPE.today(utc=utc) if _SOURCE_TAPE is not None else live_today()
+
+
+def _entity_capability(slug: str):
+    """The catalog's ``entity_search`` for *slug*, or None."""
+    if not slug:
+        return None
+    from .repo_catalog import REPOSITORY_CATALOG  # noqa: PLC0415
+
+    for entry in REPOSITORY_CATALOG:
+        if entry.slug == slug:
+            return entry.entity_search
+    return None
+
+
+def _profile_query_name(profile) -> str:
+    """The name to ask a source about.
+
+    The canonical name, not every alias: a source's author search takes one
+    string, and OR-ing the aliases together would turn a person query into a
+    keyword query on several sources. **Aliases still matter** — they are what
+    local verification matches against, so a paper filed under an alias is kept
+    when the source returns it for the canonical name, and is missed only when
+    the source itself indexes solely the alias. Recorded as a limitation rather
+    than papered over.
+    """
+    if isinstance(profile, dict):
+        names = profile.get("names") or []
+        if names:
+            return str(names[0].get("value") or "").strip()
+        return str(profile.get("display_name") or "").strip()
+    return str(profile or "").strip()
+
+
+def _lookup_capability(slug: str):
+    """The catalog's ``paper_lookup`` for *slug*, or None."""
+    if not slug:
+        return None
+    from .repo_catalog import PAPER_LOOKUP  # noqa: PLC0415
+
+    return PAPER_LOOKUP.get(slug)
+
+
+def lookup_value(value: str) -> str:
+    """A DOI, id or title made safe to put inside a quoted field: quotes and backslashes become spaces."""
+    return re.sub(r'\s+', " ", re.sub(r'["\\]', " ", str(value or ""))).strip()
+
+
+class LookupUnsupported(RuntimeError):
+    """This source cannot be asked for one paper by that kind of identifier.
+
+    An ordinary outcome: Look Up a Paper asks a source only by a kind its
+    ``paper_lookup`` capability names, and records every other source as not
+    asked, with the reason.
+    """
+
+
+class EntityUnsupported(RuntimeError):
+    """This source has no way to be asked about a person.
+
+    Raised by ``BaseAPIClient.search_entity``'s default. It is an ordinary
+    outcome, not a fault: 2 of 27 sources take a date window and a cursor and
+    have no query at all, and 5 more are unestablished because their key is
+    missing or their endpoint is down. The sweep records it as the
+    ``entity_unsupported`` zero reason and moves on.
+    """
+
+
+# ---------------------------------------------------------------------------
+# NormalizedResult
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class Author:
+    """One author on one record, with whatever the source actually gave.
+
+    **The identity fields are the whole of the honesty rule for author
+    matching.** An author match is a string match unless the source hands over
+    an identifier, and resmon cannot say which it was unless it kept the
+    identifier. Without one, "papers by Jane Doe" can only mean "papers with
+    that name on them", and the product has to say so.
+
+    Every field but ``name`` is optional and **stays empty far more often than
+    it is filled**, which is a fact about the sources rather than about this
+    class. Measured on 2026-09-06: OpenAlex carried an ORCID on 9 of 17
+    authorships, PubMed on 4 of 30, Crossref on 2 of 84. A record with no ORCID
+    is the normal case, and code downstream treats ``None`` as "the source did
+    not say", never as "this person has none".
+    """
+
+    name: str
+    orcid: str | None = None
+    affiliations: tuple[str, ...] = ()
+    # The source's own author id, where it has one that is not an ORCID —
+    # Semantic Scholar's ``authorId``, OpenAlex's author key. Namespaced by the
+    # source slug so two sources' ids cannot be compared by accident.
+    source_ids: tuple[tuple[str, str], ...] = ()
+
+    def __str__(self) -> str:                        # pragma: no cover - trivial
+        return self.name
+
+
+_ORCID_RE = re.compile(r"(\d{4}-\d{4}-\d{4}-\d{3}[\dXx])")
+
+
+def bare_orcid(value) -> str | None:
+    """The 16-digit ORCID out of whatever shape a source wrapped it in.
+
+    Sources hand it over as a bare id, as `https://orcid.org/…`, as
+    `http://orcid.org/…`, and inside a longer identifier string. Stored bare and
+    upper-cased so two sources' ids for one person compare equal — an identifier
+    match that failed because one source used https and the other did not would
+    silently downgrade to a name match, which is the exact failure the
+    basis rule exists to make visible.
+
+    Returns ``None`` for anything that is not an ORCID, including the empty
+    string: "the source did not say" is a different fact from "this is their
+    ORCID" and only one of them may be stored.
+    """
+    match = _ORCID_RE.search(str(value or ""))
+    return match.group(1).upper() if match else None
+
+
+def as_authors(values) -> list[Author]:
+    """Accept a list of names or of Authors and return Authors.
+
+    The compatibility shim decision 4 asks for. Twenty-seven clients build
+    ``NormalizedResult`` and only a handful of them have anything but a name to
+    put in it; the rest keep passing strings and keep working.
+    """
+    out: list[Author] = []
+    # A bare string is one name, not a sequence of characters. Iterating it
+    # would produce an Author per letter, which is the sort of quiet nonsense a
+    # shim exists to prevent rather than create.
+    if isinstance(values, (str, Author)):
+        values = [values]
+    for value in values or []:
+        if isinstance(value, Author):
+            out.append(value)
+        elif isinstance(value, str):
+            name = value.strip()
+            if name:
+                out.append(Author(name=name))
+        elif isinstance(value, dict):
+            name = str(value.get("name") or "").strip()
+            if name:
+                out.append(Author(
+                    name=name,
+                    orcid=value.get("orcid") or None,
+                    affiliations=tuple(value.get("affiliations") or ()),
+                    source_ids=tuple(tuple(p) for p in (value.get("source_ids") or ())),
+                ))
+    return out
+
+
+@dataclass
+class NormalizedResult:
+    """Common internal schema for all repository results."""
+    source_repository: str
+    external_id: str
+    doi: str | None
+    title: str
+    # **Accepts strings and stores Authors.** ``__post_init__`` converts, so a
+    # client that only has author names passes a list of them and gets
+    # structured authors without knowing it. That is the shim, and it is here
+    # rather than in the normalizer because a client that reads back
+    # ``result.authors`` should see one type, not two.
+    authors: list
+    abstract: str | None
+    publication_date: str | None
+    url: str
+    categories: list[str] = field(default_factory=list)
+    # Where this source says an open copy of the paper is
+    # (``open_access.OpenAccessLocation``), and the identifiers it sends that
+    # ``documents`` has no column for, as ``(scheme, value)``: ``arxiv``,
+    # ``pmcid``, ``pmid``. Empty for a source that says nothing, which is most
+    # of them; empty is "the source did not say", never "there is none".
+    open_access: list = field(default_factory=list)
+    identifiers: list = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "authors", as_authors(self.authors))
+
+    @property
+    def author_names(self) -> list[str]:
+        """Just the names, for everything that only ever wanted those."""
+        return [a.name for a in self.authors]
+
+
+# ---------------------------------------------------------------------------
+# BaseAPIClient
+# ---------------------------------------------------------------------------
+
+class BaseAPIClient(ABC):
+    """Abstract base class for all repository API clients."""
+
+    # Per-execution scope id, set by the sweep engine before dispatching a
+    # search.  Client implementations should use
+    # ``credential_manager.get_credential_for(self._exec_id, name)`` so that
+    # per-execution (ephemeral) keys are honored.  ``None`` means no
+    # execution context, in which case credential lookup falls back to the
+    # persisted keyring.
+    _exec_id: int | None = None
+
+    # How a request this client sends is named in the run's record: a
+    # function of the request's address, query parameters, and JSON body that
+    # returns the part carrying the search, or ``None`` for a request that
+    # carries none (``sent_params`` builds the usual one). A client that sets
+    # none is recorded as not saying what it sent, never as having sent the
+    # words typed.
+    describe_request: Optional[Callable[[str, Optional[Mapping], Optional[Mapping]], Optional[str]]] = None
+
+    @abstractmethod
+    def search(
+        self,
+        query: str,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        max_results: int = 100,
+        **kwargs,
+    ) -> list[NormalizedResult]:
+        """Execute a search query and return normalized results."""
+        ...
+
+    @abstractmethod
+    def get_name(self) -> str:
+        """Return the human-readable repository name."""
+        ...
+
+    def search_entity(
+        self,
+        profile,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        max_results: int = 100,
+        **kwargs,
+    ) -> list[NormalizedResult]:
+        """Ask this source about a *person*, if it can be asked at all.
+
+        **The default raises.** A client overrides this only where the catalog's
+        ``entity_search`` capability says the source can answer, and the sweep
+        engine asks only where the capability says yes — so a source that
+        cannot answer is never called and the run records ``entity_unsupported``
+        rather than an empty result that looks like "nobody published anything".
+
+        Two things this returns are *candidates*, not verdicts: the source's own
+        author matching is a generator, and every record it hands back is
+        verified locally against the profile before it counts as a match. That
+        is decision 6, and it is the reason this method's docstring says
+        "candidates" rather than "papers by this person".
+        """
+        capability = _entity_capability(getattr(self, "_slug", "") or self._catalog_slug())
+        if capability is None or capability.author_query != "field":
+            raise EntityUnsupported(
+                f"{self.get_name()} cannot be asked about a person by resmon.")
+
+        # The generic implementation, and it covers thirteen of the twenty
+        # sources that can be asked: where the author query is a **field inside
+        # the query string**, asking is exactly the ordinary search with a
+        # different string, and the catalog already records the syntax. A
+        # per-client override for each of those would be thirteen copies of one
+        # line, and each copy a place for the syntax to drift from its citation.
+        #
+        # A source asked through a *parameter* or a separate *endpoint* cannot
+        # come through here, because `search()` has nowhere to put it — those
+        # clients override this method.
+        name = _profile_query_name(profile)
+        if not name:
+            raise EntityUnsupported(
+                "That profile has no name to search with.")
+        query = capability.author_syntax.format(name=name)
+        note_author_query("query", query)
+        return self.search(query, date_from, date_to, max_results, **kwargs)
+
+    def lookup(self, kind: str, value: str, max_results: int = 5) -> list[NormalizedResult]:
+        """Ask this source for one paper: by ``doi``, ``arxiv`` id, ``pmid`` or ``title``.
+
+        **The default asks through ``search()``** with the field syntax the
+        catalog's ``paper_lookup`` capability records for *kind*
+        (``repo_catalog.PAPER_LOOKUP``), as ``search_entity`` does for a
+        person, and raises ``LookupUnsupported`` where it records none. A
+        client whose source looks a paper up through its own endpoint (a
+        ``/works/{doi}``) overrides this.
+
+        What comes back is a list of candidates. Which of them, if any, is the
+        paper asked for is decided locally (``paper_find.best_match``): a
+        source's title search ranks by relevance, and a DOI field can match a
+        record that only cites it.
+        """
+        capability = _lookup_capability(self._own_slug())
+        syntax = capability.syntax_for(kind) if capability is not None else ""
+        if not syntax:
+            raise LookupUnsupported(f"{self.get_name()} cannot be asked for a paper by {kind}.")
+        return self.search(syntax.format(value=lookup_value(value)), max_results=max_results)
+
+    def _own_slug(self) -> str:
+        """This client's slug: its own class's registration, never a parent's (medRxiv is bioRxiv's)."""
+        from .api_registry import _REGISTRY  # noqa: PLC0415
+
+        for slug, cls in _REGISTRY.items():
+            if type(self) is cls:
+                return slug
+        return getattr(self, "_slug", "") or self._catalog_slug()
+
+    def _catalog_slug(self) -> str:
+        """This client's catalog slug, from the registry rather than a constant.
+
+        Clients do not carry their slug; the registry maps slug to class. Read
+        once, here, so the generic ``search_entity`` above can find the
+        capability that names its own syntax.
+        """
+        from .api_registry import _REGISTRY  # noqa: PLC0415
+
+        for slug, cls in _REGISTRY.items():
+            if isinstance(self, cls):
+                return slug
+        return ""
+
+
+class RequestDeadlineExceeded(httpx.TimeoutException):
+    """The caller's operation budget expired, possibly before any HTTP attempt."""
+
+
+class ServerCooldownActive(RequestDeadlineExceeded):
+    """A provider cooldown forbids another request inside this call's budget."""
+
+    def __init__(self, seconds: float, status_code: int = 429):
+        super().__init__("The source Retry-After cooldown is still active")
+        self.seconds = seconds
+        self.status_code = status_code
+
+
+def _remaining(deadline: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise RequestDeadlineExceeded("The source operation deadline expired")
+    return remaining
+
+
+def _request_before_deadline(
+    method: str, url: str, *, headers: dict[str, str], timeout: float,
+    deadline: float, **kwargs,
+) -> httpx.Response:
+    """Buffer and close one response within the remaining cooperative I/O budget.
+
+    A sync HTTPX timeout is per phase/chunk, so a slowly progressing reply can
+    outlive it indefinitely. The opt-in async scope cancels that whole request
+    and finishes its transport cleanup before this synchronous call returns.
+    Its joined thread also supports a synchronous client called from an existing
+    event loop. DNS executor shutdown and blocking CPU work are not hard real-time
+    bounded by asyncio cancellation; this is not a universal wall-clock guarantee.
+    """
+    attempted = False
+
+    async def send() -> httpx.Response:
+        nonlocal attempted
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            _remaining(deadline)
+            attempted = True
+            return await client.request(method, url, headers=headers, **kwargs)
+
+    async def bounded() -> httpx.Response:
+        try:
+            budget = _remaining(deadline)
+            return await asyncio.wait_for(send(), timeout=budget)
+        except asyncio.TimeoutError as exc:
+            raise RequestDeadlineExceeded("The source operation deadline expired") from exc
+
+    responses: list[httpx.Response] = []
+    errors: list[BaseException] = []
+
+    def run() -> None:
+        try:
+            responses.append(asyncio.run(bounded()))
+        except BaseException as exc:
+            errors.append(exc)
+
+    worker = threading.Thread(target=run, name="resmon-request-deadline")
+    worker.start()
+    # Do not merely stop waiting and leave the network operation running.
+    worker.join()
+    # Publish on the caller's thread-local outcome only after joining. Client
+    # setup or queue expiry must not invent an HTTPX request attempt.
+    if attempted:
+        search_outcome().note_attempt()
+    if errors:
+        raise errors[0]
+    _remaining(deadline)
+    return responses[0]
+
+
+# ---------------------------------------------------------------------------
+# RateLimiter — token-bucket
+# ---------------------------------------------------------------------------
+
+class SearchStopped(Exception):
+    """The owner stopped this search before its next transport attempt."""
+
+
+def _check_search_stop() -> None:
+    if search_outcome().stop.is_set():
+        raise SearchStopped("The owner stopped this source.")
+
+
+class RateLimiter:
+    """Token-bucket rate limiter with configurable requests per second.
+
+    Thread-safe. Each ``api_*`` module holds one module-level limiter shared by
+    every client for that source, so concurrent executions genuinely contend on
+    the same object: resmon admits up to 8 executions at once and each one can
+    be sweeping the same repository.
+
+    The lock is load-bearing. Without it, every waiting thread read the same
+    ``_last_call``, computed the same delay, slept the same amount, and then
+    fired together - so the effective request rate was multiplied by the number
+    of concurrent sweeps. Measured against arXiv's 0.33 req/s setting, four
+    concurrent sweeps issued all four requests within 0.00 s of each other
+    (1.32 req/s, four times the advertised ceiling) instead of spacing them
+    three seconds apart. Providers answer that with 429s and, on repeat, a
+    temporary IP block.
+
+    Waiters use one condition around the same lock. The condition releases the
+    physical lock while sleeping so a response can publish a longer cooldown,
+    then every waiter recomputes before it claims a slot. That preserves serial
+    admission without letting an already-waiting caller miss a new cooldown.
+    """
+
+    def __init__(self, requests_per_second: float = 1.0):
+        self._interval = 1.0 / requests_per_second
+        self._last_call: float = 0.0
+        self._not_before: float = 0.0
+        self._cooldown_status: int = 429
+        self._lock = threading.Lock()
+        self._condition = threading.Condition(self._lock)
+
+    def defer(self, seconds: float, *, status_code: int = 429) -> None:
+        """Publish a server cooldown to every caller sharing this limiter.
+
+        Longer concurrent cooldowns win. An oversized valid value is retained
+        as an infinite in-process deferral, so it cannot become an early retry.
+        Callers with a bounded deadline fail promptly instead of sleeping past
+        their operation budget.
+        """
+        if seconds <= 0:
+            return
+        with self._condition:
+            target = math.inf if not math.isfinite(seconds) else time.monotonic() + seconds
+            if target > self._not_before:
+                self._not_before = target
+                self._cooldown_status = status_code
+                self._condition.notify_all()
+
+    def acquire(self, *, deadline: float | None = None) -> None:
+        """Wait for admission, optionally within an operation's monotonic budget."""
+        outcome: "SearchOutcome | None" = None
+        if deadline is None:
+            self._lock.acquire()
+        elif not self._lock.acquire(timeout=_remaining(deadline)):
+            raise RequestDeadlineExceeded("The source rate-limiter wait expired")
+        try:
+            while True:
+                _check_search_stop()
+                now = time.monotonic()
+                interval_wait = max(0.0, self._interval - (now - self._last_call))
+                cooldown_wait = max(0.0, self._not_before - now)
+                # A call without an operation budget may wait its ordinary
+                # limiter interval, but an arbitrary server header must not
+                # block a worker for hours. Refuse and retain the cooldown.
+                if deadline is None and cooldown_wait > interval_wait:
+                    raise ServerCooldownActive(cooldown_wait, self._cooldown_status)
+                if deadline is not None and cooldown_wait >= _remaining(deadline):
+                    raise ServerCooldownActive(cooldown_wait, self._cooldown_status)
+                wait = max(interval_wait, cooldown_wait)
+                if not wait:
+                    self._last_call = now
+                    return
+                if deadline is not None and wait >= _remaining(deadline):
+                    raise RequestDeadlineExceeded("The source rate-limiter wait expired")
+                # Said for the run's heartbeat: the source's own pace, or a
+                # cooldown it asked for with Retry-After.
+                outcome = search_outcome()
+                outcome.waiting = ("cooldown" if cooldown_wait > interval_wait else "pace", now + wait)
+                self._condition.wait(timeout=min(wait, 0.1))
+        finally:
+            if outcome is not None:
+                outcome.waiting = None
+            self._lock.release()
+
+
+def _header(response, name: str) -> str | None:
+    headers = getattr(response, "headers", {}) or {}
+    for key, value in headers.items():
+        if str(key).lower() == name.lower():
+            return str(value)
+    return None
+
+
+def _retry_after_seconds(
+    response,
+    *,
+    now: datetime | None = None,
+) -> float | None:
+    """Parse Retry-After delta-seconds or HTTP-date conservatively.
+
+    Values beyond the bounded local wait are represented as infinity. That
+    makes the shared limiter refuse another request instead of sleeping for an
+    attacker- or server-chosen duration or retrying early.
+    """
+    raw = _header(response, "retry-after")
+    if raw is None:
+        return None
+    value = raw.strip()
+    if value.isascii() and value.isdigit():
+        # Judge the numeric value, not the wire length. A provider may send
+        # harmless leading zeroes; converting an arbitrarily long digit string
+        # directly can also hit Python's integer-string safety limit.
+        significant = value.lstrip("0") or "0"
+        if len(significant) > 12:
+            return math.inf
+        seconds = int(significant)
+        return float(seconds)
+    try:
+        when = email.utils.parsedate_to_datetime(value)
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        recorded_at = (response.extensions.get("source_tape_recorded_at")
+                       if isinstance(response, httpx.Response) else None)
+        current = now or (datetime.fromisoformat(recorded_at) if recorded_at else datetime.now(timezone.utc))
+        seconds = max(0.0, (when - current).total_seconds())
+        return seconds if math.isfinite(seconds) else math.inf
+    except (TypeError, ValueError, OverflowError):
+        logger.warning("safe_request: ignoring invalid Retry-After value")
+        return None
+
+
+def retry_after_seconds(response) -> float | None:
+    """A response's Retry-After, in seconds, read as ``safe_request`` reads it.
+
+    For a client that waits out a 429 or a 503 itself rather than inside
+    ``safe_request`` (arXiv). ``None`` when the header is absent or unreadable;
+    infinity when it asks for longer than anything resmon will wait.
+    """
+    return _retry_after_seconds(response)
+
+
+# ---------------------------------------------------------------------------
+# retry_with_backoff
+# ---------------------------------------------------------------------------
+
+def retry_with_backoff(
+    func=None,
+    *,
+    max_retries: int = config.DEFAULT_MAX_RETRIES,
+    backoff_base: float = config.DEFAULT_BACKOFF_BASE,
+    transient_codes: set[int] = _TRANSIENT_CODES,
+):
+    """Decorator for exponential backoff on transient HTTP errors.
+
+    Can be used as ``@retry_with_backoff`` or ``@retry_with_backoff(max_retries=5)``.
+    The decorated function must return an ``httpx.Response``.
+    """
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            last_exc: Exception | None = None
+            for attempt in range(max_retries + 1):
+                try:
+                    response = fn(*args, **kwargs)
+                    if isinstance(response, httpx.Response) and response.status_code in transient_codes:
+                        if attempt < max_retries:
+                            wait = backoff_base ** attempt
+                            logger.warning(
+                                "Transient %d from %s — retry %d/%d in %.1fs",
+                                response.status_code, response.url, attempt + 1, max_retries, wait,
+                            )
+                            time.sleep(wait)
+                            continue
+                    return response
+                except (httpx.TimeoutException, httpx.ConnectError) as exc:
+                    last_exc = exc
+                    if attempt < max_retries:
+                        wait = backoff_base ** attempt
+                        logger.warning(
+                            "%s — retry %d/%d in %.1fs", exc, attempt + 1, max_retries, wait,
+                        )
+                        time.sleep(wait)
+                    else:
+                        raise
+            raise last_exc  # type: ignore[misc]
+        return wrapper
+
+    # Support bare @retry_with_backoff (no parentheses)
+    if func is not None:
+        return decorator(func)
+    return decorator
+
+
+# ---------------------------------------------------------------------------
+# SearchOutcome — the channel a search uses to say why it came back empty
+# ---------------------------------------------------------------------------
+#
+# A source that returns zero and a source that could not be reached are the
+# same thing to every caller in this codebase: ``search()`` returns ``[]`` and
+# the engine records ``ok / 0``. A 503 and an empty result field are
+# byte-identical by the time anyone can look at them, which is why resmon has
+# never been able to tell a user why nothing came back.
+#
+# This channel carries the one fact that is missing: what the *last* HTTP call
+# a search made actually did. It is written here, inside ``safe_request``, so
+# no client needs editing for an outage to be recorded -- every client routes
+# its HTTP through this function. Clients only speak up for the things the
+# HTTP status cannot say: a window the source cannot answer at all, a reply
+# that would not parse, records dropped on their rights statement.
+#
+# Thread-local rather than a parameter because ``client.search()`` is a public
+# contract with 25 implementations and threading an out-parameter through all
+# of them (and through each client's own pagination loop) is a larger change
+# with more places to get it wrong. The sweep engine runs exactly one search
+# per thread -- ``_search_with_heartbeat`` starts a fresh thread per source --
+# and resets the channel at the top of that thread, so a stale value from
+# ``lifecycle.py`` (which also calls ``safe_request``, outside any search)
+# cannot leak into a search's outcome. ``ContextVar`` would work identically
+# here; the guard is the same either way and is a test, not the mechanism.
+
+
+# How many failed attempts one search remembers, newest kept. A search that
+# fails more often than this still says how many earlier ones were dropped,
+# so a truncated history never reads as a complete one.
+_FAILURE_HISTORY_LIMIT = 8
+
+# How many distinct queries one search's record keeps. A source asked once per
+# date slice (NDL Search) sends many; past this the rest are counted.
+_QUERIES_SENT_LIMIT = 12
+
+
+class SourceRefused(RuntimeError):
+    """The source answered that it would not run the request.
+
+    For a source that says so in the body of a successful HTTP reply rather
+    than with a status code: HAL answers a query it cannot run with HTTP 200
+    and an error object. It is a failed request, like an HTTP 400, and not a
+    reply resmon could not read. The message is the source's name only; what
+    the source said goes to the log, never into the outcome.
+    """
+
+
+class SourceStoppedEarly(RuntimeError):
+    """The source stopped sending records short of the number it counted for the search.
+
+    For a source that states a total and then answers a later page with
+    nothing (arXiv's `opensearch:totalResults`): the records held are a part
+    of the answer, and the search is recorded as ended by the source rather
+    than as complete.
+    """
+
+
+def _failure_detail(status_or_exc) -> tuple[int | None, str]:
+    """The status and the one-word category of a failed call.
+
+    The category is chosen from a fixed vocabulary and never copied from the
+    reply or the exception message. That is what makes it safe to keep: the
+    words are resmon's, not the source's.
+    """
+    if isinstance(status_or_exc, int):
+        # 429 is its own fact -- the source answered and refused on rate
+        # -- and a user can act on it differently from a 500.
+        detail = "rate_limited" if status_or_exc == 429 else f"http_{status_or_exc}"
+        return status_or_exc, detail
+    if isinstance(status_or_exc, SourceRefused):
+        return None, "refused"
+    if isinstance(status_or_exc, SourceStoppedEarly):
+        return None, "stopped_early"
+    if isinstance(status_or_exc, RequestDeadlineExceeded):
+        return None, "operation_deadline"
+    if isinstance(status_or_exc, httpx.TimeoutException):
+        return None, "timeout"
+    if isinstance(status_or_exc, httpx.ConnectError):
+        return None, "connect"
+    return None, "request_error"
+
+
+@dataclass
+class SearchOutcome:
+    """What the HTTP calls of one ``search()`` did.
+
+    ``attempts`` counts transport attempts. ``failures`` counts terminal
+    failure events reported by completed ``safe_request`` invocations; an
+    internal retry that later succeeds is not a failed invocation. The
+    ``last_*`` fields describe the most recent terminal outcome because that
+    is what explains an empty result list. A client can make several separate
+    invocations in one search, so the event count is not necessarily one per
+    whole search.
+
+    ``failure_history`` is the ordered list of every failed attempt in this
+    search, retried or terminal, by category only. The ``last_*`` fields
+    cannot hold it, because each new attempt clears them. Before this field,
+    "HTTP 500, then a timeout on the retry" was recorded as just ``timeout``,
+    and a live failure that began with the provider's 500 read as a bare
+    timeout. The newest ``_FAILURE_HISTORY_LIMIT`` entries are kept, and
+    ``failure_history_omitted`` counts older ones that were dropped.
+    """
+
+    attempts: int = 0
+    failures: int = 0
+    last_call_failed: bool = False
+    last_detail: str | None = None
+    last_status: int | None = None
+    retained_cooldown_status: int | None = None
+    explicit_reason: str | None = None
+    explicit_detail: dict | None = None
+    failure_history: list[str] = field(default_factory=list)
+    failure_history_omitted: int = 0
+    # What a person query put into the request, as ``{"kind", "value"}``; see
+    # ``note_author_query``. Written by the client that builds the request,
+    # because only it knows which of the profile's facts it used.
+    author_query: dict | None = None
+    # Seconds a client's own retry ladder waited between attempts; see
+    # ``note_retry_wait``. Waits inside ``safe_request`` are not counted here.
+    waited_seconds: float = 0.0
+    # When the source said it may be asked again, as wall-clock seconds: the
+    # Retry-After of the reply the search ended on, or what was left of the
+    # shared limiter's cooldown when it stopped a request before transport.
+    # Recorded as ``cooldown_until_utc`` so a person reads "try again after
+    # about 3:40 PM". A later attempt clears it, as it clears ``last_*``.
+    cooldown_until: float | None = None
+    # How this search's client describes a request it sends (its
+    # ``describe_request``), set by the engine before the search. ``None`` is a
+    # client that does not say, and then nothing below is recorded.
+    describe_request: Optional[Callable[[str, Optional[Mapping], Optional[Mapping]], Optional[str]]] = None
+    # Each distinct query this search sent, in the order sent; see
+    # ``note_sent``. Pages of one query are one entry.
+    queries_sent: list[str] = field(default_factory=list)
+    queries_sent_omitted: int = 0
+    # How far a source that is read in order got before the search stopped;
+    # see ``note_read``.
+    read: dict | None = None
+    # The start a client gave a search the run gave none; see
+    # ``note_default_start``.
+    default_start: dict | None = None
+    # What the search is doing right now, for the run's heartbeat, and never
+    # part of the record (``snapshot`` leaves both out). ``retries`` counts the
+    # times this search asked again after a failed attempt, by ``safe_request``'s
+    # ladder or a client's own. ``waiting`` is what it is waiting for and until
+    # when, as ``(kind, monotonic deadline)``: ``pace`` (the source's rate
+    # limit), ``cooldown`` (a Retry-After the source sent), or ``retry`` (the
+    # pause before asking again). One tuple, assigned whole, because the
+    # heartbeat reads it from another thread.
+    retries: int = 0
+    waiting: tuple[str, float] | None = None
+    # Whether nobody is waiting on this search: it belongs to a watch's
+    # scheduled run, not to one a person started. Set by the engine before the
+    # search, from the run's own config, and read by a client whose patience
+    # with a busy source depends on it (arXiv's 429 and 503 ladder). Not part
+    # of the record.
+    unattended: bool = False
+    # Set by the engine when the run this search belongs to is canceled. The
+    # run stops reading the search at once, but the search's thread runs on
+    # until its client returns; a client in a long wait (arXiv's, up to five
+    # minutes at a time for a watch's scheduled run) ends the wait on this and
+    # asks the source nothing more. Not part of the record.
+    stop: threading.Event = field(default_factory=threading.Event)
+    # Search-local cursors make a second replay of the same run start with the
+    # same first attempt, while retries within one search advance in order.
+    tape_positions: dict[str, int] = field(default_factory=dict)
+    tape_scope: str = ""
+    tape_misses: int = 0
+
+    def reset(self) -> None:
+        self.attempts = 0
+        self.failures = 0
+        self.last_call_failed = False
+        self.last_detail = None
+        self.last_status = None
+        self.retained_cooldown_status = None
+        self.explicit_reason = None
+        self.explicit_detail = None
+        self.failure_history = []
+        self.failure_history_omitted = 0
+        self.author_query = None
+        self.waited_seconds = 0.0
+        self.cooldown_until = None
+        self.describe_request = None
+        self.queries_sent = []
+        self.queries_sent_omitted = 0
+        self.read = None
+        self.default_start = None
+        self.retries = 0
+        self.waiting = None
+        self.unattended = False
+        self.stop = threading.Event()
+        self.tape_positions = {}
+        self.tape_scope = ""
+        self.tape_misses = 0
+
+    def live(self) -> dict:
+        """What the search has done so far, as the run's heartbeat says it.
+
+        ``requests`` is the attempts sent, ``retries`` the times it asked again
+        after a failed one, and ``waiting`` (only while it waits) the kind of
+        wait and the seconds left. Read from the run's thread while the search
+        runs on its own, so each field is read once.
+        """
+        out: dict = {"requests": self.attempts, "retries": self.retries}
+        waiting = self.waiting
+        if waiting is not None:
+            kind, until = waiting
+            out["waiting"] = {"kind": kind, "seconds": round(max(0.0, until - time.monotonic()), 1)}
+        return out
+
+    # -- written by safe_request ------------------------------------------
+
+    def note_sent(self, url: str, params: Optional[Mapping], body: Optional[Mapping]) -> None:
+        """Record the query a request that went out carried, in the client's words.
+
+        The client's ``describe_request`` picks the parts of the request that
+        make up the search (the terms, the window, the order asked for) and
+        leaves out paging, the fields asked back, contact addresses, and keys,
+        so nothing here can put a credential or an address into a record.
+        """
+        if self.describe_request is None:
+            return
+        try:
+            text = self.describe_request(
+                url,
+                params if isinstance(params, Mapping) else None,
+                body if isinstance(body, Mapping) else None,
+            )
+        except Exception:  # pragma: no cover - a describer must never fail a search
+            logger.exception("Could not describe a request that was sent")
+            return
+        if not text or text in self.queries_sent:
+            return
+        if len(self.queries_sent) >= _QUERIES_SENT_LIMIT:
+            self.queries_sent_omitted += 1
+            return
+        self.queries_sent.append(text)
+
+    def note_attempt(self) -> None:
+        self.attempts += 1
+        self.last_call_failed = False
+        self.last_detail = None
+        self.last_status = None
+        self.retained_cooldown_status = None
+        self.cooldown_until = None
+
+    def note_cooldown(self, seconds: float | None) -> None:
+        """Record when the source may be asked again: *seconds* from now, on the wall clock.
+
+        Only a finite, positive wait is a time: a Retry-After too large to
+        hold is retained by the limiter as an endless deferral, and has no
+        time a person could be told.
+        """
+        if seconds is None or not math.isfinite(seconds) or seconds <= 0:
+            return
+        self.cooldown_until = time.time() + float(seconds)
+
+    def note_failure(
+        self, status_or_exc, url: str = "", *, already_in_history: bool = False,
+    ) -> None:
+        """Record that the call that just finished did not answer.
+
+        ``url`` is accepted so call sites read naturally and is deliberately
+        **not stored**: several sources take their API key as a query
+        parameter, so a URL kept in the database and rendered into a search
+        record would put a user's credential on screen and into an export.
+        The same rule covers the reply: no response-body text is kept here,
+        because it is the source's words and cannot be trusted.
+
+        ``already_in_history`` is for the one terminal failure that was
+        first seen as a retryable attempt. ``safe_request`` wrote it to the
+        history then, and a cooldown stopped the retry. Counting it twice
+        would invent a failed attempt.
+        """
+        self.failures += 1
+        self.last_call_failed = True
+        self.last_status, self.last_detail = _failure_detail(status_or_exc)
+        if not already_in_history:
+            self._remember_failure(self.last_detail)
+
+    def note_not_found(self) -> None:
+        """The call that just finished was a 404 for one record asked for by its identifier: an answer.
+
+        A lookup endpoint (Crossref's ``/works/{doi}``) says "no such record"
+        with HTTP 404, which ``safe_request`` recorded as a failure. For that
+        request it is the source answering that it holds nothing by that
+        identifier, so the failure is taken back and the search reads as
+        answered and empty. Only a client asking for one record calls this, and
+        only for a 404.
+        """
+        if self.last_call_failed and self.last_status == 404:
+            self.failures = max(0, self.failures - 1)
+            self.last_call_failed = False
+            self.last_status = None
+            self.last_detail = None
+            if self.failure_history and self.failure_history[-1] == "http_404":
+                self.failure_history.pop()
+
+    def note_retried_failure(self, status_or_exc) -> None:
+        """Record an attempt that failed and is about to be retried.
+
+        It is not terminal, so ``failures`` and the ``last_*`` fields keep
+        their existing contract: a retry that later succeeds is still a
+        successful invocation. Only the history records that it happened.
+        """
+        self.retries += 1
+        self._remember_failure(_failure_detail(status_or_exc)[1])
+
+    def _remember_failure(self, detail: str) -> None:
+        if len(self.failure_history) >= _FAILURE_HISTORY_LIMIT:
+            del self.failure_history[0]
+            self.failure_history_omitted += 1
+        self.failure_history.append(detail)
+
+    def note_retained_cooldown(self, status_code: int = 429) -> None:
+        """Record shared provider state without inventing an HTTP attempt.
+
+        Another request already observed the provider's Retry-After. This
+        search was stopped before transport, so neither ``attempts`` nor
+        ``failures`` changes and the retained state has its own field.
+        """
+        self.retained_cooldown_status = status_code
+
+    # -- written by clients, for what the status code cannot say -----------
+
+    def note_unanswerable_entity(self, why: str) -> None:
+        """This source was not asked about a person. See ``note_entity_unsupported``."""
+        self.explicit_reason = "entity_unsupported"
+        self.explicit_detail = {"detail": why}
+
+    def note_unanswerable(self, why: str, **counts) -> None:
+        """The source cannot answer this window at all, and was not asked.
+
+        ``counts`` are the numbers the sentence states, such as the most
+        records a source returns in one request: integers only, as for
+        ``note_filtered``.
+        """
+        self.explicit_reason = "window_unanswerable"
+        detail = {"detail": why}
+        detail.update({k: int(v) for k, v in counts.items()})
+        self.explicit_detail = detail
+
+    def note_parse_failure(self, why: str = "parse_error") -> None:
+        """The source answered and resmon could not read the reply."""
+        self.explicit_reason = "parse_failure"
+        self.explicit_detail = {"detail": why}
+
+    def note_filtered(self, matched: int, kept: int, why: str, **counts) -> None:
+        """The source answered with records resmon is not allowed to keep."""
+        self.explicit_reason = (
+            "rights_filtered" if why == "rights" else "records_unusable"
+        )
+        detail = {"detail": why, "matched": int(matched), "kept": int(kept)}
+        detail.update({k: int(v) for k, v in counts.items()})
+        self.explicit_detail = detail
+
+    def snapshot(self) -> dict:
+        """A plain dict of the channel, safe to hand across threads."""
+        return {
+            "attempts": self.attempts,
+            "failures": self.failures,
+            "last_call_failed": self.last_call_failed,
+            "last_detail": self.last_detail,
+            "last_status": self.last_status,
+            "retained_cooldown_status": self.retained_cooldown_status,
+            "explicit_reason": self.explicit_reason,
+            "explicit_detail": dict(self.explicit_detail) if self.explicit_detail else None,
+            "failure_history": list(self.failure_history),
+            "failure_history_omitted": self.failure_history_omitted,
+            "author_query": dict(self.author_query) if self.author_query else None,
+            "waited_seconds": self.waited_seconds,
+            "cooldown_until_utc": _utc_stamp(self.cooldown_until),
+            # ``None`` when the client does not describe its requests, which is
+            # a different fact from a client that does and sent nothing.
+            "queries_sent": (list(self.queries_sent)
+                             if self.describe_request is not None else None),
+            "queries_sent_omitted": self.queries_sent_omitted,
+            "read": dict(self.read) if self.read else None,
+            "default_start": dict(self.default_start) if self.default_start else None,
+        }
+
+
+def _utc_stamp(epoch_seconds: float | None) -> str | None:
+    if epoch_seconds is None:
+        return None
+    from .zero_reason import utc_stamp  # noqa: PLC0415 - zero_reason reads this module's words
+
+    return utc_stamp(epoch_seconds)
+
+
+_outcome_local = threading.local()
+
+
+def search_outcome() -> SearchOutcome:
+    """This thread's outcome channel, created on first use."""
+    outcome = getattr(_outcome_local, "outcome", None)
+    if outcome is None:
+        outcome = SearchOutcome()
+        _outcome_local.outcome = outcome
+    return outcome
+
+
+def reset_search_outcome() -> None:
+    search_outcome().reset()
+
+
+@contextmanager
+def waiting(kind: str, seconds: float):
+    """Say, for the run's heartbeat, that this search is waiting and for how long.
+
+    ``kind`` is ``pace``, ``cooldown`` or ``retry`` (see
+    ``SearchOutcome.waiting``). Cleared when the wait ends, however it ends.
+    """
+    outcome = search_outcome()
+    outcome.waiting = (kind, time.monotonic() + max(0.0, float(seconds)))
+    try:
+        yield
+    finally:
+        outcome.waiting = None
+
+
+def note_entity_unsupported(why: str = "no_author_query") -> None:
+    """This source was not asked about a person, and it says which kind of not.
+
+    ``no_author_query`` — resmon checked and the source has none.
+    ``unestablished`` — resmon has not been able to check, because the source
+    needs a key this machine does not hold or its endpoint was down.
+
+    Two facts, and only the first is about the source. Recorded through the same
+    outcome channel every other zero reason uses, so it reaches the task log,
+    the monitor, the results row, the search record, the report and the MCP
+    surface with no per-caller edit.
+    """
+    search_outcome().note_unanswerable_entity(why)
+
+
+def note_not_found() -> None:
+    """A 404 for one record asked for by its identifier is the source's answer (``SearchOutcome.note_not_found``)."""
+    search_outcome().note_not_found()
+
+
+def note_author_query(kind: str, value: str) -> None:
+    """Record what this search's person query put into the request.
+
+    ``kind`` is ``query`` (the whole query string), ``author`` (a name in the
+    source's author parameter or author search), ``orcid`` or
+    ``semantic_scholar`` (an author id). Called by the client as it builds the
+    request, so the search record states what was sent rather than what the
+    profile held: a client may ask by an identifier instead of the name.
+    """
+    if kind not in ("query", "author", "orcid", "semantic_scholar"):
+        raise ValueError(f"unknown author query kind {kind!r}")
+    search_outcome().author_query = {"kind": kind, "value": str(value)}
+
+
+def note_unanswerable(why: str, **counts) -> None:
+    search_outcome().note_unanswerable(why, **counts)
+
+
+def sent_params(*keys: str, url: str | None = None):
+    """A ``describe_request`` that names a request by the parameters carrying its search.
+
+    ``keys`` are the query-string (or JSON body) parameters that say what is
+    asked: the terms, the window, and the order. Paging, the fields asked
+    back, contact addresses, and keys are never among them, so they are never
+    recorded. With ``url``, only requests to that address are described: a
+    source that fetches records in a second request (PubMed) or looks up an
+    author first (Semantic Scholar) is described by its search alone.
+    """
+    def describe(request_url: str, params: Mapping | None, body: Mapping | None) -> str | None:
+        if url is not None and request_url.split("?", 1)[0] != url:
+            return None
+        source = params if params is not None else body
+        if not source:
+            return None
+        parts = [
+            f"{key}={source[key]}" for key in keys
+            if isinstance(source.get(key), (str, int, float)) and str(source[key]) != ""
+        ]
+        return " & ".join(parts) or None
+    return describe
+
+
+def path_after(prefix: str):
+    """A ``describe_request`` for a lookup that carries its identifier in the path: ``path /works/10.1/x``."""
+    def describe(request_url: str, params: Mapping | None, body: Mapping | None) -> str | None:
+        base = request_url.split("?", 1)[0]
+        if not base.startswith(prefix.rstrip("/") + "/"):
+            return None
+        from urllib.parse import unquote, urlsplit  # noqa: PLC0415
+
+        return "path " + unquote(urlsplit(base).path)
+    return describe
+
+
+def either(*describers):
+    """The first of several ``describe_request`` functions that names the request."""
+    def describe(request_url: str, params: Mapping | None, body: Mapping | None) -> str | None:
+        for describer in describers:
+            text = describer(request_url, params, body)
+            if text:
+                return text
+        return None
+    return describe
+
+
+def note_read(*, records: int, total: int | None = None,
+              first_date: str | None = None, last_date: str | None = None,
+              newest_first: bool = False, cap: int | None = None) -> None:
+    """Record how far a search read through a source it reads in order.
+
+    For a source resmon cannot ask for words (bioRxiv, medRxiv): it lists a
+    date range in order and resmon reads it page by page. When the search
+    stops before it has read the whole range, this is what was covered: how
+    many records were read, of how many the source said the range holds, and
+    the earliest and latest dates among those read. ``newest_first`` says the
+    range was read from its end back, so what was read is its newest part
+    (``order`` in the record); a record without it was read from the start.
+    ``cap`` says the run's cap stopped the reading short of the range's end
+    (``stopped: "cap"``); a stop at resmon's time budget is the failed last
+    call, which the channel records already. Either one, after a stretch
+    recorded here, is ``zero_reason``'s ``answered_in_part``.
+    """
+    read: dict = {"records": int(records)}
+    if newest_first:
+        read["order"] = "newest_first"
+    if cap is not None:
+        read["stopped"] = "cap"
+        read["cap"] = int(cap)
+    if total is not None:
+        read["total"] = int(total)
+    if first_date:
+        read["first_date"] = str(first_date)
+    if last_date:
+        read["last_date"] = str(last_date)
+    search_outcome().read = read
+
+
+def note_default_start(*, date_from: str, days: int, before: str) -> None:
+    """Record the start a client gave a search that the run gave none.
+
+    For a source that cannot usefully be asked without one (the catalog's
+    ``default_start_days``: bioRxiv, medRxiv): the search was asked from
+    ``date_from``, ``days`` days before the run (``before="run"``) or before
+    the run's end date (``before="end_date"``). Written by the client, which
+    is what decides it, so the run's log and record say the start that was
+    sent rather than one worked out again beside it.
+    """
+    if before not in ("run", "end_date"):
+        raise ValueError(f"unknown default start anchor {before!r}")
+    search_outcome().default_start = {
+        "date_from": str(date_from), "days": int(days), "before": before,
+    }
+
+
+def note_retry_wait(seconds: float) -> None:
+    """Record time a client's own retry ladder spent waiting between attempts.
+
+    A source that answers 429 or 503 and is waited out over minutes has a
+    different story from one that failed four times in ten seconds, and the
+    run's record says which: ``zero_reason.terminal_issue`` puts the total
+    beside the attempt count when the last attempt still failed.
+    """
+    if seconds > 0:
+        search_outcome().waited_seconds += float(seconds)
+
+
+def note_retry() -> None:
+    """Count a retry by a client's own ladder, when it decides to ask again.
+
+    For the run's heartbeat only ("3 requests, 1 retry"); the record is
+    unchanged. Counted before the wait, as ``safe_request`` counts its own, so
+    the heartbeat during the wait already says the retry is coming.
+    """
+    search_outcome().retries += 1
+
+
+def note_parse_failure(why: str = "parse_error") -> None:
+    search_outcome().note_parse_failure(why)
+
+
+def note_filtered(matched: int, kept: int, why: str, **counts) -> None:
+    search_outcome().note_filtered(matched, kept, why, **counts)
+
+
+def note_parse_failure_unless_transport(exc: BaseException, why: str = "parse_error") -> None:
+    """Record a parse failure only when the reply itself was the problem.
+
+    Several clients wrap the request and ``response.json()`` in one ``try``,
+    so a single ``except Exception`` covers both "the source never answered"
+    and "the source answered with something unreadable". Those are different
+    facts and the second must not be written over the first: ``safe_request``
+    has already recorded a transport failure, and calling the reply
+    unreadable would tell the user the source answered when it did not.
+    """
+    if isinstance(exc, httpx.HTTPError):
+        return
+    search_outcome().note_parse_failure(why)
+
+
+def read_json_body(response, source: str, *, why: str = "empty_or_invalid_json"):
+    """The decoded JSON body, or ``None`` with a parse failure recorded.
+
+    A reply that cannot be decoded is a real thing providers send, not a
+    hypothetical. DBLP answers an automated client with an HTML challenge
+    page rather than a status code -- ``docs/dblp-reliability.md`` records
+    the 2026-09-17 diagnostic that observed one from both REST search
+    endpoints, and ``api_dblp._looks_like_access_challenge`` is the detector
+    written for it, which checks ``text/html`` before it checks the status at
+    all. bioRxiv has been observed answering HTTP 200 with an empty body; the
+    docstring of ``api_biorxiv._request_json`` records it and retries once for
+    it. A stream cut mid-document decodes no better than either.
+
+    This helper exists because ten clients wrote the same shape -- the
+    request inside a ``try``/``except`` and ``response.json()`` on the line
+    *after* the ``except`` block -- so nothing caught a reply that would not
+    decode. The cost was not a quiet field. The exception escaped ``search()``
+    to the sweep engine's catch-all, which recorded the source as ``error``
+    with no zero reason and rendered the decoder's own message at the user,
+    and -- because unwinding ``search()`` destroys the frame its result list
+    lives in -- it threw away every record earlier pages had already yielded.
+    Measured on the nine of those ten that paginate: between 50 and 1,000
+    records each, 1,850 in all, discarded by one unreadable second page
+    (``test_client_partial_page_conformance.py``).
+
+    Returning ``None`` rather than raising is what lets the caller ``break``
+    out of its pagination loop with the records it has. ``parse_failure`` is
+    then the terminal reason the sweep engine puts in its partial note, so
+    the user is told "N usable records before a later HTTP 200 reply could
+    not be read" instead of being shown a Python traceback's first line.
+
+    The pattern is ``api_dblp._request_payload``'s, generalized; DBLP keeps
+    its own version because it also retries once and recognizes the challenge
+    page before trying to decode at all.
+
+    **It returns a mapping or ``None``, and a decoded non-mapping is
+    ``None``.** That is not tidiness; without it the ``None`` sentinel is a
+    defect of its own. ``response.json()`` on a body of ``null`` *succeeds*
+    and returns Python ``None``, which a caller checking ``if data is None``
+    cannot tell from "I could not read this" -- so it would stop, nothing
+    would be recorded, and ``zero_reason.derive`` would fall through to
+    ``answered_empty``: *the source answered and resmon found no records in
+    the reply*. A reply of ``null`` carries no records and no envelope, and
+    calling it an empty answer is the quiet field this helper exists to
+    delete. Every caller reads its records out of a named container, so an
+    array or a string root is equally unusable -- all of them raised
+    ``AttributeError`` on those before this helper existed. Requiring a
+    mapping closes all three and loses nothing legitimate. A source whose
+    reply really is a bare array, ``api_oapen`` and ``api_osti``, reads its
+    own body and does not come through here.
+
+    ``source`` is the provider's display name and reaches only the log line.
+    It is logged through this module's logger rather than the caller's, so
+    the name is in the message and not only in the logger's path -- which is
+    why it is a required argument and not read off the client.
+    """
+    try:
+        payload = response.json()
+    except Exception as exc:
+        # ``note_parse_failure_unless_transport`` and not ``note_parse_failure``:
+        # ``response.json()`` on a response whose body was never read raises an
+        # ``httpx`` error, and calling that an unreadable reply would say the
+        # source answered when the transport is what failed. Every caller here
+        # passes a fully read response, so in practice this is a decoder error
+        # -- but the guard costs nothing and the wrong sentence is the exact
+        # harm this helper was written to stop.
+        note_parse_failure_unless_transport(exc, why)
+        logger.error("%s answered 200 with a body resmon could not read: %s",
+                     source, exc)
+        return None
+
+    if not isinstance(payload, dict):
+        # A separate reason word from the undecodable case, and the one
+        # ``api_dblp`` and ``api_eric`` already use for it: the body did
+        # decode, and saying so is more useful to whoever reads the search
+        # record than collapsing both into "could not read".
+        note_parse_failure("malformed_json_shape")
+        logger.error("%s answered 200 with a %s at the root of its reply, "
+                     "not an object", source, type(payload).__name__)
+        return None
+
+    return payload
+
+
+# ---------------------------------------------------------------------------
+# safe_request
+# ---------------------------------------------------------------------------
+
+def _taped_request(
+    method: str, url: str, *, headers: dict, timeout: float,
+    deadline: float | None, **kwargs,
+) -> httpx.Response:
+    """Wrap exactly one admitted attempt, leaving retry policy in safe_request."""
+    from .source_tape import TapeMiss
+
+    outcome = search_outcome()
+
+    def send() -> httpx.Response:
+        if deadline is not None:
+            return _request_before_deadline(method, url, headers=headers, timeout=timeout,
+                                            deadline=deadline, **kwargs)
+        outcome.note_attempt()
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            return client.request(method, url, headers=headers, **kwargs)
+
+    if _SOURCE_TAPE.mode == "replay":
+        if deadline is not None:
+            _remaining(deadline)
+        outcome.note_attempt()
+    try:
+        return _SOURCE_TAPE.exchange(method, url, headers, kwargs, outcome.tape_positions,
+                                     outcome.tape_scope, send, RequestDeadlineExceeded)
+    except TapeMiss:
+        outcome.tape_misses += 1
+        raise
+    except (OSError, ValueError, TypeError) as exc:
+        # Recording storage failed after admission. Let the normal transport
+        # outcome path report a failure instead of inferring an empty answer
+        # from an attempt whose response could not be retained.
+        raise httpx.TransportError("The source tape could not record this exchange") from exc
+
+
+def safe_request(
+    method: str,
+    url: str,
+    *,
+    rate_limiter: RateLimiter | None = None,
+    timeout: float | None = None,
+    max_retries: int | None = None,
+    backoff_base: float | None = None,
+    deadline: float | None = None,
+    retry_statuses: frozenset[int] | None = None,
+    **kwargs,
+) -> httpx.Response:
+    """HTTP request wrapper integrating rate limiting, retries, and error logging.
+
+    Parameters
+    ----------
+    method : str
+        HTTP method (``"GET"``, ``"POST"``, etc.).
+    url : str
+        Target URL.
+    rate_limiter : RateLimiter | None
+        If provided, ``acquire()`` is called before each attempt.
+    timeout : float | None
+        Request timeout in seconds. ``None`` reads ``config`` **at call time**.
+    max_retries : int | None
+        Retry attempts for transient errors. ``None`` reads ``config`` at call
+        time.
+    backoff_base : float | None
+        Base for exponential backoff. ``None`` reads ``config`` at call time.
+    deadline : float | None
+        Optional absolute ``time.monotonic()`` operation deadline, shared by
+        pages/retries/limiter admission. The opt-in async transport cancels an
+        in-progress response and joins its owned thread before returning. This
+        is cooperative I/O timing, not a bound on blocking DNS shutdown/CPU work.
+        Omit to preserve the existing synchronous transport and defaults.
+    retry_statuses : frozenset[int] | None
+        The transient statuses this call retries itself. ``None`` is all of
+        them. A client that waits out some statuses on its own schedule
+        (arXiv, for 429 and 503) leaves those out, and gets the response back
+        on its first occurrence; its Retry-After still reaches the shared
+        limiter.
+    **kwargs
+        Forwarded to the HTTPX request.
+
+    Returns
+    -------
+    httpx.Response
+    """
+    # Read the knobs at call time rather than binding them as default
+    # arguments at import time. Bound defaults made the failure paths
+    # effectively untestable: a real-loopback test of an exhausted 503 slept
+    # 1 + 2 + 4 = 7 s, and an exhausted timeout ~127 s, on every Python in
+    # CI's matrix. A test can now shrink them by setting the config values,
+    # which is also how a future settings screen would change them.
+    if timeout is None:
+        timeout = config.DEFAULT_REQUEST_TIMEOUT
+    if max_retries is None:
+        max_retries = config.DEFAULT_MAX_RETRIES
+    if backoff_base is None:
+        backoff_base = config.DEFAULT_BACKOFF_BASE
+    if retry_statuses is None:
+        retry_statuses = frozenset(_TRANSIENT_CODES)
+
+    outcome = search_outcome()
+    last_exc: Exception | None = None
+    pending_transient_status: int | None = None
+
+    # Ensure a descriptive User-Agent — several scholarly APIs (notably
+    # arXiv and CORE) return 5xx or 403 for requests with the default
+    # httpx user agent.
+    headers = dict(kwargs.pop("headers", {}) or {})
+    if not any(k.lower() == "user-agent" for k in headers):
+        headers["User-Agent"] = f"resmon/1.0 (+{config.REPOSITORY_URL})"
+
+    def pause(wait: float) -> None:
+        # The next loop admission records expiry exactly once, without inventing
+        # an HTTP attempt for time spent waiting between requests.
+        if deadline is not None:
+            wait = min(wait, max(0.0, deadline - time.monotonic()))
+        with waiting("retry", wait):
+            _check_search_stop()
+            time.sleep(wait)
+            _check_search_stop()
+
+    for attempt in range(max_retries + 1):
+        try:
+            _check_search_stop()
+            if deadline is not None:
+                _remaining(deadline)
+            if rate_limiter is not None:
+                if deadline is None:
+                    rate_limiter.acquire()
+                else:
+                    rate_limiter.acquire(deadline=deadline)
+            if deadline is not None:
+                _remaining(deadline)
+            _check_search_stop()
+            # Admission completed: a new attempt is now taking over from any
+            # earlier retryable response. Keep the old status only when the
+            # limiter itself blocks this attempt before transport.
+            pending_transient_status = None
+            attempts_before = outcome.attempts
+            try:
+                if _SOURCE_TAPE is not None:
+                    response = _taped_request(method, url, headers=headers, timeout=timeout,
+                                              deadline=deadline, **kwargs)
+                elif deadline is None:
+                    outcome.note_attempt()
+                    with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+                        response = client.request(method, url, headers=headers, **kwargs)
+                else:
+                    response = _request_before_deadline(
+                        method, url, headers=headers, timeout=timeout,
+                        deadline=deadline, **kwargs,
+                    )
+            finally:
+                # Only a request that went out says what was sent; one stopped
+                # by the deadline or the limiter before transport sent nothing.
+                if outcome.attempts > attempts_before:
+                    outcome.note_sent(url, kwargs.get("params"), kwargs.get("json"))
+
+            retry_after = (
+                _retry_after_seconds(response)
+                if response.status_code in _TRANSIENT_CODES else None
+            )
+            if retry_after is not None and rate_limiter is not None:
+                rate_limiter.defer(retry_after, status_code=response.status_code)
+
+            if response.status_code in retry_statuses and attempt < max_retries:
+                # This invocation is not terminal yet. Keep the actual status
+                # locally so a cooldown that prevents the next attempt can
+                # report it once; a later success remains a successful
+                # invocation under the established outcome contract.
+                pending_transient_status = response.status_code
+                # The history records it now, before anything below can end
+                # the invocation. The next attempt clears ``last_*``, and a
+                # 500 answered by a successful retry is still a fact about
+                # the source.
+                outcome.note_retried_failure(response.status_code)
+                wait = backoff_base ** attempt
+                if retry_after is not None and rate_limiter is None:
+                    requested_wait = max(wait, retry_after)
+                    # Without a shared limiter or an operation deadline there
+                    # is nowhere to retain an arbitrary provider delay. Never
+                    # let an untrusted header extend the caller beyond its
+                    # configured backoff; report the cooldown and return
+                    # control instead. A bounded call may wait only when the
+                    # full delay fits its remaining budget.
+                    if deadline is None and requested_wait > wait:
+                        raise ServerCooldownActive(
+                            retry_after, response.status_code)
+                    if deadline is not None and requested_wait >= _remaining(deadline):
+                        raise ServerCooldownActive(
+                            retry_after, response.status_code)
+                    wait = requested_wait
+                logger.warning(
+                    "safe_request: transient %d from %s — retry %d/%d in %.1fs",
+                    response.status_code, url, attempt + 1, max_retries, wait,
+                )
+                pause(wait)
+                continue
+
+            # The call that is about to be returned is the one that explains
+            # an empty result list, so its outcome is recorded here rather
+            # than left to every client to notice. A non-2xx returned to a
+            # client is a source that did not answer -- every client breaks
+            # out of its loop and returns [], and without this the record
+            # would read "answered, zero results".
+            if not 200 <= response.status_code < 300:
+                outcome.note_failure(response.status_code, url)
+                # The reply the search ends on says when to ask again.
+                outcome.note_cooldown(retry_after)
+            return response
+
+        except ServerCooldownActive as exc:
+            # No new transport attempt occurred. Preserve an earlier response
+            # from this invocation exactly once. A later invocation stopped by
+            # shared state records retained cooldown without fabricating a
+            # response, failure, or attempt.
+            if pending_transient_status is not None:
+                outcome.note_failure(
+                    pending_transient_status, url, already_in_history=True)
+            elif not outcome.last_call_failed:
+                outcome.note_retained_cooldown(exc.status_code)
+            # What is left of the wait is when the source may be asked again.
+            outcome.note_cooldown(exc.seconds)
+            logger.error(
+                "safe_request: server cooldown blocks %s for %.1fs",
+                url, exc.seconds,
+            )
+            raise
+
+        except RequestDeadlineExceeded as exc:
+            # The invocation terminates here. A prior retryable response was
+            # not itself terminal; its raw status remains in the warning log
+            # and, by category, in the outcome's failure history.
+            outcome.note_failure(exc, url)
+            logger.error("safe_request: operation deadline expired for %s", url)
+            raise
+
+        except (httpx.TimeoutException, httpx.ConnectError) as exc:
+            last_exc = exc
+            if attempt < max_retries:
+                outcome.note_retried_failure(exc)
+                wait = backoff_base ** attempt
+                logger.warning(
+                    "safe_request: %s for %s — retry %d/%d in %.1fs",
+                    exc, url, attempt + 1, max_retries, wait,
+                )
+                pause(wait)
+            else:
+                logger.error("safe_request: exhausted retries for %s: %s", url, exc)
+                outcome.note_failure(exc, url)
+                raise
+
+        except httpx.HTTPError as exc:
+            # Every *other* transport failure, and this clause exists because
+            # its absence made resmon lie.
+            #
+            # The two above are the ones worth retrying, and they were the only
+            # ones recorded. But ``httpx`` raises a wider family: a connection
+            # reset mid-reply is ``ReadError``, a server that hangs up without a
+            # response is ``RemoteProtocolError``, a proxy that refuses the
+            # tunnel is ``ProxyError``. None of those is a timeout and none is a
+            # connect error, so none reached ``note_failure``. The channel then
+            # held one attempt and zero failures, ``zero_reason.derive`` read
+            # that as "at least one call, all of which answered", and the search
+            # record told the user *"<source> answered (HTTP 200) and resmon
+            # found no records in the reply"* about a source that never
+            # answered at all.
+            #
+            # Measured, not reasoned: with a loopback proxy that accepts the
+            # connection and closes it, ``api_arxiv`` came back with
+            # ``('answered_empty', {'attempts': 1})``. See
+            # ``test_zero_reason_transport.py``, which drives a real socket.
+            #
+            # The retry policy is deliberately unchanged: these were not
+            # retried before and are not retried now. What changes is only what
+            # the run *records*, which is the whole of the defect.
+            logger.error("safe_request: transport failure for %s: %s", url, exc)
+            outcome.note_failure(exc, url)
+            raise
+
+    raise last_exc  # type: ignore[misc]

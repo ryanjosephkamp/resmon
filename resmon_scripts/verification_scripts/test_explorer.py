@@ -1,0 +1,531 @@
+"""Corpus-wide explorer.
+
+The cases that matter here are pagination correctness -- especially that no
+paper can fall out of the sequence -- and that filters actually narrow rather
+than appearing to.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+import sys
+from pathlib import Path
+
+import pytest
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
+
+from implementation_scripts import explorer  # noqa: E402
+from implementation_scripts.database import init_db, insert_document  # noqa: E402
+
+
+@pytest.fixture
+def conn():
+    c = sqlite3.connect(":memory:")
+    c.row_factory = sqlite3.Row
+    init_db(conn=c)
+    yield c
+    c.close()
+
+
+def _doc(conn, *, source="arxiv", ext="1", title="A paper", authors="Ada Lovelace",
+         abstract="An abstract about diffusion models.", pub="2026-01-15",
+         categories="cs.LG", doi=None):
+    return insert_document(conn, {
+        "source_repository": source, "external_id": ext, "doi": doi,
+        "title": title, "authors": authors, "abstract": abstract,
+        "publication_date": pub, "url": "https://e.org/x",
+        "categories": categories, "metadata_hash": f"{source}-{ext}",
+    })
+
+
+# ---------------------------------------------------------------------------
+# Empty and trivial
+# ---------------------------------------------------------------------------
+
+def test_empty_corpus_returns_an_empty_page_not_an_error(conn):
+    r = explorer.search(conn)
+    assert r["results"] == []
+    assert r["total"] == 0
+    assert r["has_more"] is False
+    assert r["next_cursor"] is None
+
+    f = explorer.facets(conn)
+    assert f["sources"] == [] and f["authors"] == [] and f["categories"] == []
+
+
+# ---------------------------------------------------------------------------
+# Filters
+# ---------------------------------------------------------------------------
+
+def test_each_filter_narrows(conn):
+    _doc(conn, source="arxiv", ext="1", title="Diffusion models",
+         authors="Ada Lovelace", categories="cs.LG", pub="2026-01-01")
+    _doc(conn, source="pubmed", ext="2", title="Protein folding",
+         authors="Alan Turing", categories="q-bio", pub="2025-06-01")
+
+    assert len(explorer.search(conn)["results"]) == 2
+    assert len(explorer.search(conn, sources=["arxiv"])["results"]) == 1
+    assert len(explorer.search(conn, authors=["Alan Turing"])["results"]) == 1
+    assert len(explorer.search(conn, categories=["q-bio"])["results"]) == 1
+    assert len(explorer.search(conn, date_from="2026-01-01")["results"]) == 1
+    assert len(explorer.search(conn, date_to="2025-12-31")["results"]) == 1
+
+
+def test_filters_combine_as_and_not_or(conn):
+    _doc(conn, source="arxiv", ext="1", authors="Ada Lovelace", categories="cs.LG")
+    _doc(conn, source="pubmed", ext="2", authors="Ada Lovelace", categories="q-bio")
+
+    r = explorer.search(conn, sources=["arxiv"], authors=["Ada Lovelace"])
+    assert len(r["results"]) == 1
+    r = explorer.search(conn, sources=["arxiv"], categories=["q-bio"])
+    assert r["results"] == [], "a paper must satisfy every filter, not any"
+
+
+def test_free_text_searches_title_and_abstract(conn):
+    _doc(conn, ext="1", title="Diffusion models", abstract="Nothing relevant here.")
+    _doc(conn, ext="2", title="Unrelated", abstract="A study of protein folding.")
+
+    titles = [d["title"] for d in explorer.search(conn, query="diffusion")["results"]]
+    assert titles == ["Diffusion models"]
+    titles = [d["title"] for d in explorer.search(conn, query="folding")["results"]]
+    assert titles == ["Unrelated"], "the abstract should be searched too"
+
+
+def test_free_text_uses_the_full_text_index(conn):
+    _doc(conn, ext="1", title="Diffusion models")
+    r = explorer.search(conn, query="diffusion")
+    assert r["used_full_text_index"] is True, (
+        "FTS5 is available here; falling back to LIKE would be a scan"
+    )
+
+
+def test_punctuation_in_a_query_cannot_break_it(conn):
+    """User input must never reach FTS5 as syntax."""
+    _doc(conn, ext="1", title="Diffusion models")
+    for hostile in ['"', 'NEAR(', 'a OR b', '*', '-diffusion', 'a"b', '()']:
+        r = explorer.search(conn, query=hostile)
+        assert isinstance(r["results"], list), f"query {hostile!r} raised"
+
+
+# ---------------------------------------------------------------------------
+# Pagination — the part where papers go missing
+# ---------------------------------------------------------------------------
+
+def test_pagination_walks_every_paper_exactly_once(conn):
+    for i in range(25):
+        _doc(conn, ext=str(i), title=f"Paper {i}", pub=f"2026-01-{(i % 28) + 1:02d}")
+
+    seen, cursor, pages = [], None, 0
+    while pages < 50:
+        page = explorer.search(conn, cursor=cursor, limit=7)
+        seen.extend(d["id"] for d in page["results"])
+        cursor = page["next_cursor"]
+        pages += 1
+        if not cursor:
+            break
+
+    assert len(seen) == 25, f"expected 25 papers across pages, saw {len(seen)}"
+    assert len(set(seen)) == 25, "a paper appeared on more than one page"
+
+
+def test_undated_papers_are_not_lost_in_pagination(conn):
+    """The failure this guards against is silent.
+
+    The sort key is COALESCE(publication_date, ''). Compared as a real NULL, a
+    row-value cursor comparison yields NULL and every undated paper drops out of
+    the sequence without any error.
+    """
+    for i in range(5):
+        _doc(conn, ext=f"dated{i}", title=f"Dated {i}", pub=f"2026-01-0{i + 1}")
+    for i in range(4):
+        _doc(conn, ext=f"undated{i}", title=f"Undated {i}", pub=None)
+
+    seen, cursor = [], None
+    for _ in range(20):
+        page = explorer.search(conn, cursor=cursor, limit=2)
+        seen.extend(d["title"] for d in page["results"])
+        cursor = page["next_cursor"]
+        if not cursor:
+            break
+
+    assert len(seen) == 9, f"expected all 9 papers, walked {len(seen)}"
+    assert sum(1 for s in seen if s.startswith("Undated")) == 4
+
+
+def test_undated_papers_sort_last(conn):
+    _doc(conn, ext="undated", title="Undated", pub=None)
+    _doc(conn, ext="dated", title="Dated", pub="2020-01-01")
+    titles = [d["title"] for d in explorer.search(conn)["results"]]
+    assert titles == ["Dated", "Undated"]
+
+
+def test_a_malformed_cursor_is_rejected_not_ignored(conn):
+    _doc(conn, ext="1")
+    with pytest.raises(ValueError):
+        explorer.search(conn, cursor="not-a-cursor")
+
+
+def test_page_size_is_clamped(conn):
+    for i in range(5):
+        _doc(conn, ext=str(i))
+    assert explorer.search(conn, limit=10_000)["page_size"] == explorer.MAX_PAGE_SIZE
+    assert explorer.search(conn, limit=0)["page_size"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Facets
+# ---------------------------------------------------------------------------
+
+def test_facets_count_documents_not_rows(conn):
+    _doc(conn, ext="1", authors="Ada Lovelace, Alan Turing", categories="cs.LG, stat.ML")
+    _doc(conn, ext="2", authors="Ada Lovelace", categories="cs.LG")
+
+    f = explorer.facets(conn)
+    authors = {a["value"]: a["count"] for a in f["authors"]}
+    assert authors["Ada Lovelace"] == 2
+    assert authors["Alan Turing"] == 1
+    categories = {c["value"]: c["count"] for c in f["categories"]}
+    assert categories["cs.LG"] == 2
+    assert categories["stat.ML"] == 1
+
+
+def test_a_facet_does_not_count_against_itself(conn):
+    """Ticking one source must not make the other sources vanish from the list.
+
+    Otherwise the filter becomes one-way: once a source is selected there is no
+    longer anything in the interface to select instead.
+    """
+    _doc(conn, source="arxiv", ext="1")
+    _doc(conn, source="pubmed", ext="2")
+
+    f = explorer.facets(conn, sources=["arxiv"])
+    values = {s["value"] for s in f["sources"]}
+    assert values == {"arxiv", "pubmed"}, (
+        "the source facet should ignore the source filter so alternatives stay visible"
+    )
+
+    # But it must still constrain the other facets.
+    _doc(conn, source="pubmed", ext="3", categories="q-bio")
+    cats = {c["value"] for c in explorer.facets(conn, sources=["arxiv"])["categories"]}
+    assert "q-bio" not in cats
+
+
+def test_a_facet_count_is_the_search_total_for_that_value_under_every_other_filter(conn):
+    """What the number beside a value claims, held to the search it describes.
+
+    The interface says each number counts the papers with that value that
+    match the words and the other filters. So for every listed value, the
+    count is the total a search returns for that value alone in its group,
+    with everything else unchanged, whatever else is ticked in the group.
+    """
+    _doc(conn, source="arxiv", ext="1", categories="cs.LG, stat.ML", authors="Ada Lovelace", pub="2026-03-01")
+    _doc(conn, source="arxiv", ext="2", categories="cs.LG", authors="Alan Turing", pub="2026-04-01")
+    _doc(conn, source="pubmed", ext="3", categories="cs.LG", authors="Ada Lovelace", pub="2026-05-01")
+    _doc(conn, source="pubmed", ext="4", categories="q-bio", authors="Ada Lovelace", pub="2026-06-01")
+    _doc(conn, source="arxiv", ext="5", categories="stat.ML", authors="Ada Lovelace", pub="2025-01-01")
+    _doc(conn, source="arxiv", ext="6", categories="cs.LG", title="Protein folding",
+         abstract="Nothing about the other subject.", pub="2026-07-01")
+
+    chosen = {"sources": ["arxiv"], "categories": ["cs.LG"], "authors": ["Ada Lovelace"]}
+    rest = {"query": "diffusion", "date_from": "2026-01-01", "date_to": "2026-12-31"}
+    f = explorer.facets(conn, **chosen, **rest)
+    for group, key in (("sources", "sources"), ("categories", "categories"), ("authors", "authors")):
+        assert f[group], f"nothing was counted in {group}"
+        for row in f[group]:
+            narrowed = {**chosen, key: [row["value"]]}
+            total = explorer.search(conn, **narrowed, **rest)["total"]
+            assert row["count"] == total, (group, row)
+
+
+# ---------------------------------------------------------------------------
+# Export
+# ---------------------------------------------------------------------------
+
+def test_matching_ids_respects_filters_and_order(conn):
+    a = _doc(conn, source="arxiv", ext="1", pub="2026-05-01")
+    _doc(conn, source="pubmed", ext="2", pub="2026-06-01")
+    c = _doc(conn, source="arxiv", ext="3", pub="2026-07-01")
+
+    ids = explorer.matching_ids(conn, sources=["arxiv"])
+    assert ids == [c, a], "newest publication first"
+
+
+def test_matching_ids_stops_only_where_asked(conn):
+    for i in range(10):
+        _doc(conn, ext=str(i))
+    assert len(explorer.matching_ids(conn, limit=3)) == 3
+    assert len(explorer.matching_ids(conn)) == 10
+
+
+# ---------------------------------------------------------------------------
+# Counting: exact, within a time budget
+# ---------------------------------------------------------------------------
+
+def _many(conn, n: int, *, start: int = 0, pub: str = "2026-01-15") -> None:
+    """*n* papers about diffusion models, written at once (the triggers keep the text index)."""
+    conn.executemany(
+        "INSERT INTO documents (source_repository, external_id, title, abstract, publication_date, metadata_hash) "
+        "VALUES ('arxiv', ?, ?, 'An abstract about diffusion models.', ?, ?)",
+        [(f"many-{i}", f"Diffusion paper {i}", pub, f"many-{i}") for i in range(start, start + n)],
+    )
+    conn.commit()
+
+
+def test_a_collection_past_ten_thousand_is_counted_exactly(conn):
+    """The count stopped at 10,000 and said "10,000+"; every match is counted now."""
+    _many(conn, 10_050)
+    whole = explorer.search(conn)
+    assert (whole["total"], whole["total_is_exact"]) == (10_050, True)
+    words = explorer.search(conn, query="diffusion")
+    assert (words["total"], words["total_is_exact"]) == (10_050, True)
+    assert words["count_budget_ms"] == int(explorer.COUNT_BUDGET_S * 1000)
+    assert "total_is_capped" not in words and "count_cap" not in words
+
+
+def test_a_count_that_runs_out_of_time_says_so_with_what_it_counted(conn, monkeypatch):
+    """Past the budget the count stops, says it stopped, and keeps the number it reached."""
+    _many(conn, 10_050)
+    monkeypatch.setattr(explorer, "COUNT_BUDGET_S", -1.0)  # already out of time
+    stopped = explorer.search(conn, query="diffusion")
+    assert stopped["total_is_exact"] is False
+    assert 0 <= stopped["total"] < 10_050, "a stopped count is a floor, never the whole"
+    assert len(stopped["results"]) == 50 and stopped["has_more"], "the page itself is unaffected"
+    # The clock is put back for the next query on this connection.
+    monkeypatch.setattr(explorer, "COUNT_BUDGET_S", 30.0)
+    again = explorer.search(conn, query="diffusion")
+    assert (again["total"], again["total_is_exact"]) == (10_050, True)
+
+
+def test_the_whole_collection_is_counted_by_the_table_and_never_runs_out(conn, monkeypatch):
+    _many(conn, 20)
+    monkeypatch.setattr(explorer, "COUNT_BUDGET_S", -1.0)
+    whole = explorer.search(conn)
+    assert (whole["total"], whole["total_is_exact"]) == (20, True)
+
+
+def test_a_later_page_reuses_the_first_pages_count_until_the_collection_changes(tmp_path, monkeypatch):
+    c = sqlite3.connect(str(tmp_path / "corpus.db"))
+    c.row_factory = sqlite3.Row
+    init_db(conn=c)
+    _many(c, 120)
+    counted: list[str] = []
+    real = explorer.count_where
+
+    def counting(conn, where, params, **kwargs):
+        counted.append(where)
+        return real(conn, where, params, **kwargs)
+
+    monkeypatch.setattr(explorer, "count_where", counting)
+    first = explorer.search(c, query="diffusion")
+    second = explorer.search(c, query="diffusion", cursor=first["next_cursor"])
+    assert len(counted) == 1, "the second page reused the first page's count"
+    assert second["total"] == first["total"] == 120
+    _many(c, 1, start=500)
+    third = explorer.search(c, query="diffusion", cursor=second["next_cursor"])
+    assert len(counted) == 2 and third["total"] == 121, "a paper added since is a new count"
+    explorer.search(c, query="diffusion")
+    assert len(counted) == 3, "a first page always counts afresh"
+    c.close()
+
+
+# ---------------------------------------------------------------------------
+# Jumping to a date
+# ---------------------------------------------------------------------------
+
+def test_a_jump_starts_at_the_day_and_counts_what_came_before(conn):
+    dates = ["2026-05-02", "2026-04-30", "2026-04-02", "2026-04", "2026-03-31", "2025-12-01", None]
+    ids = [_doc(conn, ext=str(n), pub=d) for n, d in enumerate(dates)]
+
+    page = explorer.search(conn, start_date="2026-04-30", limit=2)
+    assert [r["id"] for r in page["results"]] == [ids[1], ids[2]], "on or before the day, newest first"
+    assert page["start_date"] == "2026-04-30"
+    assert (page["newer_count"], page["newer_count_is_exact"]) == (1, True)
+    assert (page["total"], page["total_is_exact"]) == (7, True), "the count is still every match"
+
+    rest = explorer.search(conn, cursor=page["next_cursor"], start_date="2026-04-30", limit=10)
+    assert [r["id"] for r in rest["results"]] == ids[3:], "a month-only date, then older, then undated"
+    assert "newer_count" not in rest, "a cursor says where the list is; the jump is not repeated"
+
+    month = explorer.search(conn, start_date="2026-04")
+    assert month["results"][0]["id"] == ids[3] and month["newer_count"] == 3
+    assert explorer.search(conn, start_date="2027")["newer_count"] == 0
+
+    with pytest.raises(ValueError):
+        explorer.search(conn, start_date="April 2026")
+
+
+def test_a_jump_keeps_the_filters(conn):
+    a = _doc(conn, source="arxiv", ext="a", pub="2026-02-01")
+    _doc(conn, source="pubmed", ext="b", pub="2026-01-20")
+    c = _doc(conn, source="arxiv", ext="c", pub="2026-01-10")
+    page = explorer.search(conn, sources=["arxiv"], start_date="2026-01-31")
+    assert [r["id"] for r in page["results"]] == [c]
+    assert page["newer_count"] == 1 and page["total"] == 2
+    assert a not in [r["id"] for r in page["results"]]
+
+
+# ---------------------------------------------------------------------------
+# Export, read a batch at a time
+# ---------------------------------------------------------------------------
+
+def test_every_match_is_read_for_an_export_in_batches(conn):
+    _many(conn, 1_205)
+    assert explorer.count_matching(conn, query="diffusion") == 1_205
+    seen = list(explorer.iter_matching(conn, query="diffusion", batch=100))
+    assert len(seen) == 1_205 and len({d["id"] for d in seen}) == 1_205
+    assert [d["id"] for d in seen] == explorer.matching_ids(conn, query="diffusion"), "the newest first"
+
+
+# ---------------------------------------------------------------------------
+# Through the routes
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def client():
+    import resmon as resmon_mod  # noqa: PLC0415
+    from fastapi.testclient import TestClient  # noqa: PLC0415
+
+    resmon_mod._db_path = ":memory:"
+    resmon_mod._shared_conn = None
+    resmon_mod._db_initialized = False
+    yield resmon_mod, TestClient(resmon_mod.app)
+
+
+def test_the_export_holds_what_the_search_counts_and_the_renderer_can_read_how_many(client):
+    """The collection's export: the filtered set, and its size where the renderer can read it.
+
+    The renderer is served from another origin, so a response header it is not
+    told it may read is absent to it. The count is how the collection says what
+    a saved file holds, so it is exposed beside the file name.
+    """
+    from conftest import TEST_RENDERER_ORIGIN  # noqa: PLC0415
+
+    resmon_mod, http = client
+    conn = resmon_mod._get_db()
+    _doc(conn, source="arxiv", ext="1", categories="cs.LG")
+    _doc(conn, source="arxiv", ext="2", categories="stat.ML")
+    _doc(conn, source="pubmed", ext="3", categories="cs.LG")
+    _doc(conn, source="arxiv", ext="4", categories="q-bio")
+
+    filters = {"sources": ["arxiv"], "categories": ["cs.LG", "stat.ML"]}
+    response = http.post("/api/explorer/export", json={**filters, "format": "json"},
+                         headers={"Origin": TEST_RENDERER_ORIGIN})
+    assert response.status_code == 200, response.text
+    assert len(response.json()) == 2
+    assert response.headers["X-Resmon-Document-Count"] == "2"
+    assert response.headers["access-control-allow-origin"] == TEST_RENDERER_ORIGIN
+    exposed = {h.strip().lower() for h in response.headers["access-control-expose-headers"].split(",")}
+    assert {"x-resmon-document-count", "content-disposition"} <= exposed
+
+    page = http.post("/api/explorer/search", json=filters)
+    assert page.json()["total"] == 2, "the count beside the export is the search's"
+
+
+def test_an_export_holds_every_match_however_many_and_says_how_many_first(client):
+    """It stopped at the newest 10,000, built whole in memory. Now: all of them, streamed."""
+    resmon_mod, http = client
+    conn = resmon_mod._get_db()
+    _many(conn, 10_005)
+    for fmt, records in (("csv", lambda text: len(text.rstrip("\r\n").split("\r\n")) - 1),
+                         ("ris", lambda text: text.count("ER  - ")),
+                         ("bibtex", lambda text: text.count("\n@")+ (1 if text.startswith("@") else 0))):
+        response = http.post("/api/explorer/export", json={"format": fmt})
+        assert response.status_code == 200, response.text
+        assert response.headers["X-Resmon-Document-Count"] == "10005"
+        assert records(response.text) == 10_005, fmt
+
+
+def test_the_collection_export_reads_papers_in_batches_not_by_one_selection(client, monkeypatch):
+    """The export walks one query; it never builds the whole selection of documents first."""
+    resmon_mod, http = client
+    conn = resmon_mod._get_db()
+    _many(conn, 30)
+
+    def whole_selection(*_args, **_kwargs):
+        raise AssertionError("the collection's export must not load every document at once")
+
+    monkeypatch.setattr(resmon_mod, "get_documents_by_ids", whole_selection)
+    response = http.post("/api/explorer/export", json={"format": "json"})
+    assert response.status_code == 200 and len(response.json()) == 30
+
+
+def test_an_unknown_export_format_is_refused_before_anything_is_sent(client):
+    _resmon_mod, http = client
+    response = http.post("/api/explorer/export", json={"format": "endnote"})
+    assert response.status_code == 400
+    assert "Unknown export format" in response.text
+
+
+def test_the_export_count_and_its_papers_come_from_one_snapshot(client):
+    """A paper stored while the file is being written is in neither the header nor the file."""
+    resmon_mod, http = client
+    conn = resmon_mod._get_db()
+    _many(conn, 1_500)
+    with http.stream("POST", "/api/explorer/export", json={"format": "csv"}) as response:
+        said = int(response.headers["X-Resmon-Document-Count"])
+        pieces = response.iter_bytes()
+        first = next(pieces)
+        _many(conn, 5, start=9_000)  # a run storing papers mid-export
+        text = (first + b"".join(pieces)).decode("utf-8")
+    assert said == 1_500
+    assert len(text.rstrip("\r\n").split("\r\n")) - 1 == said
+
+
+# ---------------------------------------------------------------------------
+# A page and its marks in one reply
+# ---------------------------------------------------------------------------
+
+
+def _marked_collection(resmon_mod):
+    """Two papers that look like the same work, one matched to a person, one with a notice."""
+    from implementation_scripts import near_duplicates  # noqa: PLC0415
+    from implementation_scripts.database import record_lifecycle_finding  # noqa: PLC0415
+
+    conn = resmon_mod._get_db()
+    a = _doc(conn, ext="1", title="Diffusion models, the preprint")
+    b = _doc(conn, ext="2", title="Diffusion models, the article")
+    c = _doc(conn, ext="3", title="Something else entirely")
+    near_duplicates.write_links(conn, [{"a": min(a, b), "b": max(a, b), "score": 0.97, "method": "title"}])
+    profile = conn.execute(
+        "INSERT INTO watch_profiles (kind, display_name, names, identifiers, affiliations, field_hints) "
+        "VALUES ('person', 'Ada Lovelace', '[]', '{}', '[]', '[]')").lastrowid
+    conn.execute(
+        "INSERT INTO watch_profile_matches (document_id, profile_id, basis, matched_author, evidence) "
+        "VALUES (?, ?, 'name_only', 'Ada Lovelace', 'the name as written')", (a, profile))
+    conn.commit()
+    record_lifecycle_finding(conn, c, kind="retraction", severity="critical", notice_key="r-1",
+                             notice_url="https://e.org/retraction", provider="crossref")
+    return [a, b, c]
+
+
+def test_a_page_carries_its_marks_when_asked_exactly_as_the_three_routes_answer_them(client):
+    resmon_mod, http = client
+    ids = _marked_collection(resmon_mod)
+    page = http.post("/api/explorer/search", json={"include": ["links", "matches", "lifecycle"]})
+    assert page.status_code == 200, page.text
+    body = page.json()
+    assert sorted(p["id"] for p in body["results"]) == sorted(ids)
+    on_page = [p["id"] for p in body["results"]]
+    assert body["links"] == http.post("/api/links/for-documents", json={"document_ids": on_page}).json()
+    assert body["matches"] == http.post("/api/profiles/matches/for-documents", json={"document_ids": on_page}).json()
+    assert body["lifecycle"] == http.post("/api/lifecycle/for-documents", json={"document_ids": on_page}).json()
+    # And the marks are really there, so the comparison above compared something.
+    assert body["links"]["links"] and body["matches"]["matches"] and body["lifecycle"]["events"]
+
+
+def test_a_page_not_asked_for_its_marks_is_the_page_it_always_was(client):
+    # The MCP server's search_corpus and the command line ask for no marks.
+    resmon_mod, http = client
+    _marked_collection(resmon_mod)
+    body = http.post("/api/explorer/search", json={}).json()
+    assert not {"links", "matches", "lifecycle"} & set(body)
+
+
+def test_only_the_marks_asked_for_are_answered(client):
+    resmon_mod, http = client
+    _marked_collection(resmon_mod)
+    body = http.post("/api/explorer/search", json={"include": ["lifecycle"]}).json()
+    assert "lifecycle" in body and "links" not in body and "matches" not in body
+    assert http.post("/api/explorer/search", json={"include": ["everything"]}).status_code == 422

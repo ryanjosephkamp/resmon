@@ -1,0 +1,87 @@
+{
+ "resultList": {
+  "result": [
+   {
+    "id": "42658833",
+    "source": "MED",
+    "doi": "10.1371/journal.pmed.1005207",
+    "title": "Enabling equitable open access to commercially funded research publications.",
+    "pmid": "42658833",
+    "firstPublicationDate": "2026-08-27",
+    "authorString": "Schmidt A, Winchester CC, Skobe C, Stothard DR, Topol E.",
+    "authorList": {
+     "author": [
+      {
+       "fullName": "Schmidt A",
+       "firstName": "Anja",
+       "lastName": "Schmidt",
+       "initials": "A",
+       "authorId": {
+        "type": "ORCID",
+        "value": "0000-0002-2304-8774"
+       },
+       "authorAffiliationDetailsList": {
+        "authorAffiliation": [
+         {
+          "affiliation": "Takeda Development Center Americas, Inc., Cambridge, Massachusetts, United States of America."
+         }
+        ]
+       }
+      },
+      {
+       "fullName": "Winchester CC",
+       "firstName": "Christopher C",
+       "lastName": "Winchester",
+       "initials": "CC",
+       "authorId": {
+        "type": "ORCID",
+        "value": "0000-0003-3267-3990"
+       },
+       "authorAffiliationDetailsList": {
+        "authorAffiliation": [
+         {
+          "affiliation": "Oxford PharmaGenesis, Oxford, United Kingdom."
+         }
+        ]
+       }
+      },
+      {
+       "fullName": "Skobe C",
+       "firstName": "Catherine",
+       "lastName": "Skobe",
+       "initials": "C",
+       "authorId": {
+        "type": "ORCID",
+        "value": "0000-0002-5220-2566"
+       },
+       "authorAffiliationDetailsList": {
+        "authorAffiliation": [
+         {
+          "affiliation": "Pfizer, New York, New York, United States of America."
+         }
+        ]
+       }
+      },
+      {
+       "fullName": "Stothard DR",
+       "firstName": "Diane R",
+       "lastName": "Stothard",
+       "initials": "DR",
+       "authorId": {
+        "type": "ORCID",
+        "value": "0009-0009-3524-6872"
+       },
+       "authorAffiliationDetailsList": {
+        "authorAffiliation": [
+         {
+          "affiliation": "Eli Lilly and Company, Indianapolis, Indiana, United States of America."
+         }
+        ]
+       }
+      }
+     ]
+    }
+   }
+  ]
+ }
+}

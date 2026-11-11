@@ -1,0 +1,312 @@
+/**
+ * The denominator.
+ *
+ * Fifty-one rows, one per user journey the app carries. `register.spec.ts`
+ * refuses to let this file and the spec files in this directory disagree. A row
+ * with no test cannot exist, and a test with no row cannot exist either; that
+ * mutual guard is the only thing that makes "N of 51" a measurement rather than
+ * a hand count.
+ *
+ * **Screens are held to the register too.** `ROUTE_ROWS` below names, for every
+ * screen the app has, the rows that carry it, so a screen added without a
+ * journey is a red guard.
+ *
+ * **Atlas keeps the theme and the accent color in the engine**, at
+ * `/api/appearance`, because the renderer's storage does not survive a launch;
+ * J46 is the journey for that route. J47, the collection map behind Today's
+ * plate (`/api/map`), J48, Today itself (`/api/today`), and J49, shared wording
+ * across papers (`/api/shared-wording` and Search › Shared Wording), are the
+ * journeys for the routes and screens that sit beside it.
+ *
+ * **J24 is Google Drive backup.** resmon does not sign in to Google: a backup
+ * is written into a folder the person chooses, Google Drive for desktop's among
+ * them. The row is Drive's folder chosen on the Backup screen, a backup written
+ * into it, and nothing leaving the machine.
+ *
+ * **`status`.** A row that is not carried takes `status: 'not_carried_forward'`
+ * and must then carry a `reason` naming the decision it was made under and the
+ * initials of whoever made it, enforced by the guard. J27, the citation graph,
+ * is the one such row: it is not built.
+ *
+ * **`slice` and `built`.** `slice` groups the rows by the part of the suite that
+ * owns the row's test; every slice-1 row is built by definition, and a later
+ * slice's row is built once it carries `built: true`. A row that is neither is
+ * *pending*, and the guard accepts its missing spec only because the slice is
+ * named here. The printed count moves when a spec and its flag arrive together,
+ * without anyone editing a number.
+ *
+ * **Two rows whose journey is a gate, not a screen.** J16 (the
+ * live-network job) and J43 (upgrade in place) are user journeys whose evidence
+ * is a CI job and a migration, not a route. The pattern is a journey test that
+ * runs the *existing* gate as a subprocess and asserts its exit status and the
+ * denominators it prints — `runGate` in `fixtures/gates.ts`, re-exported from
+ * `driver.ts` so a spec can reach it without importing `child_process`. The
+ * row's evidence stays the real gate; re-implementing it here would be a second
+ * thing to keep in step. J16 takes the same shape: `test_live_suite.py` under
+ * the build's own interpreter for the gate, plus `live_suite.py --summary` for
+ * the denominator, because a `-q` pytest run does not print one.
+ */
+
+/**
+ * The part of the suite that owns a row's test. `refresh` holds the Source
+ * wall row, and `atlas` the rows for Atlas's own routes and screens: J46, J47,
+ * J48, J49, J50 (Look Up a Paper), and J51 (Collections).
+ */
+export type JourneySlice = '1' | '2a' | '2b' | 'refresh' | 'atlas';
+export type JourneyStatus = 'carried' | 'not_carried_forward';
+
+export interface JourneyRow {
+  /** `J01`…`J51`. */
+  id: string;
+  /** The row's title. */
+  title: string;
+  /** Which slice of the journey suite owns this row's test. */
+  slice: JourneySlice;
+  status: JourneyStatus;
+  /**
+   * This row's spec exists in this checkout.
+   *
+   * Slice 1's rows do not carry it — `BUILT_SLICE` already says they are built.
+   * A later slice marks its own rows one at a time. A row of a later slice with
+   * no flag is *pending*: its test has not been written.
+   */
+  built?: true;
+  /**
+   * Only for `not_carried_forward`: the decision that dropped the row and the
+   * initials of whoever made it, e.g. `'N1; dropped by RK 2026-09-22'`. The guard
+   * fails on a dropped row without one.
+   */
+  reason?: string;
+}
+
+export const JOURNEY_REGISTER: readonly JourneyRow[] = [
+  { id: 'J01', title: 'Deep Dive', slice: '1', status: 'carried' },
+  { id: 'J02', title: 'Deep Sweep', slice: '1', status: 'carried' },
+  { id: 'J03', title: 'Routines', slice: '1', status: 'carried' },
+  { id: 'J04', title: 'Background daemon', slice: '2a', status: 'carried', built: true },
+  { id: 'J05', title: 'Analytics', slice: '2a', status: 'carried', built: true },
+  { id: 'J06', title: 'Watchdog', slice: '2a', status: 'carried', built: true },
+  { id: 'J07', title: 'Watch profiles', slice: '2a', status: 'carried', built: true },
+  { id: 'J08', title: 'Author identity and entity search', slice: '2a', status: 'carried', built: true },
+  { id: 'J09', title: 'Semantic search', slice: '2a', status: 'carried', built: true },
+  { id: 'J10', title: 'Near-duplicate links', slice: '2a', status: 'carried', built: true },
+  { id: 'J11', title: 'Coverage audit', slice: '2a', status: 'carried', built: true },
+  { id: 'J12', title: 'Explorer', slice: '1', status: 'carried' },
+  { id: 'J13', title: 'The assistant (CLI lane)', slice: '2a', status: 'carried', built: true },
+  { id: 'J14', title: 'The assistant on a key', slice: '2a', status: 'carried', built: true },
+  { id: 'J15', title: 'First-run card', slice: '2a', status: 'carried', built: true },
+  { id: 'J16', title: 'Live-network job', slice: '2a', status: 'carried', built: true },
+  { id: 'J17', title: 'AI summarization lanes', slice: '2a', status: 'carried', built: true },
+  { id: 'J18', title: 'Reports and exports', slice: '1', status: 'carried' },
+  { id: 'J19', title: 'Live monitoring', slice: '1', status: 'carried' },
+  { id: 'J20', title: 'Calendar', slice: '1', status: 'carried' },
+  { id: 'J21', title: 'Saved configurations', slice: '1', status: 'carried' },
+  { id: 'J22', title: 'Repositories and keys', slice: '2a', status: 'carried', built: true },
+  { id: 'J23', title: 'Notifications and email', slice: '2a', status: 'carried', built: true },
+  { id: 'J24', title: 'Google Drive backup', slice: '2a', status: 'carried', built: true },
+  { id: 'J25', title: 'In-app documentation', slice: '2a', status: 'carried', built: true },
+  { id: 'J26', title: 'Danger Zone', slice: '2a', status: 'carried', built: true },
+  { id: 'J27', title: 'Citation graph', slice: '2a', status: 'not_carried_forward', reason: 'N1; dropped by RK 2026-10-30' },
+  { id: 'J28', title: 'Reading queue', slice: '2b', status: 'carried', built: true },
+  { id: 'J29', title: 'Recorded-source coverage', slice: '1', status: 'carried' },
+  { id: 'J30', title: 'Runtime identity', slice: '1', status: 'carried' },
+  { id: 'J31', title: 'Readable Ask', slice: '2b', status: 'carried', built: true },
+  { id: 'J32', title: 'Chats and export', slice: '2b', status: 'carried', built: true },
+  { id: 'J33', title: 'Composer choices', slice: '2b', status: 'carried', built: true },
+  { id: 'J34', title: 'Owned Library', slice: '2b', status: 'carried', built: true },
+  { id: 'J35', title: 'Evidence workspace', slice: '2b', status: 'carried', built: true },
+  { id: 'J36', title: 'Selected-evidence answers', slice: '2b', status: 'carried', built: true },
+  { id: 'J37', title: 'Portable saved-answer HTML', slice: '2b', status: 'carried', built: true },
+  { id: 'J38', title: 'Interrupted runs and Restart', slice: '1', status: 'carried' },
+  { id: 'J39', title: 'One run per routine, one per submission, missed fires', slice: '2b', status: 'carried', built: true },
+  { id: 'J40', title: 'Delivery: where a report goes, and whether it got there', slice: '2b', status: 'carried', built: true },
+  { id: 'J41', title: 'Backup and restore', slice: '1', status: 'carried' },
+  { id: 'J42', title: 'Local API locked to this app', slice: '2b', status: 'carried', built: true },
+  { id: 'J43', title: 'Upgrade in place', slice: '2b', status: 'carried', built: true },
+  { id: 'J44', title: 'Driving resmon from an external harness (MCP)', slice: '2b', status: 'carried', built: true },
+  { id: 'J45', title: 'Source Wall: what every source did on recent runs', slice: 'refresh', status: 'carried', built: true },
+  { id: 'J46', title: 'Appearance: theme and accent', slice: 'atlas', status: 'carried', built: true },
+  { id: 'J47', title: 'Collection map: where every paper sits', slice: 'atlas', status: 'carried', built: true },
+  { id: 'J48', title: 'Today: the papers since you last looked', slice: 'atlas', status: 'carried', built: true },
+  { id: 'J49', title: 'Shared Wording across papers', slice: 'atlas', status: 'carried', built: true },
+  { id: 'J50', title: 'Look Up a Paper', slice: 'atlas', status: 'carried', built: true },
+  { id: 'J51', title: 'Collections', slice: 'atlas', status: 'carried', built: true },
+];
+
+/** The slice whose rows are built by definition. */
+export const BUILT_SLICE: JourneySlice = '1';
+
+/** The other slices, any of which may still owe a row its test. */
+export const LATER_SLICES: readonly JourneySlice[] = ['2a', '2b', 'refresh', 'atlas'];
+
+/** Rows the guard requires a spec for: slice 1, plus every later row marked built. */
+export function builtRows(): JourneyRow[] {
+  return JOURNEY_REGISTER.filter(
+    (row) => row.status === 'carried' && (row.slice === BUILT_SLICE || row.built === true),
+  );
+}
+
+/** Carried rows whose test a later slice still owes. */
+export function pendingRows(): JourneyRow[] {
+  return JOURNEY_REGISTER.filter(
+    (row) => row.status === 'carried' && row.slice !== BUILT_SLICE && row.built !== true,
+  );
+}
+
+/**
+ * Every screen a person can reach, and the rows that carry what they do there.
+ *
+ * **Why this exists.** The guard below this file's rows compares the register
+ * with the spec files, and without this nothing would compare it with the app:
+ * a screen could ship as a page with no row, and the suite would stay green
+ * over a journey it did not measure. So every path in `SCREEN_PATHS`
+ * (`atlas/src/screenPaths.ts`), the list the smoke suite and the performance
+ * harness sweep, Settings' groups included, has an entry here, and
+ * `register.spec.ts` fails on a path with none, on an entry that is not a
+ * path, and on an entry that names no carried row. A screen added without a
+ * row is a red run.
+ *
+ * **What an entry claims.** That the row's journey is what a person does on
+ * that screen, not that the row's spec exercises every control on it. Where a
+ * screen and its row do not share a name, `why` says what the screen is for
+ * and why that is the row's journey rather than one of its own; where the
+ * row's spec does not reach the screen at all, `why` says that too. Those are
+ * the places a reviewer should look first when deciding whether the register
+ * is missing a journey. A screen that needs an id (a run, a paper, a watch, a
+ * person) has no fixed address and is not here; it is reached from one that is.
+ */
+export const ROUTE_ROWS: Readonly<Record<string, { rows: readonly string[]; why?: string }>> = {
+  '/today': {
+    rows: ['J48', 'J47', 'J15'],
+    why: 'The papers since the person last looked, the collection map they sit on, and the '
+      + 'first-run card while the collection is empty.',
+  },
+  '/watches': {
+    rows: ['J03', 'J11', 'J39', 'J40'],
+    why: 'Every watch, each opening onto its own runs, coverage audit, and destinations.',
+  },
+  '/watches/calendar': { rows: ['J20'] },
+  '/watches/people': { rows: ['J07', 'J08'] },
+  '/watches/new': { rows: ['J03'], why: 'The watch editor, where J03 makes a watch.' },
+  '/search': {
+    rows: ['J12', 'J09', 'J10'],
+    why: 'Collection is the explorer: search by meaning, and the near-duplicate links a scan stored.',
+  },
+  '/search/ask': {
+    rows: ['J01', 'J02', 'J18', 'J38', 'J19', 'J29', 'J22'],
+    why: 'Ask the Sources is where a dive or a sweep starts, with every source and its limits; its '
+      + 'column of the newest runs opens each run\'s live progress, outcomes, report, and Restart.',
+  },
+  '/runs': {
+    rows: ['J18', 'J19', 'J38'],
+    why: 'Every run in one place: the runs going now, live, with Stop; those waiting for a free slot; and '
+      + 'the history, whose selection exports, bundles, and deletes, and whose rows restart a run that stopped.',
+  },
+  '/search/find': { rows: ['J50'] },
+  '/search/saved': { rows: ['J21'] },
+  '/search/wording': { rows: ['J49'] },
+  '/library': { rows: ['J28'], why: 'Lands on the gallery\'s To Read shelf: the reading queue.' },
+  '/library/files': { rows: ['J34'], why: 'Leads to the gallery\'s Your Files shelf.' },
+  '/library/evidence': { rows: ['J35', 'J36', 'J37'] },
+  '/ask': {
+    rows: ['J13', 'J14', 'J31', 'J32', 'J33'],
+    why: 'The assistant and its saved conversations in one place.',
+  },
+  '/health': {
+    rows: ['J45', 'J29'],
+    why: 'Lands on the Source Wall: what every source did on recent runs, from the outcomes each '
+      + 'run recorded.',
+  },
+  '/health/watchdog': { rows: ['J06'] },
+  '/health/analytics': { rows: ['J05'] },
+  '/health/engine': { rows: ['J30'], why: 'Which engine this window is talking to, by its identity.' },
+  '/settings': { rows: ['J46'], why: 'Lands on Appearance.' },
+  '/settings/top-bar': {
+    rows: ['J46'],
+    why: 'How the top bar is arranged, kept by the engine beside the theme: the sections\' order, the hidden ones, '
+      + 'the start page, where the resmon name goes, and the run monitor.',
+  },
+  '/settings/links': {
+    rows: ['J46'],
+    why: 'Where a followed web link opens and what resmon\'s browser searches with, kept by the engine beside the '
+      + 'theme; the link window itself is the e2e suite\'s (link-bar.spec.ts).',
+  },
+  '/settings/background': { rows: ['J04'] },
+  '/settings/email': { rows: ['J23'] },
+  '/settings/notifications': { rows: ['J23'] },
+  '/settings/ai': {
+    rows: ['J13', 'J14', 'J17', 'J33', 'J09'],
+    why: 'The assistant\'s lanes, the summary lanes, and the embeddings that search by meaning (J09).',
+  },
+  '/settings/sources': {
+    rows: ['J22', 'J08'],
+    why: 'Every source\'s keys and limits, including whether it can be asked about a person (J08).',
+  },
+  '/settings/collections': { rows: ['J51'] },
+  '/settings/storage': {
+    rows: ['J41', 'J24'],
+    why: 'Backup and restore, and where a backup goes: Google Drive for desktop\'s folder is J24.',
+  },
+  '/settings/library': { rows: ['J34'], why: 'Where the Library folder is, changing it, and the files removed from it.' },
+  '/settings/tutorials': { rows: ['J25'] },
+  '/settings/about': {
+    rows: ['J25'],
+    why: 'Who made resmon, which build this is, what it keeps and sends, and where to report a '
+      + 'problem: documentation, filed with J25. J25\'s spec does not open this group.',
+  },
+  '/settings/danger': { rows: ['J26'] },
+};
+
+/** `J01-deep-dive` from `J01` + `Deep Dive`: the spec file's stem. */
+export function specStem(row: JourneyRow): string {
+  const slug = row.title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return `${row.id}-${slug}`;
+}
+
+/**
+ * The tokens a journey spec may not contain — what makes "runnable against
+ * any build" a property rather than a hope.
+ *
+ * A spec that reaches the renderer directly is a spec that has to be rewritten
+ * when the renderer changes, which is the exact cost this suite exists to
+ * avoid. Everything a spec does goes through the driver, so the seam is checked
+ * by a grep rather than by good intentions.
+ *
+ * **Why the list lives here and not in the guard.** The guard scans *every*
+ * `*.spec.ts` in this directory, including itself. If it spelled these patterns
+ * out in its own source it would match itself and fail, and the tempting fix —
+ * excluding the guard from its own scan — leaves one spec file in the directory
+ * that is allowed to reach the renderer. Keeping the literals in this module,
+ * which is not a spec file, lets the guard cover every spec file in the
+ * directory — one per built row plus the guard — with no exemption at all.
+ * (45 is the register's rows and the suite's case count is a third number;
+ * neither is what this counts. The guard takes its denominator from a
+ * directory read rather than from a figure written here, which is why no
+ * number appears in this sentence.)
+ *
+ * `page.` is matched with no space after the dot on purpose: prose ending a
+ * sentence with "…on the page. The next…" is not a renderer call, and a guard
+ * that goes red on a comment gets deleted.
+ */
+export const FORBIDDEN_RENDERER_PATTERNS: readonly { name: string; pattern: RegExp }[] = [
+  { name: 'page.<member>', pattern: /\bpage\.[A-Za-z_$]/ },
+  { name: 'win.<member>', pattern: /\bwin\.[A-Za-z_$]/ },
+  { name: 'getBy…', pattern: /\bgetBy[A-Z]/ },
+  { name: 'locator(', pattern: /\blocator\s*\(/ },
+  { name: 'frameLocator(', pattern: /\bframeLocator\s*\(/ },
+  { name: '_electron', pattern: /\b_electron\b/ },
+];
+
+/**
+ * What a journey spec is allowed to import.
+ *
+ * The token grep above catches a renderer call written out; this catches the
+ * way around it — importing Playwright, Node's `fs`, or the `e2e/` fixtures and
+ * building a selector somewhere the grep does not look. A journey spec needs
+ * the driver and nothing else, and `driver.ts` re-exports the two Playwright
+ * names (`expect` and the test object) it legitimately uses.
+ */
+export const ALLOWED_SPEC_IMPORTS: readonly string[] = ['./driver', './register'];

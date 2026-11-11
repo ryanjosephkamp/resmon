@@ -1,0 +1,418 @@
+"""Driving an agent CLI as a summarization lane.
+
+Two things are being pinned here.
+
+**Extraction never guesses.** An agent CLI emits banners, progress and prose
+around its answer. When the structured route does not produce a usable summary,
+the client must raise — a salvaged fragment stored as a paper's summary is the
+exact failure this product cannot afford, and it is invisible once written.
+
+**The CLI is run with no tools and no context.** Abstracts are untrusted text
+from the internet and the CLI can execute commands, so the argv is part of the
+security boundary rather than a formatting detail.
+
+The auth-failure payload in ``_CLAUDE_AUTH_FAILURE`` is real: it was captured
+from ``claude -p --output-format json`` against an expired session. Note that
+``subtype`` reads ``"success"`` while ``is_error`` is true — which is why the
+client keys on ``is_error``.
+"""
+
+import json
+import subprocess
+
+import pytest
+
+from implementation_scripts.ai_errors import AIError, AIErrorKind
+from implementation_scripts.llm_subscription import SubscriptionLLMClient
+
+
+_CLAUDE_AUTH_FAILURE = {
+    "is_error": True,
+    "subtype": "success",
+    "terminal_reason": "api_error",
+    "result": "Failed to authenticate: OAuth session expired and could not be refreshed",
+    "type": "result",
+}
+
+
+class _FakeCompleted:
+    def __init__(self, stdout="", stderr="", returncode=0):
+        self.stdout = stdout
+        self.stderr = stderr
+        self.returncode = returncode
+
+
+class _FakeProcess:
+    """Stands in for a ``Popen``, not for ``subprocess.run``.
+
+    The client uses ``Popen`` for one reason: a batched call is a single
+    process holding ten documents and cancellation has to be able to reach into
+    it, which ``run`` gives no handle for. So the double has to be a process
+    object — it records ``terminate()`` because that is a property worth
+    asserting on.
+    """
+
+    def __init__(self, argv, record, scripted):
+        self.argv = argv
+        self._record = record
+        self._scripted = scripted
+        self._raised = False
+        self.returncode = None
+        self.terminated = False
+        self.killed = False
+
+    def communicate(self, timeout=None):
+        self._record["timeout"] = timeout
+        raises = self._scripted["raises"]
+        if raises is not None and not self._raised:
+            self._raised = True
+            raise raises
+        if self._scripted["writes"] is not None and not self.terminated:
+            # Mimic codex's -o file, which is how its output is collected.
+            out_index = self.argv.index("-o") + 1
+            with open(self.argv[out_index], "w", encoding="utf-8") as handle:
+                handle.write(self._scripted["writes"])
+        result = self._scripted["result"]
+        self.returncode = result.returncode
+        return result.stdout, result.stderr
+
+    def terminate(self):
+        self.terminated = True
+        self.returncode = -15
+
+    def kill(self):
+        self.killed = True
+        self.returncode = -9
+
+
+@pytest.fixture
+def runs(monkeypatch):
+    """Capture every subprocess invocation and script its result."""
+    calls = []
+    scripted = {"result": _FakeCompleted(), "raises": None, "writes": None}
+
+    def _popen(argv, **kwargs):
+        record = {"argv": argv, "kwargs": kwargs, "timeout": None}
+        process = _FakeProcess(argv, record, scripted)
+        record["process"] = process
+        calls.append(record)
+        return process
+
+    monkeypatch.setattr(subprocess, "Popen", _popen)
+    return {"calls": calls, "script": scripted}
+
+
+def _claude(**kw):
+    return SubscriptionLLMClient("claude_code", "/fake/claude", **kw)
+
+
+def _codex(**kw):
+    return SubscriptionLLMClient("codex", "/fake/codex", **kw)
+
+
+# ---------------------------------------------------------------------------
+# The happy path
+# ---------------------------------------------------------------------------
+
+def test_claude_code_returns_the_result_field(runs):
+    runs["script"]["result"] = _FakeCompleted(
+        stdout=json.dumps({"is_error": False, "result": "A tidy summary."}),
+    )
+    assert _claude().summarize("abstract text") == "A tidy summary."
+
+
+def test_codex_returns_the_final_message_file(runs):
+    runs["script"]["writes"] = "A tidy summary.\n"
+    runs["script"]["result"] = _FakeCompleted(stdout="banner noise\ntokens used\n42\n")
+    assert _codex().summarize("abstract text") == "A tidy summary."
+
+
+def test_codex_ignores_stdout_entirely(runs):
+    """The banner must never reach a summary, even when the answer is empty."""
+    runs["script"]["writes"] = "Real answer."
+    runs["script"]["result"] = _FakeCompleted(
+        stdout="OpenAI Codex v0.150\nworkdir: /tmp/x\nmodel: gpt-5\n",
+    )
+    assert _codex().summarize("t") == "Real answer."
+
+
+# ---------------------------------------------------------------------------
+# Authentication — the lane-fatal case the plan names
+# ---------------------------------------------------------------------------
+
+def test_claude_code_auth_failure_is_lane_fatal(runs):
+    runs["script"]["result"] = _FakeCompleted(
+        stdout=json.dumps(_CLAUDE_AUTH_FAILURE), returncode=1,
+    )
+    with pytest.raises(AIError) as excinfo:
+        _claude().summarize("t")
+
+    error = excinfo.value
+    assert error.kind is AIErrorKind.CLI_AUTH
+    assert error.lane_fatal is True
+
+
+def test_is_error_is_honored_even_though_subtype_says_success(runs):
+    """The trap: subtype reads 'success' on a failed authentication."""
+    payload = dict(_CLAUDE_AUTH_FAILURE)
+    assert payload["subtype"] == "success"
+    runs["script"]["result"] = _FakeCompleted(stdout=json.dumps(payload))
+
+    with pytest.raises(AIError):
+        _claude().summarize("t")
+
+
+def test_the_error_message_is_not_the_summary(runs):
+    """An is_error payload must raise, never return its result text."""
+    runs["script"]["result"] = _FakeCompleted(stdout=json.dumps(_CLAUDE_AUTH_FAILURE))
+    with pytest.raises(AIError) as excinfo:
+        _claude().summarize("t")
+    assert "Failed to authenticate" in str(excinfo.value)
+
+
+def test_codex_login_prompt_is_classified_as_auth(runs):
+    runs["script"]["result"] = _FakeCompleted(
+        stderr="You are not logged in. Run `codex login` to continue.",
+        returncode=1,
+    )
+    with pytest.raises(AIError) as excinfo:
+        _codex().summarize("t")
+    assert excinfo.value.kind is AIErrorKind.CLI_AUTH
+
+
+# ---------------------------------------------------------------------------
+# Missing binary and quota
+# ---------------------------------------------------------------------------
+
+def test_missing_binary_is_cli_missing_and_lane_fatal(runs):
+    runs["script"]["raises"] = FileNotFoundError()
+    with pytest.raises(AIError) as excinfo:
+        _claude().summarize("t")
+    assert excinfo.value.kind is AIErrorKind.CLI_MISSING
+    assert excinfo.value.lane_fatal is True
+
+
+def test_permission_denied_is_cli_missing(runs):
+    runs["script"]["raises"] = PermissionError()
+    with pytest.raises(AIError) as excinfo:
+        _claude().summarize("t")
+    assert excinfo.value.kind is AIErrorKind.CLI_MISSING
+
+
+def test_usage_limit_is_quota_and_lane_fatal(runs):
+    runs["script"]["result"] = _FakeCompleted(
+        stdout=json.dumps({
+            "is_error": True,
+            "result": "You have reached your usage limit. Resets at 4pm.",
+        }),
+        returncode=1,
+    )
+    with pytest.raises(AIError) as excinfo:
+        _claude().summarize("t")
+    assert excinfo.value.kind is AIErrorKind.QUOTA
+    assert excinfo.value.lane_fatal is True
+
+
+def test_timeout_is_document_local_not_lane_fatal(runs):
+    """One slow paper must not retire a working lane for the whole run."""
+    runs["script"]["raises"] = subprocess.TimeoutExpired(cmd="claude", timeout=300)
+    with pytest.raises(AIError) as excinfo:
+        _claude().summarize("t")
+    assert excinfo.value.lane_fatal is False
+
+
+# ---------------------------------------------------------------------------
+# Unusable output — the honest failure
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("stdout", [
+    "",
+    "I'll help you summarize that! Here is my answer:",   # prose, not JSON
+    "[1, 2, 3]",                                          # JSON, wrong shape
+    json.dumps({"is_error": False, "result": ""}),        # empty result
+    json.dumps({"is_error": False}),                      # no result at all
+])
+def test_unusable_claude_output_raises_rather_than_salvaging(runs, stdout):
+    runs["script"]["result"] = _FakeCompleted(stdout=stdout)
+    with pytest.raises(AIError) as excinfo:
+        _claude().summarize("t")
+    assert "could not use" in str(excinfo.value)
+
+
+def test_codex_with_no_final_message_raises(runs):
+    """No -o file written means the run never answered."""
+    runs["script"]["result"] = _FakeCompleted(stdout="banner only", returncode=1)
+    with pytest.raises(AIError) as excinfo:
+        _codex().summarize("t")
+    assert "could not use" in str(excinfo.value)
+
+
+def test_unusable_output_is_document_local(runs):
+    """One malformed reply is not evidence the lane is dead."""
+    runs["script"]["result"] = _FakeCompleted(stdout="not json")
+    with pytest.raises(AIError) as excinfo:
+        _claude().summarize("t")
+    assert excinfo.value.lane_fatal is False
+
+
+# ---------------------------------------------------------------------------
+# The security boundary: untrusted abstracts must not reach tools
+# ---------------------------------------------------------------------------
+
+def test_claude_code_is_invoked_with_no_tools(runs):
+    runs["script"]["result"] = _FakeCompleted(
+        stdout=json.dumps({"is_error": False, "result": "s"}),
+    )
+    _claude().summarize("t")
+    argv = runs["calls"][0]["argv"]
+
+    assert "--tools" in argv
+    assert argv[argv.index("--tools") + 1] == ""
+    assert "--strict-mcp-config" in argv
+    assert "--disable-slash-commands" in argv
+
+
+def test_claude_code_never_uses_bare_mode(runs):
+    """--bare makes the CLI read ANTHROPIC_API_KEY only, defeating the lane."""
+    runs["script"]["result"] = _FakeCompleted(
+        stdout=json.dumps({"is_error": False, "result": "s"}),
+    )
+    _claude().summarize("t")
+    assert "--bare" not in runs["calls"][0]["argv"]
+
+
+def test_codex_pins_the_sandbox_read_only(runs):
+    """Pinned regardless of the user's own config, which may allow anything."""
+    runs["script"]["writes"] = "s"
+    _codex().summarize("t")
+    argv = runs["calls"][0]["argv"]
+
+    assert argv[argv.index("-s") + 1] == "read-only"
+    assert "--dangerously-bypass-approvals-and-sandbox" not in argv
+
+
+def test_each_call_runs_in_a_fresh_empty_directory(runs):
+    """No repository, no CLAUDE.md, nothing for an injected instruction to read."""
+    runs["script"]["writes"] = "s"
+    client = _codex()
+    client.summarize("first")
+    client.summarize("second")
+
+    first, second = runs["calls"][0]["kwargs"]["cwd"], runs["calls"][1]["kwargs"]["cwd"]
+    assert first != second
+
+
+def test_stdin_is_closed(runs):
+    """Both CLIs otherwise block reading a prompt that will never come."""
+    runs["script"]["result"] = _FakeCompleted(
+        stdout=json.dumps({"is_error": False, "result": "s"}),
+    )
+    _claude().summarize("t")
+    assert runs["calls"][0]["kwargs"]["stdin"] is subprocess.DEVNULL
+
+
+def test_a_timeout_is_always_applied(runs):
+    runs["script"]["result"] = _FakeCompleted(
+        stdout=json.dumps({"is_error": False, "result": "s"}),
+    )
+    _claude(timeout=42).summarize("t")
+    assert runs["calls"][0]["timeout"] == 42
+
+
+# ---------------------------------------------------------------------------
+# Prompt and model plumbing
+# ---------------------------------------------------------------------------
+
+def test_the_abstract_reaches_the_prompt(runs):
+    runs["script"]["result"] = _FakeCompleted(
+        stdout=json.dumps({"is_error": False, "result": "s"}),
+    )
+    _claude().summarize("a distinctive abstract phrase")
+    assert any(
+        "a distinctive abstract phrase" in str(arg)
+        for arg in runs["calls"][0]["argv"]
+    )
+
+
+def test_the_model_is_passed_when_set_and_omitted_when_not(runs):
+    runs["script"]["result"] = _FakeCompleted(
+        stdout=json.dumps({"is_error": False, "result": "s"}),
+    )
+    _claude(model="opus").summarize("t")
+    argv = runs["calls"][0]["argv"]
+    assert argv[argv.index("--model") + 1] == "opus"
+
+    runs["calls"].clear()
+    _claude().summarize("t")
+    assert "--model" not in runs["calls"][0]["argv"]
+
+
+def test_client_exposes_the_pipeline_contract():
+    """SummarizationPipeline reads .model and .provider off the client."""
+    client = _claude(model="opus")
+    assert client.provider == "claude_code"
+    assert client.model == "opus"
+    assert callable(client.summarize)
+
+
+# ---------------------------------------------------------------------------
+# A failed run is never a summary, and what answered is kept
+# ---------------------------------------------------------------------------
+
+def test_a_claude_result_from_a_run_that_exited_non_zero_is_not_a_summary(runs):
+    runs["script"]["result"] = _FakeCompleted(
+        stdout=json.dumps({"is_error": False, "result": "Looks like a summary"}), returncode=1,
+    )
+    with pytest.raises(AIError):
+        _claude().summarize("t")
+
+
+def test_a_codex_message_from_a_run_that_exited_non_zero_is_not_a_summary(runs):
+    runs["script"]["writes"] = "You are not logged in. Run `codex login` to continue."
+    runs["script"]["result"] = _FakeCompleted(stdout="", returncode=1)
+    with pytest.raises(AIError) as excinfo:
+        _codex().summarize("t")
+    assert excinfo.value.kind is AIErrorKind.CLI_AUTH
+
+
+@pytest.mark.parametrize("client, words", [(_claude, "Claude Code"), (_codex, "Codex")])
+def test_a_sign_in_failure_says_so_plainly_and_keeps_the_commands_words(runs, client, words):
+    runs["script"]["result"] = _FakeCompleted(
+        stdout=json.dumps(_CLAUDE_AUTH_FAILURE), stderr="Failed to authenticate: OAuth session expired",
+        returncode=1,
+    )
+    with pytest.raises(AIError) as excinfo:
+        client().summarize("t")
+    message = str(excinfo.value)
+    assert message.startswith(f"The {words} command on this computer is not signed in, or its sign-in expired.")
+    assert "Failed to authenticate" in message
+
+
+def test_claude_reports_the_models_a_call_was_billed_for(runs):
+    runs["script"]["result"] = _FakeCompleted(stdout=json.dumps({
+        "is_error": False, "result": "s",
+        "modelUsage": {"claude-haiku-4-5-20251001": {"outputTokens": 3},
+                       "claude-haiku-5-5": {"outputTokens": 90}},
+    }))
+    client = _claude(model="haiku")
+    client.summarize("one")
+    client.summarize("two")
+    assert client.reported_models() == [("claude-haiku-5-5", 2), ("claude-haiku-4-5-20251001", 2)]
+
+
+def test_codex_reports_the_model_from_its_header(runs):
+    runs["script"]["writes"] = "s"
+    runs["script"]["result"] = _FakeCompleted(
+        stdout="", stderr="OpenAI Codex v0.166.0\n--------\nworkdir: /tmp/x\nmodel: gpt-5.5-codex\n"
+                          "provider: openai\n--------\nuser\nmodel: not-this-one\n",
+    )
+    client = _codex()
+    client.summarize("t")
+    assert client.reported_models() == [("gpt-5.5-codex", 1)]
+
+
+def test_a_call_that_reports_no_model_reports_none(runs):
+    runs["script"]["result"] = _FakeCompleted(stdout=json.dumps({"is_error": False, "result": "s"}))
+    client = _claude()
+    client.summarize("t")
+    assert client.reported_models() == []

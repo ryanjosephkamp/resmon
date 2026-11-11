@@ -1,0 +1,8 @@
+# Playwright's per-failure output: traces, error-context markdown, videos.
+# Regenerated on every run and specific to the machine that produced it.
+test-results/
+
+# The screenshots are NOT ignored. They are the evidence the suite exists to
+# produce, and the repository root .gitignore says images are committed on
+# purpose. They are overwritten in place on every run, so the diff of a PR that
+# changes the interface shows what changed.

@@ -1,0 +1,208 @@
+# resmon_scripts/implementation_scripts/api_hal.py
+"""HAL (Hyper Articles en Ligne) API client — REST JSON API."""
+
+import logging
+import time
+from datetime import date, datetime, timezone
+
+from .api_base import (BaseAPIClient, NormalizedResult, RateLimiter, SourceRefused,
+                       note_parse_failure, safe_request, search_outcome, sent_params, source_today)
+from . import search_terms
+
+logger = logging.getLogger(__name__)
+
+_HAL_API_URL = "https://api.archives-ouvertes.fr/search/"
+
+# One cooperative I/O budget covers every page, retry and limiter wait. A
+# per-phase HTTPX timeout alone allowed retry exhaustion beyond the live test's
+# 120-second watchdog. DNS shutdown/CPU scheduling remain platform limitations.
+_SEARCH_BUDGET_SECONDS = 45.0
+_REQUEST_TIMEOUT_SECONDS = 10.0
+_MAX_RETRIES = 1
+
+# HAL does not publish strict rate limits; use 2 req/s as polite default
+_RATE_LIMITER = RateLimiter(requests_per_second=2.0)
+
+
+def _utc_today() -> date:
+    """Today in UTC. A seam, so a test can fix the day."""
+    return source_today(lambda: datetime.now(timezone.utc).date(), utc=True)
+
+
+def _produced_date_range(
+    date_from: str | None, date_to: str | None, today: date,
+) -> str:
+    """The Solr range for a window, its open start a bare ``*`` and its open end today.
+
+    A time suffix belongs only on a date. Glued to the open side, as in
+    ``[2026-10-23T00:00:00Z TO *T23:59:59Z]``, it makes a range HAL cannot
+    parse, and HAL answers HTTP 200 with an error instead of records. A watch
+    asking for papers since its previous run has no end date, so this is the
+    ordinary case, not an edge.
+
+    **An open end stops at the end of today, UTC, rather than at ``*``.** HAL
+    holds records dated in the future, and resmon asks for the newest first, so
+    they come before every current paper. Measured October 30, 2026: `climate`
+    from October 1 with an open end matched 375 records, and the first eight
+    were dated 2028-01-01, 2027-07-01, and on through 2027-01-01; 93 of the 375
+    were dated after October 30. A "since the previous run" watch has no end
+    date and a cap of 100, so those 93 could fill a run before one current
+    paper was read. A record dated ahead is found by a run made after its date.
+    """
+    lower = f"{date_from}T00:00:00Z" if date_from else "*"
+    upper = f"{date_to or today.isoformat()}T23:59:59Z"
+    return f"[{lower} TO {upper}]"
+
+
+def _refusal_message(data) -> str | None:
+    """HAL's own message when its reply is an error rather than a search result.
+
+    HAL answers a request it will not run with HTTP 200 and a body of
+    ``{"error": {"msg": ...}}``. That is the source refusing the request, not
+    a reply resmon could not read, and the two are recorded differently.
+    """
+    if not isinstance(data, dict) or "response" in data or "error" not in data:
+        return None
+    error = data["error"]
+    message = error.get("msg") if isinstance(error, dict) else error
+    return message if isinstance(message, str) and message else "no message"
+
+
+class HalClient(BaseAPIClient):
+    """HAL repository API client (Tier 2)."""
+
+    describe_request = staticmethod(sent_params("q", "fq", "sort"))
+
+    def get_name(self) -> str:
+        return "HAL"
+
+    def search(
+        self,
+        query: str,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        max_results: int = 100,
+        **kwargs,
+    ) -> list[NormalizedResult]:
+        terms = kwargs.get("terms")
+        text = search_terms.boolean(terms) if terms else query
+        results: list[NormalizedResult] = []
+        deadline = time.monotonic() + _SEARCH_BUDGET_SECONDS
+        start = 0
+        page_size = min(max_results, 100)
+        # Every search has a date range now, because an open end stops at
+        # today: with no dates at all, newest first would begin in the future
+        # just the same (see `_produced_date_range`). One day for every page.
+        produced = _produced_date_range(date_from, date_to, _utc_today())
+
+        while len(results) < max_results:
+            # Build Solr-style query
+            fq_parts: list[str] = [f"producedDate_tdate:{produced}"]
+
+            params = {
+                "q": text,
+                "fl": "docid,title_s,authFullName_s,abstract_s,producedDateY_i,producedDate_tdate,uri_s,halId_s,doiId_s,domain_s",
+                "rows": min(page_size, max_results - len(results)),
+                "start": start,
+                "sort": "producedDate_tdate desc",
+                "wt": "json",
+            }
+            if fq_parts:
+                params["fq"] = " AND ".join(fq_parts)
+
+            try:
+                response = safe_request(
+                    "GET", _HAL_API_URL,
+                    params=params,
+                    rate_limiter=_RATE_LIMITER,
+                    timeout=_REQUEST_TIMEOUT_SECONDS,
+                    max_retries=_MAX_RETRIES,
+                    deadline=deadline,
+                )
+                if response.status_code != 200:
+                    logger.error("HAL API returned %d", response.status_code)
+                    break
+            except Exception:
+                logger.exception("HAL API request failed")
+                break
+
+            try:
+                data = response.json()
+                refusal = _refusal_message(data)
+                if refusal is not None:
+                    # Recorded as a failed request, the way a source that
+                    # refuses with an HTTP status is. HAL's words go to the
+                    # log only: the outcome keeps resmon's category, never
+                    # the source's text.
+                    search_outcome().note_failure(SourceRefused("HAL"), _HAL_API_URL)
+                    logger.error("HAL refused the request: %s", refusal)
+                    break
+                payload = data["response"]
+                docs = payload["docs"]
+                if not isinstance(docs, list):
+                    raise ValueError("HAL docs is not an array")
+            except (ValueError, TypeError, KeyError):
+                note_parse_failure()
+                logger.warning("HAL returned an unreadable search response")
+                break
+            if not docs:
+                break
+
+            for doc in docs:
+                if not isinstance(doc, dict):
+                    logger.warning("HAL returned a malformed record; skipped")
+                    continue
+                title = doc.get("title_s")
+                if isinstance(title, list):
+                    title = title[0] if title else ""
+                if not title:
+                    continue
+
+                authors = doc.get("authFullName_s", [])
+                if isinstance(authors, str):
+                    authors = [authors]
+
+                abstract = doc.get("abstract_s")
+                if isinstance(abstract, list):
+                    abstract = abstract[0] if abstract else None
+
+                pub_date = doc.get("producedDate_tdate")
+                if pub_date:
+                    pub_date = str(pub_date)[:10]
+                elif doc.get("producedDateY_i"):
+                    pub_date = f"{doc['producedDateY_i']}-01-01"
+
+                hal_id = doc.get("halId_s", str(doc.get("docid", "")))
+                url = doc.get("uri_s", f"https://hal.science/{hal_id}")
+
+                domains = doc.get("domain_s", [])
+                if isinstance(domains, str):
+                    domains = [domains]
+
+                results.append(NormalizedResult(
+                    source_repository="hal",
+                    external_id=hal_id,
+                    doi=doc.get("doiId_s"),
+                    title=title,
+                    authors=authors,
+                    abstract=abstract,
+                    publication_date=pub_date,
+                    url=url,
+                    categories=domains,
+                ))
+
+            start += len(docs)
+            if len(docs) < params["rows"]:
+                break
+
+        return results[:max_results]
+
+
+# ---------------------------------------------------------------------------
+# Registry auto-registration
+# ---------------------------------------------------------------------------
+def _register():
+    from .api_registry import register_client
+    register_client("hal", HalClient)
+
+_register()

@@ -1,0 +1,106 @@
+import type { ReactElement } from 'react';
+import { Ask } from './screens/ask/Ask';
+import { Collection } from './screens/collection/Collection';
+import { FindPaper } from './screens/collection/FindPaper';
+import { Analytics } from './screens/health/Analytics';
+import { Engine } from './screens/health/Engine';
+import { SourceWall } from './screens/health/SourceWall';
+import { Watchdog } from './screens/health/Watchdog';
+import { Paper } from './screens/collection/Paper';
+import { Saved } from './screens/collection/Saved';
+import { SharedWording } from './screens/collection/SharedWording';
+import { Evidence } from './screens/library/Evidence';
+import { FilePage } from './screens/library/FilePage';
+import { Library } from './screens/library/Library';
+import { Run } from './screens/Run';
+import { Runs } from './screens/runs/Runs';
+import { Search } from './screens/Search';
+import { Settings } from './screens/Settings';
+import { Today } from './screens/Today';
+import { Calendar } from './screens/watches/Calendar';
+import { Watch } from './screens/watches/Watch';
+import { WatchEditor } from './screens/watches/WatchEditor';
+import { Watches } from './screens/watches/Watches';
+import { People } from './screens/watches/people/People';
+import { Person } from './screens/watches/people/Person';
+import { sectionAddress, type SectionId } from './shell/topBar';
+
+export interface Section {
+  path: string;
+  label: string;
+  /** Words the command palette also matches, beyond the label. */
+  keywords: string;
+  element: ReactElement;
+}
+
+/**
+ * The top bar's sections, in its default order: the one route table, so the
+ * bar, the command palette and the router cannot disagree about what exists.
+ * The order a person chose, and the ones they hid, are the engine's
+ * (`shell/topBar.ts`); a hidden section keeps its route.
+ */
+export const SECTIONS: readonly Section[] = [
+  { path: '/today', label: 'Today', keywords: 'new papers morning plate index', element: <Today /> },
+  { path: '/watches', label: 'Watches', keywords: 'routines constellations profiles people authors orcid schedule delivery coverage new watch create', element: <Watches /> },
+  { path: '/search', label: 'Search', keywords: 'find papers collection corpus explorer deep dive sweep export shared wording text reuse passages', element: <Collection /> },
+  { path: '/runs', label: 'Runs', keywords: 'runs running now waiting queue history log deep dive sweep watch failed stop restart run again activity monitor', element: <Runs /> },
+  { path: '/library', label: 'Library', keywords: 'saved reading queue to read files pdf tex markdown owned library vault import evidence passages notes projects gallery', element: <Library /> },
+  { path: '/ask', label: 'Ask', keywords: 'assistant question chat chats conversations saved transcript export model', element: <Ask /> },
+  { path: '/health', label: 'Health', keywords: 'sources coverage diagnostics source wall watchdog findings broken analytics statistics charts keywords yield engine runtime identity', element: <SourceWall /> },
+];
+
+/** A section by the name the top bar keeps it under: `search` is Search. */
+export function sectionFor(id: SectionId): Section {
+  const found = SECTIONS.find((section) => section.path === sectionAddress(id));
+  if (!found) throw new Error(`No section ${id}`);
+  return found;
+}
+
+export const SETTINGS: Section = {
+  path: '/settings',
+  label: 'Settings',
+  keywords: 'preferences appearance theme accent color top bar tabs sections order start page background service daemon email smtp password notifications ai model key summaries summarize assistant claude provider collections collection field rename new',
+  element: <Settings />,
+};
+
+/**
+ * Screens reached from a section rather than from the top bar: a run is
+ * opened from the Runs tab, from a notification, or from Today.
+ */
+export const DETAILS: readonly { path: string; element: ReactElement }[] = [
+  { path: '/search/ask', element: <Search /> },
+  { path: '/search/find', element: <FindPaper /> },
+  { path: '/search/saved', element: <Saved /> },
+  { path: '/search/wording', element: <SharedWording /> },
+  { path: '/settings/:group', element: <Settings /> },
+  { path: '/library/files', element: <Library shelf="files" /> },
+  { path: '/library/files/:fileId', element: <FilePage /> },
+  { path: '/library/evidence', element: <Evidence /> },
+  { path: '/health/watchdog', element: <Watchdog /> },
+  { path: '/health/analytics', element: <Analytics /> },
+  { path: '/health/engine', element: <Engine /> },
+  { path: '/runs/:id/:tab?', element: <Run /> },
+  { path: '/papers/:id', element: <Paper /> },
+  { path: '/watches/calendar', element: <Calendar /> },
+  { path: '/watches/people', element: <People /> },
+  { path: '/watches/people/:id', element: <Person /> },
+  { path: '/watches/new', element: <WatchEditor /> },
+  { path: '/watches/:id/edit', element: <WatchEditor /> },
+  { path: '/watches/:id', element: <Watch /> },
+];
+
+/** Screens within a section the command palette also offers by name. */
+export const PLACES: readonly Omit<Section, 'element'>[] = [
+  { path: '/watches/calendar', label: 'Calendar', keywords: 'watches schedule month ahead due next fires when runs' },
+  {
+    path: '/settings/top-bar', label: 'Arrange the Top Bar',
+    keywords: 'tabs sections order reorder move hide show start page launch opens home lockup resmon name run monitor',
+  },
+  {
+    path: '/settings/links', label: 'Choose Where Links Open',
+    keywords: 'web links browser default chrome safari firefox tab window search engine address field duckduckgo google scholar',
+  },
+  { path: '/search/find', label: 'Look Up a Paper', keywords: 'doi arxiv pmid title look up one paper pdf open access full text download' },
+];
+
+export const HOME = '/today';

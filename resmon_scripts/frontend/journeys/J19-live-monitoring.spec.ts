@@ -1,0 +1,98 @@
+/**
+ * J19 Live monitoring — canceling from the Monitor keeps the work done so far
+ * visible, and invents no completion.
+ *
+ * The authored source holds its reply, so the run is genuinely in flight when
+ * Cancel is pressed and the cancel is really cooperative rather than a status
+ * flip over a run that had already finished.
+ *
+ * **Why the assertion is shaped the way it is.** A sweep canceled during the
+ * query stage writes a report document of what it had found by then, and the
+ * row prints whether it did. What it asserts is the read-time coverage
+ * account, which is careful in exactly the way the invariant asks for — the
+ * source whose reply came only after Stop is recorded as canceled, the
+ * source that could not be asked keeps its stated
+ * reason rather than a silent zero, and the account says out loud that the run
+ * is not completed and its coverage may be incomplete.
+ *
+ * **Sources are asked together**, up to eight at a time, so with arXiv held
+ * Springer is recorded straight away as not queried for want of a key, before
+ * the cancel lands. That is the truth of the run, and it is what this row
+ * asserts. A selected source that leaves no row at all still reads "outcome not
+ * recorded"; `test_source_coverage.py` holds that at the engine
+ * (`test_exact_slug_selection_missing_and_additional_sources`).
+ *
+ * So this asserts the invariant ("no fabricated completion; source failures
+ * stay visible; the work done so far is not thrown away") and *reports* the
+ * absent report document rather than asserting either way: a journey observes,
+ * it does not fix.
+ */
+import { expect, journey } from './driver';
+
+journey.use({ sourceReply: 'held' });
+
+journey.describe('J19 Live monitoring', () => {
+  journey('a run canceled from the Monitor keeps what it had, and claims nothing it did not', async ({ resmon }) => {
+    const run = await resmon.runSweep({ sources: ['arxiv', 'springer'], query: 'perovskite', cap: 10 });
+
+    // While it is happening: the Monitor knows about it and shows both sources.
+    const live = await resmon.readRunPanelOutcomes(run);
+    expect(live.map((o) => o.source).sort()).toEqual(['arxiv', 'springer']);
+
+    await resmon.cancelRunFromMonitor(run);
+    // Let the held request through, so the worker reaches the point where it
+    // can notice the cancel rather than sitting on a socket until the timeout.
+    resmon.releaseTheSource();
+
+    const facts = await resmon.waitForRunToSettle(run);
+    expect(facts.status, `a canceled run settled as "${facts.status}"`).toBe('cancelled');
+
+    // No fabricated completion: the run does not report itself as finished, and
+    // its account says so rather than quietly presenting partial coverage as
+    // the whole picture.
+    const outcomes = await resmon.readReportOutcomes(run);
+    const sentence = await resmon.readCoverageSentence(run);
+    expect(sentence, 'the canceled run lost its denominator').toContain('2 selected sources');
+    expect(outcomes.map((o) => o.source).sort()).toEqual(['arxiv', 'springer']);
+    for (const outcome of outcomes) {
+      expect(
+        outcome.note.length,
+        `${outcome.source} was left with a blank cell instead of a stated outcome`,
+      ).toBeGreaterThan(0);
+    }
+
+    // Stop keeps what was stored before it and nothing that reaches the run
+    // after it. arXiv's held reply is let through only after the cancel, so it
+    // is a recorded non-answer that says the run was canceled, never a quiet
+    // zero and never counted as answered.
+    const held = outcomes.find((o) => o.source === 'arxiv')!;
+    expect(held.label.toLowerCase(), 'the held source lost its outcome').toContain('non answer');
+    expect(held.note.toLowerCase(), 'the held source does not say the run was canceled').toContain('cancel');
+
+    // And the source that could not be asked keeps its reason: a recorded
+    // non-answer that names the missing key, never a quiet zero that reads as
+    // "found nothing" -- which is the difference the whole coverage feature
+    // exists to keep.
+    const keyless = outcomes.find((o) => o.source === 'springer')!;
+    expect(keyless.label.toLowerCase()).toContain('non answer');
+    expect(keyless.note.toLowerCase()).toContain('key');
+
+    // Reported, not asserted: a sweep canceled during the query stage writes
+    // a report document of what it had found, as the register's J19 sentence
+    // says; the row prints whether this one did.
+    const hasReport = await resmon.reportExists(run);
+    const row = await resmon.backend.execution(run);
+    console.log(`[J19] canceled run: report document ${hasReport ? 'present' : 'ABSENT'}; `
+      + `result_path=${row.result_path}; log_path=${row.log_path}; `
+      + `execution result_count=${row.result_count}; `
+      + `coverage says ${JSON.stringify(outcomes.map((o) => [o.source, o.label]))}`);
+    if (!hasReport) {
+      console.log('[J19] NOT VERIFIED: "the canceled run has a partial report" — '
+        + 'no report document was written for this sweep, canceled during the query stage. '
+        + 'The read-time coverage account is what survives, and it is asserted above.');
+    }
+
+    await resmon.takePicture('J19-live-monitoring-canceled');
+    expect(resmon.refusedConnections()).toEqual([]);
+  });
+});

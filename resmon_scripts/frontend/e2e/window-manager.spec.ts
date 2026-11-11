@@ -1,0 +1,236 @@
+/**
+ * The window itself — the part of `main.ts` a bare-X runner cannot see.
+ *
+ * `xvfb-run` starts an X server with **no window manager**, and
+ * `BrowserWindow.maximize()` is a request a window manager honors. With none present the call is a silent
+ * no-op. So a green CI run under xvfb verifies the *renderer* thoroughly and
+ * the *window* barely — and `electron/main.ts`'s window handling is the part
+ * only a real window manager can test, which is why this file exists.
+ *
+ * Every test here **says which arm held**, so a run states what it did not
+ * verify rather than passing quietly. `ui-smoke.yml` runs this file on both
+ * `ubuntu-latest` (where most of it skips, and the job summary says so) and on
+ * a macOS runner (where it does not).
+ *
+ * The swipe test is the exception and runs everywhere: it drives the handler
+ * `main.ts` binds, not the trackpad. That distinction is stated in the test
+ * rather than papered over — an OS gesture cannot be synthesized, and macOS
+ * only delivers `swipe` at all when the user has set a two-finger gesture in
+ * System Settings, which is why the History menu exists alongside it.
+ */
+import { test, expect } from '@playwright/test';
+import type { ElectronApplication } from '@playwright/test';
+import { launchResmon, ATLAS_LANDMARK } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
+
+test.describe.configure({ mode: 'serial' });
+
+interface WindowFacts {
+  bounds: { width: number; height: number };
+  maximized: boolean;
+  workArea: { width: number; height: number };
+}
+
+async function windowFacts(app: ElectronApplication): Promise<WindowFacts> {
+  return app.evaluate(async ({ BrowserWindow, screen }) => {
+    const w = BrowserWindow.getAllWindows()[0];
+    const b = w.getBounds();
+    const wa = screen.getPrimaryDisplay().workAreaSize;
+    return {
+      bounds: { width: b.width, height: b.height },
+      maximized: w.isMaximized(),
+      workArea: { width: wa.width, height: wa.height },
+    };
+  });
+}
+
+/**
+ * True when something honored a maximize request.
+ *
+ * Not `isMaximized()` alone: on a bare X server the flag stays false *and* the
+ * window keeps the constructor's size, which is the signature of no window
+ * manager rather than of a broken app.
+ */
+function hasWindowManager(facts: WindowFacts): boolean {
+  return facts.maximized
+    || facts.bounds.width >= facts.workArea.width - 2;
+}
+
+test('the app opens maximized, where a window manager exists to honor it', async () => {
+  test.setTimeout(240_000);
+  // `RESMON_E2E` unset: this is the behavior a user gets, and the E2E flag
+  // exists precisely to suppress it so screenshots have a written-down size.
+  const { app, stateDir } = await launchResmon(false);
+  try {
+    const win = await app.firstWindow({ timeout: 180_000 });
+    await win.waitForLoadState('domcontentloaded');
+    await win.locator(ATLAS_LANDMARK).waitFor({ state: 'visible', timeout: 60_000 });
+    await win.waitForTimeout(1000);
+
+    const facts = await windowFacts(app);
+    console.log('WM MAXIMIZE ON OPEN', JSON.stringify(facts));
+    if (!hasWindowManager(facts)) {
+      console.log(
+        'WM NOT VERIFIED — no window manager on this display (bare X, e.g. xvfb):',
+        `the window kept its ${facts.bounds.width}x${facts.bounds.height} constructor size`,
+        `on a ${facts.workArea.width}x${facts.workArea.height} work area.`,
+        'maximize-on-open is NOT verified by this run.',
+      );
+      test.skip(true, 'no window manager on this display');
+    }
+    expect(facts.maximized || facts.bounds.width >= facts.workArea.width - 2).toBe(true);
+    console.log('WM MAXIMIZE ON OPEN — verified: a window manager honored it');
+  } finally {
+    await app.close().catch(() => { /* already gone */ });
+    removeStateDir(stateDir);
+  }
+});
+
+test('the in-app link window is independent and comes to the front', async () => {
+  test.setTimeout(240_000);
+  const { app, stateDir } = await launchResmon(true);
+  try {
+    const win = await app.firstWindow({ timeout: 180_000 });
+    await win.waitForLoadState('domcontentloaded');
+    await win.locator(ATLAS_LANDMARK).waitFor({ state: 'visible', timeout: 60_000 });
+
+    const mainId = await app.evaluate(async ({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].id);
+
+    // About resmon's report link: it opens GitHub's issues page in a window of its own.
+    await win.evaluate(() => { window.location.hash = '#/settings/about'; });
+    await win.waitForFunction(() => window.location.hash.startsWith('#/settings/about'));
+    const link = win.locator('[data-about="issues"]');
+    await link.waitFor({ state: 'visible', timeout: 30_000 });
+    const href = await link.getAttribute('href');
+    expect(href).toMatch(/^https?:\/\//);
+    // Cancel this real navigation before transport. The window is
+    // still created by the app; no successful remote page is fabricated.
+    const interception = await app.evaluateHandle(({ session }, target) => {
+      const facts = {
+        installed: false,
+        canceled: [] as string[],
+        errors: [] as { url: string; error: string }[],
+      };
+      session.defaultSession.webRequest.onErrorOccurred({ urls: [target] }, (details) => {
+        facts.errors.push({ url: details.url, error: details.error });
+      });
+      session.defaultSession.webRequest.onBeforeRequest({ urls: [target] }, (details, callback) => {
+        facts.canceled.push(details.url);
+        callback({ cancel: true });
+      });
+      facts.installed = true;
+      return facts;
+    }, href!);
+    try {
+      expect(await interception.jsonValue()).toEqual({ installed: true, canceled: [], errors: [] });
+      await link.click();
+      await expect.poll(() => interception.evaluate((facts) => facts.canceled)).toEqual([href]);
+      await expect.poll(() => interception.evaluate((facts) => facts.errors)).toEqual([
+        { url: href, error: 'net::ERR_BLOCKED_BY_CLIENT' },
+      ]);
+      console.log('ATTRIBUTION CANCELED BEFORE TRANSPORT', JSON.stringify(await interception.jsonValue()));
+
+      await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), { timeout: 20_000 }).toBe(2);
+      await new Promise((r) => setTimeout(r, 1500));
+
+      const facts = await app.evaluate(async ({ BrowserWindow }, keep) => {
+        const all = BrowserWindow.getAllWindows();
+        const opened = all.find((w) => w.id !== keep);
+        const main = all.find((w) => w.id === keep);
+        return {
+          independent: opened?.getParentWindow() === null,
+          openedVisible: opened?.isVisible() ?? false,
+          openedFocused: opened?.isFocused() ?? false,
+          mainFocused: main?.isFocused() ?? false,
+          anyFocused: all.some((w) => w.isFocused()),
+        };
+      }, mainId);
+      console.log('WM LINK WINDOW', JSON.stringify(facts));
+
+      // Independence and visibility are the app's own doing and hold anywhere.
+      expect(facts.independent).toBe(true);
+      expect(facts.openedVisible).toBe(true);
+
+      // Focus is the window manager's to give, and it gives it to the frontmost
+      // application. Under a launcher — a bare X server with no window manager,
+      // or a local run where the terminal stays frontmost — **no** window reports
+      // focus, which is what `anyFocused` measures. Asserting through that would
+      // make this red for a reason no change to this repository could fix, so the
+      // run says which arm held instead. Measured on the machine this was written
+      // on: `anyFocused` was false, so the local run does not verify it either.
+      if (!facts.anyFocused) {
+        console.log(
+          'WM LINK FOCUS NOT VERIFIED — no window on this display reports focus at all,',
+          'so resmon is not the frontmost application here. That is the normal state',
+          'under xvfb (no window manager) and under a local run whose terminal keeps',
+          'focus. Which window would come to the front is NOT verified by this run.',
+        );
+        test.skip(true, 'no window reports focus on this display');
+      }
+      expect(facts.openedFocused).toBe(true);
+      expect(facts.mainFocused).toBe(false);
+      console.log('WM LINK FOCUS — verified: the link window took focus from the main window');
+
+      await app.evaluate(async ({ BrowserWindow }, keep) => {
+        for (const w of BrowserWindow.getAllWindows()) if (w.id !== keep) w.destroy();
+      }, mainId);
+    } finally {
+      await app.evaluate(({ session }) => {
+        session.defaultSession.webRequest.onBeforeRequest(null);
+        session.defaultSession.webRequest.onErrorOccurred(null);
+      });
+      await interception.dispose();
+    }
+  } finally {
+    await app.close().catch(() => { /* already gone */ });
+    removeStateDir(stateDir);
+  }
+});
+
+test('the swipe handler moves history back and forward', async () => {
+  test.setTimeout(240_000);
+  // **What this is and is not.** `main.ts` binds `mainWindow.on('swipe')`, and
+  // this emits that event on the real window in the real main process, so the
+  // binding and `navigateHistory` are genuinely exercised. It is not the
+  // trackpad: an OS gesture cannot be synthesized, and macOS only delivers
+  // `swipe` when the user has chosen a two-finger gesture in System Settings —
+  // undetectable from the app, which is exactly why the History menu exists
+  // alongside it. `main-window.spec.ts` P4 drives that menu.
+  const { app, stateDir } = await launchResmon(true);
+  try {
+    const win = await app.firstWindow({ timeout: 180_000 });
+    await win.waitForLoadState('domcontentloaded');
+    await win.locator(ATLAS_LANDMARK).waitFor({ state: 'visible', timeout: 60_000 });
+
+    const go = async (hash: string) => {
+      await win.evaluate((h) => { window.location.hash = `#${h}`; }, hash);
+      await win.waitForFunction((h) => window.location.hash.startsWith(`#${h}`), hash,
+        { timeout: 15_000 });
+      await win.waitForTimeout(300);
+    };
+    await go('/search');
+    await go('/settings/sources');
+
+    const swipe = (direction: 'left' | 'right') => app.evaluate(
+      async ({ BrowserWindow }, d) => {
+        BrowserWindow.getAllWindows()[0].emit('swipe', {}, d);
+        return true;
+      }, direction,
+    );
+
+    await swipe('left');
+    await win.waitForFunction(() => window.location.hash.startsWith('#/search'),
+      undefined, { timeout: 15_000 });
+    expect(win.url()).toContain('#/search');
+
+    await swipe('right');
+    await win.waitForFunction(() => window.location.hash.startsWith('#/settings/sources'),
+      undefined, { timeout: 15_000 });
+    expect(win.url()).toContain('#/settings/sources');
+    console.log('WM SWIPE — left went back, right went forward');
+  } finally {
+    await app.close().catch(() => { /* already gone */ });
+    removeStateDir(stateDir);
+  }
+});

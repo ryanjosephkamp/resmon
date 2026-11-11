@@ -1,0 +1,109 @@
+# Local API security model
+
+resmon's renderer, its MCP server and its assistant all talk to the Python backend over HTTP on
+`127.0.0.1`. That API answers only requests that prove they belong to this app. This
+page says what that defends against and — just as plainly — what it does not.
+
+## What a request must carry
+
+Every request, on every route, is checked by one raw ASGI guard (`LocalApiGuard` in
+`resmon_scripts/implementation_scripts/api_auth.py`) that runs before CORS, before any request
+body is read and before any route code:
+
+1. **Host** must be `127.0.0.1:<the backend's own port>` or `localhost:<the backend's own port>`.
+   Anything else is refused `403 host_refused`, even with a valid token. This is the
+   DNS-rebinding defense: a page that rebinds its own hostname to 127.0.0.1 still sends its own
+   name in `Host`.
+2. **Origin**, when the request has one, must be exactly this app's renderer origin
+   (`http://127.0.0.1:<renderer port>`, chosen at launch). Anything else is refused
+   `403 origin_refused`, with no `Access-Control-Allow-Origin` on the answer. Requests with no
+   Origin — the MCP server, curl, Electron's main process — are not browser requests and are
+   judged on the token alone.
+3. **`Authorization: Bearer <token>`** must carry this backend's secret: 32 bytes from the
+   operating system's CSPRNG, compared in constant time. Missing is `401 token_missing`; wrong is
+   `401 token_invalid`.
+
+There are no exempt routes. `/api/health` needs the token too: every client that probes it reads
+the token first. The exemption list is an explicit, empty constant, and a test fails if it grows.
+
+**One route proves itself instead.** `GET /api/deliveries/{id}/bundle` is fetched by a webhook
+*receiver* — a program the user pointed a routine at, which is not resmon and has no business
+holding a credential that opens every route in the app. The guard lets it past the token check
+(`AUTH_SIGNED_PATHS`, one entry, pinned by a test the same way the empty list is) and the route
+checks an HMAC-SHA256 over the delivery id and an expiry, keyed with that destination's own
+secret from the OS keyring. Host and Origin are still enforced, so this widens exactly one route
+to one holder of one 24-hour signature. A missing, wrong or expired signature — and a delivery
+that was not a webhook — all get the same `403 signature_invalid`. This is not an exemption from
+authentication; it is a different credential, scoped to one file. See
+[delivery.md](delivery.md).
+
+A CORS preflight (`OPTIONS` with `Access-Control-Request-Method`) carries no credentials by
+specification, so it is answered without the token — but only for the renderer's origin.
+`Access-Control-Allow-Private-Network: true` is sent only on such a preflight that asked for it.
+
+Refusals use the app's usual shape: `{"detail": {"reason": "...", "message": "..."}}`. They carry
+no `Access-Control-Allow-Origin`, whatever the origin. An answer from a route does, for the
+renderer's origin only, errors included: a route that raises is answered `500` with a sentence in
+`detail`, inside the CORS layer, so the window reads the engine's failure rather than a request
+blocked by CORS.
+
+## Where the token lives
+
+- **Electron-spawned backend.** Electron mints the token and hands it to the backend in the
+  child's environment, never in argv (argv is visible to every user through `ps`). The backend
+  removes it from its own environment at start, so nothing it spawns inherits it. The renderer
+  receives it from the preload over a synchronous IPC answered only to the main window's own
+  frame; it travels only in the `Authorization` header, never in a URL.
+- **Background daemon.** The daemon mints its own on every start.
+- **`python resmon.py <port>`** with no token supplied (development, tests) mints its own.
+
+In every case the backend writes the token to `<state dir>/api-token-<port>`, beside
+`daemon.lock`, created owner-only (`0600`), and removes it on a clean shutdown. That file is how
+clients that did not start the backend find it: Electron attaching to a daemon, and the MCP
+server under your harness. The state directory is `RESMON_STATE_DIR` when set, otherwise
+`~/Library/Application Support/resmon`, `$XDG_STATE_HOME/resmon` or `%LOCALAPPDATA%\resmon`.
+
+A token file left behind by a crash never lets anything in: each start mints a fresh token, and
+the backend accepts only the one it holds. A client reading a stale file gets `token_invalid`.
+
+**The daemon and the renderer's origin.** A daemon starts before any window exists, so it cannot
+be told the renderer's origin at spawn. When Electron attaches, its main process — holding the
+token, sending no Origin — registers its renderer's exact origin with
+`POST /api/auth/renderer-origin`. A browser request (one carrying an Origin) cannot register an
+origin. The daemon keeps the eight most recent. A daemon that has published no token file is never attached to; the app starts its own backend and leaves the
+daemon alone, exactly as it does for a daemon of a different version.
+
+## The MCP server and the assistant
+
+`mcp_server.py` finds the port from `RESMON_PORT`, then the port file, and from nothing else,
+then reads that port's token file. A named port whose token cannot be found is reported as
+unavailable, naming the instance — it never falls through to another port. If your harness
+runs resmon's MCP server against an instance with a non-default state directory, set
+`RESMON_STATE_DIR` in the server's environment.
+
+**Naming the state directory does not name the instance, so name the port as well.** The
+token file follows `RESMON_STATE_DIR` and the port file follows `RESMON_DB_PATH` (or
+`RESMON_PORT_FILE`), so the two can point at different installations. The server never
+falls back to resmon's default port: on a machine running resmon's background service that
+would attach to the service and answer truthfully about its corpus. With no port named it
+refuses, names both mechanisms and says it did not guess. Set `RESMON_PORT` to the instance's port, or point `RESMON_PORT_FILE` at
+the port file that instance writes.
+
+When the assistant starts the MCP servers through its CLI runtime, the configuration it writes
+names the port and the state directory — never the token. Tool results and relayed errors are
+scrubbed of the token as a second layer.
+
+## What this does not defend
+
+- **Your own user account.** A process running as you can read the token file and the
+  environment of the backend Electron spawned. It could also read the database directly. The
+  token keeps out *other principals* — web pages in any browser, other users on the machine —
+  not your own processes.
+- **Windows file permissions.** The file is created with mode `0600`, which Windows largely
+  ignores; there it relies on `%LOCALAPPDATA%` being private to your profile. No explicit ACL is
+  set.
+- **A token read out of memory or the renderer.** Anything that can run code inside the app's
+  renderer can call the API as the app. The app embeds no `<webview>`, and pages resmon opens but does not own, such as link
+  windows, get no preload and cannot ask for the token.
+- **Traffic on the wire.** The API is plain HTTP on the loopback interface. Loopback traffic does
+  not leave the machine, but any local process with packet-capture privileges could read it.

@@ -1,0 +1,36 @@
+/*
+ * Evidence's choosers and saved records. A chooser (Add Files, Export
+ * Selected Evidence) keeps its find box and its button in view: the list
+ * between them scrolls inside the panel however many files there are. Saved
+ * records sit under one heading per file.
+ */
+
+/* ----------------------------------------------------------- choosers */
+.ev-chooser > .ev-chooser-head,
+.ev-chooser > .ev-chooser-list { justify-self: stretch; }
+.ev-chooser-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.ev-chooser-head .record-cap { margin: 0; }
+.ev-chooser-find { flex: 1 1 240px; max-width: 420px; }
+.ev-chooser-list {
+  max-height: min(46vh, 420px); overflow-y: auto; overscroll-behavior: contain;
+  margin: 0; padding: 4px 10px; list-style: none;
+  border: 1px solid var(--rule); border-radius: var(--r); background: var(--plate);
+}
+.ev-chooser-list:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
+.ev-chooser-list li + li { border-top: 1px solid var(--rule); }
+.ev-chooser-list li { padding: 6px 0; }
+.ev-chooser-list li.record-cap { padding: 10px 0; }
+.ev-chooser-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+
+/* ----------------------------------------------------------- saved records, by file */
+.ev-saved-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
+.ev-saved-top .record-sub { margin: 0; }
+.ev-saved-scope button { height: 24px; padding: 0 9px; font-size: 12px; }
+.ev-group { margin-top: 14px; }
+.ev-group-head {
+  display: grid; gap: 2px; margin: 0; padding: 0 0 6px;
+  border-bottom: 1px solid var(--rule-2); font: 400 13px/1.4 var(--sans);
+}
+.ev-group-head .record-cap { margin: 0; }
+.ev-group .ev-saved { margin-top: 0; }
+.ev-group .ev-saved > li:first-child { border-top: 0; }

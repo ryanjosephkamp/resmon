@@ -1,0 +1,40 @@
+.paper-quick { display: inline-flex; flex: none; }
+.paper-quick-menu {
+  position: fixed; inset: auto; top: anchor(bottom); left: anchor(left); margin: 6px 0 0;
+  position-try-fallbacks: flip-inline, flip-block, flip-inline flip-block;
+  width: min(340px, calc(100vw - 32px)); max-height: calc(100vh - 80px); overflow: auto;
+  padding: 14px; border: 1px solid var(--rule-2); border-radius: var(--r-lg);
+  background: var(--raise); color: var(--ink); box-shadow: var(--shadow);
+  font: 400 13px/1.45 var(--sans);
+}
+.paper-quick-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.paper-quick-inline { margin-top: 14px; }
+.paper-quick-menu .fulltext { margin-top: 10px; }
+.paper-quick-menu .fulltext .btn { font-size: 12px; }
+.paper-quick-added { margin: 6px 0; overflow-wrap: anywhere; }
+.result > .paper-quick { float: right; margin-left: 8px; }
+.paper-places ul, .paper-backlinks { list-style: none; margin: 8px 0; padding: 0; }
+.paper-places li { margin-top: 6px; font: 400 13px/1.5 var(--sans); color: var(--ink-2); }
+.paper-backlinks { display: flex; flex-wrap: wrap; gap: 6px 12px; font: 400 12px/1.5 var(--sans); }
+.card-title a { color: inherit; text-decoration: none; }
+.card-title a:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+.paper-quick-buttons .btn[aria-disabled="true"] { opacity: .5; cursor: default; }
+
+/*
+ * On a paper's page, and in the map's panel for a paper, the actions are one
+ * row: Ask About This Paper, Save to Read, Add to a Project, then the PDF's
+ * own buttons, all one height and wrapping as a row does. The wrappers that
+ * group them elsewhere (a row's quick menu) step aside, and the line about the
+ * PDF's copy and license, a status, or an error sits beneath the row.
+ */
+.paper-actions { row-gap: 8px; }
+.paper-actions .paper-quick-inline,
+.paper-actions .paper-quick-buttons,
+.paper-actions .fulltext,
+.paper-actions .fulltext-acts { display: contents; }
+.paper-actions .btn { height: 28px; padding: 0 10px; font-size: 12.5px; }
+.paper-actions > p,
+.paper-actions .fulltext-line,
+.paper-actions .field-error,
+.paper-actions p.record-cap { flex-basis: 100%; order: 1; margin: 0; }

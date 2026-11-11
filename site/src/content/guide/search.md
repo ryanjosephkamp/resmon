@@ -1,0 +1,220 @@
+---
+title: "Search"
+summary: "Searching what you hold, asking the sources for more, finding one paper, runs, saved searches, and shared wording."
+order: 5
+---
+**Search** has five tabs: **Collection**, **Ask the Sources**, **Look Up a Paper**, **Saved**, and **Shared Wording**. The two buttons at the top of **Collection**, **Deep Dive** and **Deep Sweep**, open **Ask the Sources** with that kind chosen.
+
+<a id="your-collection"></a>
+## Collection
+
+For how collected records, saved reading choices, PDFs, and projects fit together, see [From a Run to a Project](/resmon/guide/library/#from-a-run-to-a-project).
+
+This tab searches the collection the window shows, across all the runs and watches that put papers there; its name is the page's heading. Type words that appear in a title, an abstract, or an author's name.
+
+**Filters** narrow by **Source**, **Category**, **Author**, and **Published**. Each value shows how many papers it would hold. The filters, your words, and the order are kept in the address of the page, so you can go back to a filtered view. Source and month charts on **Health › Analytics** open those papers; a keyword's bar searches for its words, whose matches can differ from the chart's phrase count.
+
+**Newest** orders by publication date. **Closest in Meaning** appears when your embedding model can rank the collection, and it orders by how near each paper is to the phrase you typed rather than by date. Two things are true of it:
+
+- **Your words do not filter.** The phrase is what distance is measured from, so it finds papers that contain none of your words. Your other filters still choose what is in scope.
+- **Papers without a vector are listed last,** marked "not ranked", and the line under the box counts them ("N ranked, M not embedded yet and listed last"). They have not been judged distant. They have not been judged.
+
+When resmon cannot rank, the control is not offered and a sentence says why: no model is set up, papers have no vectors yet (counted), the similarity index holds none of them, or the extension did not load. The sentence links to **Settings › AI › Embeddings** where something there is the next step. See [AI Settings](/resmon/guide/ai-summarization/).
+
+The count above the list is every paper that matches, however many. Counting has 1.5 seconds; if it runs out, the line says "At least N" and that counting stopped, and the list and the export still hold every match. **Closest in Meaning** ranks every match too, not only the newest.
+
+The list reads more papers as you scroll toward its end (**Show More** does the same from the keyboard), drawing only the rows near the view. The window's find cannot reach rows outside that drawn part; use the search field to search every paper. In the newest order, **Jump to** starts the list at a month of publication: the line above the list says how many newer matches come before it, the count does not change, and **Back to the Newest** returns to the top. The month is kept in the address with your words, filters, and order.
+
+The row that begins **Export these N papers as** has **BibTeX**, **RIS**, and **CSV** buttons. They write every paper that matches, not only the rows drawn, newest first even under **Closest in Meaning**, through the system's save dialog. There is no limit on how many: resmon writes the file as it reads the papers, and says how many the file holds once it is saved.
+
+**Select**, at the end of that row, puts a box beside each result and turns the row into a selection bar. Click a box to pick a paper, Shift-click to pick every paper back to the last one picked, or use the keyboard: Space picks, the up and down arrows move between rows, and Shift with an arrow picks as it goes. **Select All** (or ⌘A, Ctrl+A on Windows and Linux) picks every match the count holds, not only the rows read so far, and a box ticked off afterward is left out. **Save to Read** saves the papers picked to your **Library**, under **To Read**; a paper already in your reading queue stays as it is, read or not. A save of more than 200 asks first, and one save takes at most 20,000 papers. The notice after it says how many were saved and how many were already there, and **Undo** takes back the ones it added for ten seconds. **Done** or Esc leaves.
+
+Each result has a **Paper Actions** button (**Save to Read**, **Add to a Project**, and the PDF), and right-clicking a paper's link also offers **Save to Read**. Each result shows its title, any retraction or correction recorded against it, its authors, source, and publication date. Two more lines can appear:
+
+- **Papers that look like the same work.** Each is labeled "also appears in (source)" with the reason resmon linked them: "same DOI" is an identifier, and "near-identical title" is an inference. resmon links and never merges: both records are kept, with what each source said. **Fold the same work into one row** hides the extra rows in this view only; the count does not change, and turning it off shows every row. Links are made by a scan started over the HTTP API (`POST /api/links/scan`); Atlas shows the links that exist.
+- **People.** A paper matched to someone on your **People** list shows who, the string the source returned for the author, and the basis of the match. See [Watches and People](/resmon/guide/watches/).
+
+The map beside the list marks where the matches sit in the collection. Its caption counts the matches it marked. A match the map leaves off is counted too, with the reason: its title and abstract share too few words with the rest to place it, or, on a map drawn from your embedding model, the model has not read it yet.
+
+### Collections
+
+resmon can keep several collections in one database, one per field, say. The name beside the resmon mark in the top bar is the collection the window shows. Its menu lists every collection with how many papers it holds, switches to another, and has **New Collection** and **Manage Collections**, which open **Settings › Collections**. Each window shows its own collection: switching in one window changes only that window, a window opened from a link or the command palette shows the collection of the window it came from, and a new window (**New Window**, or the first at launch) opens on the collection last chosen.
+
+Search › Collection, Today, the map, Analytics, a run's and a watch's papers on their maps, a person's matches, and the reading queue's lists all show the collection the window shows. Each collection has its own map, fitted over its own papers, and its own Today with its own **Mark All Read**. A paper is stored once and can be in more than one collection; your Library's files and projects belong to no collection.
+
+Every number those screens give counts the collection shown, and where there is more than one collection they name it: "2 papers in Photonics", and Search's note on ranking by meaning counts that collection's papers with a vector. The tab keeps its name, **Collection**, whichever collection it shows. A few things cover every paper resmon holds, whatever the collection: the embedding backfill in Settings › AI › Embeddings, the check for retractions and corrections, and Shared Wording. With more than one collection, their numbers say "in every collection".
+
+Papers arrive in a collection from the runs that land there. A Deep Dive or a Deep Sweep lands in the collection the window shows, and Ask the Sources says which when there is more than one. A watch lands in the collection its editor names. A run puts every paper it finds in its collection, including one resmon already holds in another.
+
+On the selection bar that **Select** opens (see Search › Collection above), **Move To** and **Copy To** sit beside **Save to Read** and put the papers picked in another collection: a copy adds them there and keeps them where they were, and a move also takes them out of the collection shown. With **Select All**, resmon reads the search again when you move or copy, leaves out the boxes ticked off, and refuses if the search now matches more papers than the bar said. Neither deletes a paper, and the notice that follows has **Undo** for ten seconds, which puts every paper back where it was; **Done** or Esc right after leaves the notice and its Undo.
+
+In **Settings › Collections** you make, rename, show, and delete collections. A name can have up to 80 characters; a longer name stays in the field with the limit explained, so you can shorten it before saving. Deleting one always asks first, and says what happens: papers only it holds are kept in the default collection, papers also in another collection stay there, and its watches put their papers in the default collection. The default collection, named Main Collection until you rename it, is never deleted. A read or a run that names no collection, from the command line or the MCP server, uses it.
+
+### A Paper
+
+A paper's page shows the record as resmon holds it, and in this order:
+
+1. **Save to Read** (it reads **Saved** once the paper is queued, and choosing it again takes the paper out), **Add to a Project**, and, for a queued paper, **Mark Read** or **Mark Unread**.
+2. Its PDF: **Read the PDF** when the Library holds one linked to it; **Get the PDF** when a source states an open license for a copy of it (see [the Library](/resmon/guide/library/#get-the-pdf)); otherwise **Open at** its source, with the reason there is nothing to get.
+3. Any retraction, concern, correction, newer version, or journal publication recorded against it, with the notice's link.
+4. The **Abstract**, labeled "as (source) gave it".
+5. **Why It Is Here**: which of the keywords from the runs that found it appear in it (a paper only a find holds says that Look Up a Paper looked it up, and how the record matched), and in which field (title, abstract, subject categories, or author list). Matching is on whole words, so `AI` does not match `said`, and a quoted phrase must appear as a phrase. Beneath it, **What resmon Cannot See** states the limits. Keyword matching never reads full text, even of a PDF resmon keeps. Most sources rank by relevance rather than filtering by keyword, so a paper that contains none of your keywords is expected, not a fault.
+6. The collections it is in, how it arrived in each (found by a run, moved, copied, or there since before collections), and **Move To** and **Copy To**. A paper not in the collection the window shows can be copied there.
+7. **Shared Wording** with other abstracts, and **The Same Work Elsewhere**, where there are any.
+8. Beside it, the paper and its eight nearest neighbors on the map.
+
+**Ask About This Paper** opens a new conversation in Ask with the paper’s title, its number, and a linked file’s name where one is known. It fills an editable question and sends nothing until you choose **Send**. Without an available Ask connection, the control links to **Settings › AI**. See [Ask](/resmon/guide/assistant/#ask-about-this-paper).
+
+The paper's number, such as "Paper 12", is its number in this resmon, the same in every collection it is in. It is what a file in the Library is linked with.
+
+## Ask the Sources
+
+This is where Deep Dives and Deep Sweeps start.
+
+- **Search terms.** Press Enter to add each term. Each added term offers up to six related words or word pairs from titles and abstracts of papers in the collection this window shows that use it. The ranking favors wording distinctive in those papers compared with the whole collection, with titles counted twice. Choose a suggestion to add it as its own term; removing a term removes its offer. With no matching papers, the field says there is nothing to suggest. No outside service is asked. Each term is one term: a word is searched as a word, and a term of several words as that phrase, wherever the source can search for one.
+- **Match.** **Any Term**, the default, keeps a paper that has any one of your terms. **All Terms** keeps only a paper that has every one. With one term the two ask the same.
+- **Source** or **Sources.** A Deep Dive asks one source, a Deep Sweep several. Each row states how resmon asks that source for several terms (**Terms Combine**), how many requests resmon may make, how finely it can date a paper, and whether it can be asked about an author. A source marked **needs an API key** is recorded as not asked until you store its key.
+- **Published.** Choose **7 Days**, **30 Days**, **A Year**, or **Any Time**, or set **From** and **To**. A fresh form asks for the last 30 days.
+- **Up to N papers per source.** From 1 to 1,000, 100 by default. The cap applies to each source, so a sweep of five sources can store up to five times that.
+- **Summarize each paper.** Off by default. See [AI Settings](/resmon/guide/ai-summarization/).
+
+The run's papers land in the collection the window shows; when there is more than one, the bar beside the button names it. Under the button, resmon states what it already knows about this selection and nothing it would have to guess: which chosen source sets the pace, which cannot date papers as finely as your window, and which need a start date. It does not estimate how many papers you will get.
+
+**How each source is asked.** Most sources read OR, AND, and quoted phrases, so resmon sends your terms as one query in the source's own syntax, joined by OR for Any and AND for All. Dryad, OpenAIRE, NDL Search, and DBLP are not asked for OR: for Any, resmon asks each of them once for each term, at the source's own pace, and keeps each paper once, up to the most papers per source; for All, it sends every word of every term in one request. Those four search a phrase as its words. Crossref and Semantic Scholar rank by relevance and have no OR or AND: for Any, the ranking decides, so a paper can come back without any one term; for All, resmon keeps only the papers whose title or abstract has every term. Quotes, AND, OR, or a field such as `ti:` typed inside a term are part of the term, not search syntax.
+
+**bioRxiv and medRxiv** cannot be asked for words. resmon reads the preprints they list for your dates, newest first, for up to 45 seconds, and matches your terms itself, in each title and abstract, as whole words: "ai" does not match "said", and a term of several words matches only as that phrase. So both need a start date, and while either is chosen the form fills one in and **Any Time** is off. A longer window may not be read back to its start. A search that runs out of time, or reaches the run's cap, has read the newest part of the range and is **answered in part**. That is not an answer for the whole window, and it is not a failure of the source.
+
+If resmon is already running as many runs as **Settings › In the Background** allows, a new search waits its turn: the **Runs** tab lists it under **Waiting**, and it starts on its own when a run finishes. Only when as many more are waiting as resmon queues is a search turned away.
+
+**Save This Search** keeps the sources, terms, match, dates, and cap together under **Saved**. **Watch This Search** opens the watch editor with the sources, terms, match, and cap filled in. It leaves the dates out, because dates fixed today would be asked again on every run.
+
+Beside the form are the five newest runs, with an **All Runs** link.
+
+An unsent form is kept while you leave and return with Back or Forward, as is an unsaved watch editor. A fresh visit starts a fresh form; starting the run or saving the watch clears its draft.
+
+In the Deep Sweep source picker, **Select All** chooses every available source that has any required key here, including sources hidden by the name filter. **Deselect All** clears the selection. A Deep Dive asks one source, so it has neither control.
+
+**Source Limits and Keys** keeps the longer source notes collapsed until you open them. The page remembers that choice in this window, including Back and reload.
+
+<a id="find-a-paper"></a>
+
+## Look Up a Paper
+
+One paper, asked of every source that can look it up. Type or paste a DOI (with or without `https://doi.org/`), an arXiv id (`arXiv:1706.03762`, `1706.03762v5`, or its address), a PMID (`17375194`, `PMID:17375194`, `PMID: 17375194`, `PMID 17375194`, or its PubMed address), or a title. Under the field resmon says what it reads it as, which sources can look it up, and why each other source is not asked: some can be asked only by some kinds (arXiv by its id or a title, never a DOI), bioRxiv and medRxiv hold only DOIs that begin `10.1101/`, and a few have not been checked (CORE, NASA ADS, and Springer Nature need a key, DBLP answered with a challenge page, PubMed's search answered errors when it was checked, and NDL Search and OSTI.GOV have not been checked for a DOI or title). Click a source to leave it out of this find, and again to put it back. Each source's capability, and the live check it rests on, is in its row of the catalog.
+
+Four digits alone, such as `1984`, read as a title. Use the prefix for a four-digit PMID, such as `PMID:1984`.
+
+**Find** asks up to eight sources at once. A find is a run: the **Runs** tab lists it as **Look Up a Paper**, **Health** counts each source's answer, a copy it keeps lands in the collection the window shows, and when it finishes it posts a notification if **When a search I start finishes** is on ([Notifications](/resmon/guide/email-notifications/#notifications)). While it goes, each source is drawn as being asked or answered. Then the page shows the paper as its reference copy has it (an identifier or exact-title match before a close-title match, then Crossref, DataCite, PubMed, arXiv, and the rest), **Get the PDF** where the download rules permit a copy, and a row for every source:
+
+- **Found**, and how: by its DOI, arXiv id, or PMID, by its exact title, or by a close title, with the share of words the titles share. A source's answer is a list of candidates, and resmon keeps a record only when it carries the identifier asked for, or when its title is the title asked for or close to it (85 percent of the meaningful words, and never for a title of fewer than three). Every other record is counted and dropped.
+- **What differs** from the reference copy: the title, the year, the DOI, the first author, or the number of authors.
+- **Its open copy**: where, and under what license, or that no source reported one.
+- **Not found** (it answered, and none of its records is this paper), **Did not answer**, or **Not asked**, with why.
+
+Copies that carry the same DOI are linked as one paper, and each one's page lists the others under **The Same Work Elsewhere**. **Open the Run** opens the find's run page, and a find's run page links back to its answers. Earlier finds are listed under the form.
+
+### From Your Browser
+
+**Save to resmon** is a browser extension that sends a paper you are reading on the web to Look Up a Paper. Right-click a paper's page and choose **Save to resmon**, or right-click a link to a paper and choose **Save Link to resmon**. The browser asks whether to open resmon, and resmon opens Look Up a Paper with the paper filled in: the text you selected, the DOI the page's citation tags give, a DOI, arXiv id, or PMID in its address, or else its title (for a link, its words). The page the link names is shown under the field. Nothing is looked up until you press **Find**, and nothing is saved until you choose **Save to Read** or **Add to a Project** on what it finds. The extension reads a page only when you click its item, and sends nothing anywhere but to resmon.
+
+To install it, download the `resmon-extension` zip from the [release page](https://github.com/ryanjosephkamp/resmon/releases/latest) and unzip it. In Chrome, open `chrome://extensions`, turn on **Developer mode**, choose **Load unpacked**, and pick the unzipped folder. Edge, Brave, and other Chromium browsers load it the same way. resmon must be installed: an installed copy is what answers the browser's `resmon://` links. On Linux, the AppImage answers them only once your desktop has added it to its applications.
+
+## Runs
+
+The **Runs** tab (⌘4, in the top bar's first order) holds every run.
+
+- **Running Now.** Each run going now, with each of its sources in the Source Wall's marks, how long it has run, what it is doing (how many sources have finished and which it is asking, or the stage after that), and **Stop**. A run the engine has said nothing about for 15 seconds says so. Pointing at a source's mark, or reaching it from the keyboard (the marks are one stop, the arrow keys between them), says what that source has done so far, and choosing it opens the run.
+- **Waiting.** Runs waiting for a free slot, in the order they start, with the time each joined the queue. A search you asked for can be taken out with **Don't Run**; a watch's run is stopped by pausing the watch.
+- **History.** Every run, newest first, grouped by day, with how many there are. **All**, **Searches** (Deep Dives, Deep Sweeps, and finds), **Watches**, and **Failed** narrow it, and the field finds a run by its terms, its sources, its watch or saved search, or its number. Older runs are read as you scroll.
+
+A manual search is named by its terms and a watch's run by the watch's name. Each row says when it started, whether it was a **Deep Dive**, **Deep Sweep**, **Look Up a Paper**, or **Watch Run**, and one line of what happened: how many of its sources answered, how many were rate-limited (with the time to try again, where a source gave one), and how many papers it found and how many of those were new.
+
+A run also keeps which of its papers were new: the ones resmon had not stored before, in any collection. Its new-only filter lists just those: `resmon export --run N --new-only`, and `only_new=true` on the run's papers and references in the HTTP API. Today's arrivals are different: a paper can be new to one collection after another collection held it.
+
+A run ends **completed**, **failed**, **canceled**, or **interrupted**. Interrupted means the process running it went away before it finished, for example because the app was force-quit. The row says what resmon observed and when it last saw the run working; it cannot establish whether the search itself would have succeeded. A run fails when at least one source was asked and every source it asked recorded a non-answer. Sources never asked do not count either way, and an unknown outcome is not evidence of failure. It is not recorded as completed, because "completed" over a dead source would state an empty field where a failure happened. A source resmon never asked, such as one with no key, is not a failure and never makes a run one.
+
+Tick runs to work on them together, or **Select All** to tick every run listed:
+
+- **BibTeX**, **RIS**, or **CSV** exports the papers of every ticked run as one file, with one entry per paper however many runs found it.
+- **Bundle** saves each run in one archive, in folders a `README.txt` explains: the report as a web page, as Markdown, and as a PDF with its LaTeX where a LaTeX engine (XeLaTeX or LuaLaTeX) is installed; the run's papers as BibTeX, RIS, and CSV; its search record and metadata; and its log.
+- **Save as Searches** saves each ticked Deep Dive or Deep Sweep as a saved search, named by its terms, with its own sources, terms, dates, and cap, summarizing as its run was set to, and linked back to the run. A watch's run is not saved: its search is the watch's, and **Saved** keeps a copy of every watch.
+- **Run Again** starts each ticked run again now. A search runs with its own terms, dates, limit, and sources, as a new run linked back to it, and summarizes only if its run was set to. A watch's run is its watch's **Run Now**: the watch's current settings (its terms, sources, dates, and summaries), emailed and delivered as the watch is set, and refused while the watch is already running, so two runs of one watch never overlap. It asks first, saying how each summarizes and how many wait for a free slot. A run still going is left alone.
+- **Delete** removes the run's record, what each source answered, which papers it found, and where its report was sent. The papers stay in your collection, and the report and log files stay in the reports folder. A run still going cannot be deleted. The question is asked on the page first; **Not Now** or Escape leaves everything as it was.
+
+**Restart…** appears on a run that was interrupted, failed, or canceled. Before anything starts it says what Restart will do. It never resumes the old run. A Deep Dive or Deep Sweep asks the same sources with the same terms, dates, and cap as a new run, is never emailed or delivered, and summarizes only if the old run was set to, as it recorded when it started, using what **Settings › AI** holds now. A run that was set to summarize and failed before any paper was summarized is restarted with summaries on. A watch's run is its watch's **Run Now**, as with **Run Again**: the watch's current settings, emailed and delivered as the watch is set, and refused while the watch is already running.
+
+### A Run's Page
+
+A run's page opens when you start a search, from the Runs tab, from a watch's history, and from a notification. **← Runs** goes back to the Runs tab.
+
+- **Header.** **Stop** (while it runs; a stop is cooperative, so the run ends at its next checkpoint), **Restart**, export buttons, **Bundle**, **Save as a Search**, and **Delete This Run**. The line under the name gives the kind, when it started, how long it took, its status, and the saved search or earlier run it is linked to. **Dates** states the dates the run asked for; for a watch whose window moves, they are the dates computed when it fired.
+- **Summaries** says whether the run summarized, with which connection, and what each connection it tried did.
+- **Sources.** While the run goes, the page says the stage it is at, a bar shows how many of its sources have finished, and the heading's clock ticks. Each source is drawn in the Source Wall's marks; one being asked says how long, from the engine's heartbeat every two seconds, the requests sent and any retries, and what it is waiting for (the source's pace, a pause the source asked for, or the pause before asking again). Afterward, the page shows the **recorded outcome of each source**, led by a sentence summing up the run: which sources answered, which recorded a non-answer, and which are unknown. A filled mark is an answer, a half mark an answer in part, a ring an unknown, a ring with a pause a source that rate-limited resmon, and a fault mark any other non-answer. Each source gives a result count, or "count not recorded". **What a Source's Answer Means**, under the list, opens [the guide's page](/resmon/guide/source-answers/) on each outcome and the HTTP codes a source can send. Pointing at the bar names the sources still being asked and those not asked yet, and pointing at a source's mark gives its outcome and count in a tip.
+- **The map.** A small map of where this run's papers sit in the collection.
+- **PDFs.** For a watch whose PDFs switch is on, what its run got into the Library, what is still waiting or downloading, and what was skipped or failed, with why. A find also links to its per-source answers with **See what each source said**.
+
+The tabs below hold the run's own record. Each tab has its own address, such as `/runs/12/map`, so Back returns to the tab you were on, and the address with no tab opens **Papers**:
+
+| Tab | What it holds |
+|---|---|
+| **Papers** | The papers the run stored, each with **Paper Actions** (**Save to Read**, **Add to a Project**, and the PDF); **Save This Run's N New Papers to Read** saves every paper the run was the first to find, and **Select** saves the papers you pick, or with **Select All** every paper it stored. **Find a title, author, or source** narrows the list as the Library's find does, across every paper the run stored, and says how many match, such as "12 of 275 papers match"; while it does, **Select All** picks the matches once every one is listed |
+| **Map** | The run's papers on the collection map, with find, filters, and colors; a paper is named under the pointer and when chosen from the keyboard |
+| **Report** | The Markdown report as resmon wrote it, with **Save as Markdown** |
+| **Search Record** | The dated, reproducible account of the search: the terms as typed and whether any or all had to match, what each source's requests carried, the dates and cap, what each source returned, deduplication, and caveats, with **Save as Markdown** |
+| **Log** | The run's log |
+| **Metadata** | Everything the engine keeps about the run, each field under a label, with each source by name |
+| **Progress** | The timeline of events as they arrived |
+
+The search record is careful about what it claims. Each figure names the PRISMA 2020 flow-diagram box it belongs in, or says it has none, because resmon's counters do not all map onto those boxes. resmon flags papers that look like duplicates across sources and keeps both rows, so it reports duplicates found, never duplicates removed. A figure that was never measured reads "not recorded", never `0`, because a reviewer reads `0` as a measurement. Sources selected but not asked, for a missing key or a failing endpoint, stay in the record, because a strategy that listed them as searched would overstate its coverage.
+
+The run’s source account starts with its counts. Each source that answered in part has its own paragraph, with the numbers of records read, the source’s total where recorded, and the dates set off. The words and qualifications are the engine’s recorded account.
+
+While a run asks its sources, **Stop This Source** stops just the source beside it at its next safe point, and the notice names it: "arXiv will stop at its next safe point; the run will keep going." **Stop Unfinished Sources**, also in the Runs panel, is offered once at least one source has answered and another can still be stopped. The engine decides which sources can be stopped, including ones waiting to start. Safely returned records are kept, stopped sources are recorded as non-answers with their counts, and the run continues through storing, linking, embedding, and summaries. Stopping a source is not a source failure. A stopped source that kept papers contributes to the run even when another source failed. The run's **Stop** still cancels the whole run and removes the source controls; replies arriving afterward are not stored. A queued source whose stop was already accepted keeps that recorded outcome. A request that arrives after a source finishes, or once the run is finishing, is refused with the engine's reason.
+
+On a run's page, **This Run's Papers** comes before **The Collection**. Opening the **Map** tab shows the run's map there and hides its compact copy above. Each source's verified papers are stored and linked when its search returns. The run's map updates as those papers become placeable: by shared wording, or by the embedding model when the map says so. While running, papers off the map wait for the next map update; once finished, the placement account states the map's limits. Its paper count matches the Papers tab, and shared DOI groups have a separate mark count. Papers can also wait for the map's initial fit. If embedding fails, the run logs that it has paused embedding per source and tries the remaining papers once after the sources finish. The source legend filters the map to one source when chosen. Sources keep their palette slots as they arrive; sources beyond the six distinct colors are named together as **Other Sources**. Records with the same recorded DOI share one mark, which wears the first selected source's color; its tip names every source this run found it through. The underlying records stay separate. Records without a shared DOI stay separate on the map too. A whole-run stop keeps papers already stored and linked, with their watch matches or find records, and its record and report say what was retained.
+
+
+## Saved
+
+**Saved** lists the searches you saved and, under **Watches**, the copy resmon keeps of each watch.
+
+For a saved search:
+
+- **Ask Again** opens Ask the Sources filled in. A run started from it records which saved search it came from.
+- **Change** edits its name, terms, match, sources, dates, and cap.
+- **Make It a Watch** opens the watch editor with its name, sources, terms, match, and cap.
+- **Delete** removes it. Runs it started are kept and stop naming it.
+
+A watch's copy follows the watch, so you change it in the watch's own editor.
+
+**Export to a File** writes the ticked rows as a ZIP with one JSON file per saved search or watch, through the save dialog. **Import a File** reads a ZIP, or the JSON files from one. Every entry is added as a new one and resmon never merges an import with what you have, so a name already in use lands as a second row. A watch imported from a file arrives paused, whatever the file says. Credentials are never in an export.
+
+## Shared Wording
+
+See [How shared wording works](/resmon/guide/shared-wording/) for the method, its thresholds and limits, recurring statements, and CSV and Markdown exports.
+
+**Shared Wording** lists abstracts in your collection that share passages word for word. resmon measures the passages and lists the pairs. It does not say why two texts share wording, and it uses no model to look. Shared Wording has innocent causes: a template, a quoted definition, a dataset's stock description, a correction notice, two records of the same paper.
+
+Press **Scan the Collection**. A scan runs in the background with progress, and **Scan Again** compares everything now. After a run that brings in new papers, resmon compares those papers against the collection when the run finishes; the page says how many papers arrived since the last scan and have not been compared yet.
+
+For each pair resmon reports three numbers, each defined beside the numbers on the screen:
+
+- **Longest passage:** the longest run of consecutive words that appears in both texts.
+- **Share:** of every run of 8 consecutive words in the shorter text, the share that also appears in the other.
+- **Authors in common:** the same ORCID where both records carry one, otherwise the same surname and first initial.
+
+A pair is listed when it shares a passage of at least 20 words, or at least 20% of the shorter abstract's 8-word phrases. A run of 8 words found in the abstracts of more than three works is common phrasing, such as a template or a stock sentence, and cannot make a substantive comparison on its own. Representative pairs of recurring sentences across otherwise different works are grouped separately under **Standard Statements**. An abstract under 40 words is not compared, and the scan counts those papers rather than leaving them out silently.
+
+Pairs fall in groups by authors:
+
+| Group | Meaning |
+|---|---|
+| **No Author in Common** | Both records list their authors, and no author appears in both |
+| **Text Reuse by the Same Authors** | At least one author appears in both |
+| **Authors Not Listed** | One record lists none, so resmon cannot say |
+| **Set Aside: Records of the Same Work** | A shared DOI, a link resmon made, titles identical word for word, or two versions of one arXiv paper |
+| **Set Aside: A Notice** | One of the two is an erratum, corrigendum, correction, retraction notice, or expression of concern, as its title says |
+
+A set-aside pair is listed with its reason, not dropped. Choosing a pair shows both abstracts side by side with the shared passages marked, the numbers with their definitions, and **What resmon Cannot See**: paraphrase, translation, figures, data, and any wording outside the abstracts. A person judges.
+
+A file in your Library can be compared the same way, page by page, with your collection's abstracts and your other files. See [The Library](/resmon/guide/library/).

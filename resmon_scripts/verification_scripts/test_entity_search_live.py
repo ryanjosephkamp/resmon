@@ -1,0 +1,395 @@
+"""P2's live half — resmon's own code really asks a real source about a person.
+
+**This is the check that matters most.** The capability table's syntaxes are
+established by a probe that builds its own URLs; that resmon's *client code*
+builds and sends them correctly is what these cases verify for every askable
+source. A wrong parameter name
+would not raise — it would come back with nothing, and "this person has
+published nothing" is a silent, plausible, wrong answer, which is the worst
+failure shape this app has.
+
+**The denominator is the capability table**, not a list here: every entry whose
+``entity_search.supported`` is true gets a case, so a source that gains a
+capability without gaining a live case fails
+``test_every_askable_source_has_a_live_case``.
+
+## What each case establishes, and what it deliberately does not
+
+It establishes that the source **answers a real author query with records that
+really carry that author** — the round trip resmon performs, end to end,
+including the client's own query construction and its parsing. It does *not*
+establish that the ranking is any good, and it does not establish that the person
+is the right person: that is what local verification and the basis rule are for,
+and grading their precision is a field test.
+
+## Two honest arms rather than one optimistic one
+
+A source that needs a key this machine does not hold, and a source that is simply
+down, are different facts. Keyed sources skip with the credential they need.
+Most keyless sources report an empty answer by name and remain in the aggregate
+denominator; DBLP and ERIC are strict response gates and fail on an empty or
+authorless result. The aggregate consumes those same current-run records in
+catalog order and never performs a second provider sweep.
+
+Started by hand rather than per-commit, in the live job's half of the live suite:
+these are nineteen real requests to other people's servers and a routine that runs
+them on every push would be rude.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+import pytest
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
+
+from implementation_scripts.api_base import (  # noqa: E402
+    reset_search_outcome,
+    search_outcome,
+)
+from implementation_scripts.api_registry import get_client  # noqa: E402
+from implementation_scripts.credential_manager import get_credential_for  # noqa: E402
+from implementation_scripts.entity_matching import fold_name  # noqa: E402
+from implementation_scripts.repo_catalog import REPOSITORY_CATALOG  # noqa: E402
+from live_evidence import (  # noqa: E402
+    CurrentRunSourceLedger,
+    source_outcome_property,
+    stable_hash,
+)
+
+pytestmark = pytest.mark.live_network
+
+# Which credential a source needs. Written out rather than imported so that a
+# silent change to the gate shows up here as a failure rather than as a quiet
+# agreement, and asserted against the engine below. GovInfo joined this list
+# when the engine's own hand-written dict of three was replaced by a read of
+# the catalog, which had declared four all along.
+_KEYED = {"core": "core_api_key", "govinfo": "govinfo_api_key",
+          "nasa_ads": "nasa_ads_api_key", "springer": "springer_api_key"}
+_STRICT_AUTHOR = {"dblp", "eric"}
+
+# The person each source is asked about, and why.
+#
+# One name per source rather than one name for all of them: an author search only
+# returns records if the person has actually published *in that source's
+# collection*, and asking a physics preprint server about a library scientist
+# would produce an empty answer that says nothing about resmon's code. Each name
+# below is somebody the source demonstrably indexes.
+_ASK_ABOUT: dict[str, str] = {
+    "arxiv": "Yoshua Bengio",
+    "biorxiv": "",             # unaskable; here so the table is complete
+    "medrxiv": "",
+    "core": "Peter Suber",
+    "crossref": "Jennifer Doudna",
+    "datacite": "Heather Piwowar",
+    "dblp": "Yoshua Bengio",
+    "doaj": "Ludo Waltman",
+    # A surname. Dryad's `author=` matches on a token rather than on the
+    # whole string: "Jennifer Doudna" returns nothing and "Smith" returns
+    # datasets by people called Smith. Recorded rather than worked around.
+    "dryad": "Smith",
+    "eric": "Linda Darling-Hammond",
+    "europepmc": "Eric Topol",
+    "govinfo": "United States",
+    "hal": "Cedric Villani",
+    "inspire_hep": "Edward Witten",
+    "nasa_ads": "Sara Seager",
+    # NDL answers the creator query and resmon then drops every record: NDL
+    # keeps only records whose rights are explicitly PDM 1.0 / CC0 / CC BY,
+    # and none of these were. That is `records_unusable`, a zero reason the
+    # app already names, working exactly as designed — so this case skips
+    # with a reason rather than asserting on somebody else's licensing.
+    "ndl_search": "夏目漱石",
+    "openaire": "Ludo Waltman",
+    "openalex": "Jennifer Doudna",
+    "openlibrary": "Ursula Le Guin",
+    "osti": "Steven Chu",
+    "plos": "Eric Topol",
+    "pubmed": "Eric Topol",
+    "semantic_scholar": "Yoshua Bengio",
+    "springer": "Eric Topol",
+    "zenodo": "Heather Piwowar",
+}
+
+
+def _askable() -> list[str]:
+    return sorted(e.slug for e in REPOSITORY_CATALOG if e.entity_search.supported)
+
+
+def _keyless_askable() -> list[str]:
+    return [slug for slug in _askable() if slug not in _KEYED]
+
+
+def _profile(name: str) -> dict:
+    """The minimum a client needs. No identifier: the query is by name."""
+    return {"kind": "person", "display_name": name,
+            "names": [{"value": name, "script": "latin"}],
+            "identifiers": {}, "affiliations": [], "field_hints": []}
+
+
+def _query_id(slug: str) -> str:
+    return stable_hash({
+        "slug": slug,
+        "profile": _profile(_ASK_ABOUT[slug]),
+        "max_results": 10,
+    })
+
+
+def _canonical_author_nodeids(rootpath: Path) -> dict[str, str]:
+    """Return the full catalog map independently of pytest post-selection."""
+    module = Path(__file__).resolve()
+    try:
+        relative = module.relative_to(rootpath.resolve()).as_posix()
+    except ValueError as exc:
+        raise AssertionError("live source module is outside pytest root") from exc
+    prefix = (
+        f"{relative}::"
+        "test_a_real_source_answers_a_real_author_query"
+    )
+    return {slug: f"{prefix}[{slug}]" for slug in _askable()}
+
+
+@pytest.fixture(scope="session")
+def source_response_ledger(request) -> CurrentRunSourceLedger:
+    expected = _keyless_askable()
+    query_ids = {slug: _query_id(slug) for slug in expected}
+    all_source_nodeids = _canonical_author_nodeids(Path(request.config.rootpath))
+    source_case_nodeids = {slug: all_source_nodeids[slug] for slug in expected}
+    excluded_keyed_nodeids = {
+        slug: all_source_nodeids[slug]
+        for slug in sorted(set(_KEYED) & set(all_source_nodeids))
+    }
+    source_contract = {
+        "module": Path(__file__).name,
+        "markexpr": request.config.option.markexpr,
+        "catalog_sources": _askable(),
+        "expected_nodeids": source_case_nodeids,
+        "excluded_keyed_nodeids": excluded_keyed_nodeids,
+        "query_ids": query_ids,
+    }
+    return CurrentRunSourceLedger(
+        expected,
+        candidate_head=os.environ.get("RESMON_LIVE_CANDIDATE_SHA", "local-unbound"),
+        selection_id=stable_hash(source_contract),
+        query_ids=query_ids,
+        nodeids=source_case_nodeids,
+        source_contract=source_contract,
+    )
+
+
+def test_every_askable_source_has_a_live_case():
+    """The denominator, and the reason this file cannot go quietly stale.
+
+    ``_ASK_ABOUT`` covers the whole catalog, askable or not, so a source added
+    without a decision about who to ask it about fails here rather than being
+    skipped.
+    """
+    catalog = {e.slug for e in REPOSITORY_CATALOG}
+    assert set(_ASK_ABOUT) == catalog, (
+        "every source needs a row: missing "
+        f"{sorted(catalog - set(_ASK_ABOUT))}, extra "
+        f"{sorted(set(_ASK_ABOUT) - catalog)}"
+    )
+    for slug in _askable():
+        assert _ASK_ABOUT[slug], f"{slug} can be asked and has no name to ask about"
+
+
+def test_the_keyed_sources_list_matches_the_engines():
+    """This module's key map is the sweep engine's, checked rather than copied."""
+    from implementation_scripts import sweep_engine  # noqa: PLC0415
+    from implementation_scripts.api_registry import (  # noqa: PLC0415
+        list_repositories,
+    )
+
+    engine_view = {
+        slug: sweep_engine.required_credential_for_sweep(slug)
+        for slug in list_repositories()
+        if sweep_engine.required_credential_for_sweep(slug)
+    }
+    assert _KEYED == engine_view
+
+
+@pytest.mark.parametrize("slug", _askable())
+def test_a_real_source_answers_a_real_author_query(
+    slug, record_property, request, source_response_ledger,
+):
+    """resmon's own client asks, and what comes back really carries that author.
+
+    The name check is the whole point. A source that answers *anything* proves
+    the request was well-formed enough not to 400; a source whose records carry
+    the surname asked for proves the query reached the **author field** rather
+    than degrading into a keyword search over the whole record — which is the
+    failure mode `probe_entity_search.py`'s control D exists to detect and the
+    one a client with a wrong parameter name would produce.
+    """
+    credential = _KEYED.get(slug)
+    if credential and not get_credential_for(None, credential):
+        pytest.skip(f"NOT VERIFIED — {slug} needs '{credential}' and this machine "
+                    f"holds no such key. Nothing about resmon's code is "
+                    f"established for this source by this run.")
+
+    name = _ASK_ABOUT[slug]
+    client = get_client(slug)
+    keyless = slug not in _KEYED
+    if keyless:
+        source_response_ledger.start(
+            slug, nodeid=request.node.nodeid, query_id=_query_id(slug),
+        )
+    reset_search_outcome()
+    try:
+        records = client.search_entity(_profile(name), max_results=10)
+    except Exception as exc:
+        outcome = search_outcome().snapshot()
+        # Recorded before the exception continues on its way, and before any
+        # assertion below, because the provider-outage quarantine
+        # (live_quarantine.json) can only match its signature against an
+        # outcome that reached the report, and a case that records none can be
+        # quarantined but never excused. Exactly one property per case — the
+        # quarantine fails closed on two.
+        record_property("source_outcome", source_outcome_property(slug, outcome))
+        if keyless:
+            source_response_ledger.finish(
+                slug, result="raised", returned_count=None,
+                outcome=outcome, error=exc,
+            )
+            record_property("source_ledger", source_response_ledger.record(slug))
+        raise
+    outcome = search_outcome().snapshot()
+    record_property("source_outcome", source_outcome_property(slug, outcome))
+    if keyless:
+        source_response_ledger.finish(
+            slug,
+            result="answered_nonempty" if records else "answered_empty",
+            returned_count=len(records),
+            outcome=outcome,
+        )
+        record_property("source_ledger", source_response_ledger.record(slug))
+    record_property("returned", len(records))
+
+    if not records:
+        if slug in _STRICT_AUTHOR:
+            # `raise AssertionError` rather than `pytest.fail`, and the difference
+            # is not stylistic: the provider-outage quarantine excuses only a call
+            # that failed by asserting (conftest.py asks
+            # `call.excinfo.errisinstance(AssertionError)`), and `pytest.fail`
+            # raises `Failed`, which is not one. A strict source going dark is
+            # exactly the shape an outage takes here, so a quarantine entry naming
+            # this case has to be able to reach it.
+            raise AssertionError(
+                f"{slug} is a strict source-response gate: its real author query "
+                f"for {name!r} returned no useful records; outcome={outcome!r}"
+            )
+        pytest.skip(
+            f"NOT VERIFIED — {slug} returned nothing for '{name}'. That is either "
+            f"an outage or a change upstream, and this run cannot tell which. "
+            f"test_at_least_most_sources_answered fails when this happens broadly.")
+
+    if slug in _STRICT_AUTHOR:
+        assert outcome["attempts"] > 0, outcome
+        assert outcome["last_call_failed"] is False, outcome
+        assert outcome["retained_cooldown_status"] is None, outcome
+        assert outcome["explicit_reason"] is None, outcome
+
+    if slug == "dblp":
+        assert 1 <= len(records) <= 10
+        assert all(record.source_repository == "dblp" for record in records)
+        assert all(record.title and record.external_id for record in records)
+        assert all(not record.external_id.startswith("http") for record in records)
+        assert all(record.url.startswith("https://dblp.org/rec/") for record in records)
+        assert all(
+            record.publication_date is None
+            or (
+                len(record.publication_date) == 10
+                and record.publication_date.endswith("-01-01")
+                and record.publication_date[:4].isdigit()
+            )
+            for record in records
+        )
+        assert any(
+            any(namespace == "dblp" and source_id
+                for namespace, source_id in author.source_ids)
+            for record in records for author in record.authors
+        )
+    # A source whose records carry **no author at all** is a third fact, and it
+    # is neither a pass nor the failure below. NDL is the case: its author query
+    # works and its records use `dc:creator`, which resmon's NDL parser does not
+    # read — so every candidate it returns is rejected by local verification and
+    # NDL contributes no matches to any watch routine. That is recorded as an
+    # open item and said out loud here rather than being hidden inside a green
+    # assertion or a red one that blames the query.
+    if not any(r.authors for r in records):
+        if slug in _STRICT_AUTHOR:
+            # An assertion for the same reason as the branch above: this is a
+            # failure of the source, and only an `AssertionError` can be excused
+            # by a quarantine entry naming this case.
+            raise AssertionError(
+                f"{slug} returned records for its strict author query but none "
+                f"had a parsed author; outcome={outcome!r}"
+            )
+        pytest.skip(
+            f"NOT VERIFIED — {slug} answered the author query with "
+            f"{len(records)} record(s) and resmon parsed no author from any of "
+            f"them, so the query cannot be checked against the author field and "
+            f"this source can contribute no match. The query reaching the right "
+            f"field is established; the round trip is not.")
+
+    # Any token of the asked name, not only the last. A source is free to
+    # return "Doudna, Jennifer" or "J. Doudna", and requiring the surname to be
+    # the final token would fail on the first of those for reasons that have
+    # nothing to do with whether the query reached the author field.
+    tokens = [t for t in fold_name(name) if len(t) > 1]
+    carrying = [
+        r for r in records
+        if any(any(t in folded for t in tokens)
+               for a in (r.authors or []) for folded in [fold_name(a.name)])
+    ]
+
+    if not carrying and not name.isascii():
+        # A third fact, and NDL is the case that found it. NDL answers the
+        # author query correctly and returns that person's works; the one record
+        # in ten that carries a parsed author carries it as `夏目, 漱石,
+        # 1867-1916`, and `fold_name` — built for Latin names in `near_duplicates`
+        # — does not put that against `夏目漱石`. So resmon's local verification
+        # would reject the right record. Said out loud as an open item rather
+        # than asserted away: the query is established, the *matching* of a
+        # non-Latin name is not, and pretending otherwise here would be the
+        # overclaim this whole phase is about.
+        pytest.skip(
+            f"NOT VERIFIED — {slug} returned {len(records)} record(s) for a "
+            f"non-Latin name and resmon's name folding matched none of them. "
+            f"The query reached the source; whether local verification can "
+            f"check a name in this script is an open item. Authors seen: "
+            f"{[a.name for r in records for a in (r.authors or [])][:3]}")
+
+    assert carrying, (
+        f"{slug} answered an author query for '{name}' with {len(records)} "
+        f"record(s), none of which lists that surname. The query is reaching "
+        f"the source but not its author field — a wrong parameter name looks "
+        f"exactly like this, and to a user it looks like the person has "
+        f"published nothing. First titles: "
+        f"{[r.title[:60] for r in records[:3]]}"
+    )
+
+
+def test_at_least_most_sources_answered(
+    source_response_ledger, record_property, request,
+):
+    """A systematic break goes red; one endpoint having a bad day does not.
+
+    Most cases skip after recording a silent source; DBLP and ERIC fail
+    directly because this stage makes them strict response gates. This guard
+    consumes the same calls' current-session evidence so broader breakage cannot
+    hide behind individual skips, without making a duplicate provider sweep.
+    """
+    # Half, deliberately loosely, and over the exact current catalog-derived
+    # denominator. The existing source cases made the real calls; this assertion
+    # consumes their current-session evidence and makes no duplicate sweep.
+    record_property(
+        "source_aggregate",
+        source_response_ledger.durable_summary(nodeid=request.node.nodeid),
+    )
+    source_response_ledger.assert_threshold()

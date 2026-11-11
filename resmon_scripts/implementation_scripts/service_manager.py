@@ -1,0 +1,667 @@
+"""Service-unit rendering and install/uninstall for the resmon-daemon.
+
+Responsibilities:
+
+* Render the platform-appropriate template (launchd plist on macOS,
+  ``systemd --user`` unit on Linux, Task Scheduler XML on Windows).
+* Write it to the platform-appropriate user-scoped location and (best-effort)
+  register it with the OS service manager so the daemon starts at login.
+* Remove the unit on uninstall and (best-effort) deregister it.
+
+The OS-native registration step (``launchctl bootstrap``, ``systemctl --user
+enable``, ``schtasks /Create``) is invoked only when ``register=True`` is
+passed. Tests pass ``register=False`` so only file-system effects are
+exercised, which keeps the verification suite hermetic.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional
+from xml.sax.saxutils import escape as xml_escape
+
+from .child_process import hidden_window_kwargs
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+
+TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "service_units"
+
+
+def _resmon_scripts_dir() -> Path:
+    """Directory containing resmon.py (used as WorkingDirectory in units)."""
+    return Path(__file__).resolve().parent.parent
+
+
+def _log_dir() -> Path:
+    from .daemon import state_dir
+
+    d = state_dir() / "logs"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def default_python() -> str:
+    """Absolute path to the current Python interpreter."""
+    return sys.executable or shutil.which("python3") or "python3"
+
+
+def default_app_executable() -> Optional[str]:
+    """The packaged app's executable, as the app's own main process told this engine.
+
+    Electron sets ``RESMON_APP_EXECUTABLE`` on the engine it starts, and only when
+    the app is packaged on macOS or Windows. A unit installed from such an engine
+    starts the app with ``--service``. Without it (a source checkout) the unit
+    starts the engine itself.
+
+    Linux always runs the engine: a ``systemd --user`` unit has no display, which
+    Electron needs to start, so the app cannot be the service there, while the
+    bare engine runs headless.
+    """
+    if sys.platform.startswith("linux"):
+        return None
+    return os.environ.get("RESMON_APP_EXECUTABLE") or None
+
+
+class TemporaryPlaceError(RuntimeError):
+    """The unit would point into a place that will not be there next time."""
+
+
+def runs_from_temporary_place(path: str) -> bool:
+    """True for a path under ``/AppTranslocation/`` or ``/Volumes/``.
+
+    An unsigned app opened from Downloads or from its disk image runs from a
+    random read-only copy, or from the image, and both are gone later.
+    """
+    return "/AppTranslocation/" in path or path.startswith("/Volumes/")
+
+
+def default_port() -> int:
+    env = os.environ.get("RESMON_DAEMON_PORT")
+    if env and env.isdigit():
+        return int(env)
+    return 8742
+
+
+DEFAULT_LABEL = "com.resmon.daemon"
+_LABEL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+def service_label() -> str:
+    """The launchd label the service runs under, and its unit file's name.
+
+    ``RESMON_SERVICE_LABEL`` names another, so a test instance installs,
+    starts, and stops a service of its own and never addresses the one a person
+    runs. The label goes into a launchctl target and a file name, so only
+    letters, digits, dots, hyphens, and underscores are accepted.
+    """
+    label = os.environ.get("RESMON_SERVICE_LABEL") or DEFAULT_LABEL
+    if not _LABEL_PATTERN.match(label):
+        raise ValueError(f"RESMON_SERVICE_LABEL is not a label launchd accepts: {label!r}")
+    return label
+
+
+def uses_launchd() -> bool:
+    """True where launchd runs the service (macOS)."""
+    return sys.platform == "darwin"
+
+
+def launchctl_program() -> str:
+    """``launchctl``, or the stand-in ``RESMON_LAUNCHCTL`` names (the tests' stub)."""
+    return os.environ.get("RESMON_LAUNCHCTL") or "launchctl"
+
+
+# ---------------------------------------------------------------------------
+# Per-platform install paths
+# ---------------------------------------------------------------------------
+
+
+def unit_path() -> Path:
+    """Return the absolute install path of the unit for the current OS.
+
+    Honors ``RESMON_SERVICE_UNIT_DIR`` if set (used by tests).
+    """
+    override = os.environ.get("RESMON_SERVICE_UNIT_DIR")
+    if override:
+        base = Path(override)
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "LaunchAgents"
+    elif sys.platform == "win32":
+        base = Path.home() / "AppData" / "Local" / "resmon" / "service_units"
+    else:
+        # Linux / other POSIX: per-user systemd unit path.
+        xdg = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+        base = Path(xdg) / "systemd" / "user"
+
+    if sys.platform == "darwin":
+        return base / f"{service_label()}.plist"
+    if sys.platform == "win32":
+        return base / "resmon-daemon.task.xml"
+    return base / "resmon-daemon.service"
+
+
+def template_path() -> Path:
+    if sys.platform == "darwin":
+        return TEMPLATES_DIR / "com.resmon.daemon.plist"
+    if sys.platform == "win32":
+        return TEMPLATES_DIR / "resmon-daemon.task.xml"
+    return TEMPLATES_DIR / "resmon-daemon.service"
+
+
+# ---------------------------------------------------------------------------
+# Rendering
+# ---------------------------------------------------------------------------
+
+# ``{{PYTHON}}`` is the program the unit starts: the interpreter running the
+# engine, or the app's executable when the unit runs the app (``app_executable``).
+# ``{{LAUNCH_ARGS}}`` is what follows it, up to the port.
+REQUIRED_PLACEHOLDERS = (
+    "{{PYTHON}}", "{{LAUNCH_ARGS}}", "{{PORT}}", "{{WORKDIR}}", "{{LOG_DIR}}", "{{STATE_ARGS}}",
+)
+
+ENGINE_LAUNCH_ARGS = ("-m", "implementation_scripts.daemon")
+APP_LAUNCH_ARGS = ("--service",)
+
+# The variables that say where a backend keeps its state, and the daemon flag
+# that carries each one into a service.
+#
+# A packaged app's Electron main process sets both on the backend it spawns,
+# pointing them at the per-user state directory, because the bundle is replaced
+# on every update. A service unit is started by the OS, not by Electron, so it
+# inherits neither. Without them, a service installed from the packaged app would
+# run the bundled daemon with config.py's checkout-relative defaults: a database
+# and a reports folder *inside the app bundle*, empty, and wiped by the next
+# update. The app would then attach to it, because it is the same version, and
+# show that empty database in place of the user's own. The rendered plist would
+# name no database, and the bundled interpreter resolves DEFAULT_DB_PATH to
+# ``resmon.app/Contents/Resources/backend/resmon.db``.
+#
+# Flags rather than environment entries because Task Scheduler's Exec action
+# has no environment, and one mechanism on all three platforms is one thing to
+# test. A dev checkout's backend sets neither variable, so its unit carries no
+# flags and its daemon keeps the checkout database.
+STATE_ARGUMENTS = (
+    ("RESMON_DB_PATH", "--db-path"),
+    ("RESMON_REPORTS_DIR", "--reports-dir"),
+)
+
+
+def state_arguments(environ: Optional[dict[str, str]] = None) -> list[str]:
+    """``--flag=path`` for each state variable set in ``environ``.
+
+    Paths are made absolute here, because the daemon's working directory is the
+    unit's ``WorkingDirectory``, not the installing process's.
+    """
+    env = os.environ if environ is None else environ
+    args = []
+    for variable, flag in STATE_ARGUMENTS:
+        value = env.get(variable)
+        if value:
+            args.append(f"{flag}={os.path.abspath(value)}")
+    return args
+
+
+def _format_state_args(args: list[str], template: Path) -> str:
+    """Render daemon arguments in the syntax of the template they go into.
+
+    A packaged app's state directory has a space in it on macOS
+    (``Application Support``), so each format has to keep a path one argument.
+    """
+    if template.name.endswith(".plist"):
+        # One <string> per argument; launchd passes each one whole.
+        return "".join(f"\n        <string>{xml_escape(a)}</string>" for a in args)
+    if template.name.endswith(".service"):
+        # systemd splits ExecStart on spaces unless quoted, expands % specifiers
+        # and $VARIABLES, and reads backslash escapes inside quotes.
+        def quote(a: str) -> str:
+            a = a.replace("\\", "\\\\").replace('"', '\\"')
+            return '"' + a.replace("%", "%%").replace("$", "$$") + '"'
+        return "".join(" " + quote(a) for a in args)
+    # Task Scheduler: one command-line string, split by the usual Windows rules.
+    # A Windows path cannot contain a double quote, so quoting is enough.
+    return "".join(" " + xml_escape(f'"{a}"') for a in args)
+
+
+def _format_launch_args(args: tuple[str, ...], template: Path) -> str:
+    """The arguments after the program, in the syntax of *template*."""
+    if template.name.endswith(".plist"):
+        return "\n        ".join(f"<string>{xml_escape(a)}</string>" for a in args)
+    return " ".join(args)
+
+
+def _quote_program(program: str, template: Path) -> str:
+    """The program as the template's syntax needs it: systemd splits on spaces unless quoted."""
+    if not template.name.endswith(".service"):
+        return program
+    quoted = program.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%").replace("$", "$$")
+    return f'"{quoted}"'
+
+
+def render_template(
+    *,
+    python: Optional[str] = None,
+    port: Optional[int] = None,
+    workdir: Optional[Path] = None,
+    log_dir: Optional[Path] = None,
+    template: Optional[Path] = None,
+    state_args: Optional[list[str]] = None,
+    app_executable: Optional[str] = None,
+) -> str:
+    """Render the platform-appropriate unit template to a string.
+
+    With ``app_executable`` the unit starts that executable with ``--service``
+    (the app, which starts the engine as its child and posts its notifications);
+    without it the unit starts the engine itself with ``python``.
+
+    Every ``{{NAME}}`` placeholder in the template is substituted. It is a
+    programming error to leave any placeholder unresolved, so the function
+    asserts that none remain. ``state_args`` defaults to the installing
+    process's own state, from ``state_arguments()``.
+    """
+    src = template or template_path()
+    raw = src.read_text(encoding="utf-8")
+    resolved_log_dir = str(log_dir or _log_dir())
+    args = list(state_arguments() if state_args is None else state_args)
+    if app_executable:
+        program = _quote_program(app_executable, src)
+        launch = _format_launch_args(APP_LAUNCH_ARGS, src)
+        port_text = f"--port={port if port is not None else default_port()}"
+        # The app's folder is the one place a unit can name that outlives a run
+        # (an AppImage's mount does not), and nothing in it is read.
+        default_workdir = Path(app_executable).parent
+    else:
+        program = python or default_python()
+        launch = _format_launch_args(ENGINE_LAUNCH_ARGS, src)
+        port_text = str(port if port is not None else default_port())
+        default_workdir = _resmon_scripts_dir()
+    if src.name.endswith(".xml"):
+        # Task Scheduler's Exec action cannot redirect output, so the service
+        # opens its own log files there; launchd and systemd open them from
+        # the unit's {{LOG_DIR}} lines instead (see ``service_log``).
+        args.append(f"--log-dir={resolved_log_dir}")
+    mapping = {
+        "{{LABEL}}": xml_escape(service_label()),
+        "{{PYTHON}}": program,
+        "{{LAUNCH_ARGS}}": launch,
+        "{{PORT}}": port_text,
+        "{{WORKDIR}}": str(workdir or default_workdir),
+        "{{LOG_DIR}}": resolved_log_dir,
+        "{{STATE_ARGS}}": _format_state_args(args, src),
+    }
+    out = raw
+    for placeholder, value in mapping.items():
+        out = out.replace(placeholder, value)
+    # The task.xml template has no {{LOG_DIR}} line; its log directory travels
+    # in the arguments above. No required placeholder may leak through.
+    leftover = [p for p in (*REQUIRED_PLACEHOLDERS, "{{LABEL}}") if p in out]
+    assert not leftover, f"Unresolved placeholders in rendered unit: {leftover}"
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Install / uninstall
+# ---------------------------------------------------------------------------
+
+
+class ServiceBlockedError(RuntimeError):
+    """macOS has turned resmon off in the background, so launchd will not start it."""
+
+
+BLOCKED_SENTENCE = (
+    "macOS has turned resmon off in the background, so it cannot start the service. Turn resmon on in "
+    "System Settings › General › Login Items & Extensions, under Allow in the Background, then try again."
+)
+
+
+@dataclass(frozen=True)
+class Outcome:
+    """What an install or an uninstall did, or set going.
+
+    ``restarting`` is true when the caller is the service's own engine: the
+    job cannot be stopped from inside it and then started again, so a process
+    outside the job does that once this answer has gone (``_hand_off``).
+    """
+
+    path: Path
+    removed: bool = False
+    restarting: bool = False
+
+
+def install(
+    *,
+    python: Optional[str] = None,
+    port: Optional[int] = None,
+    workdir: Optional[Path] = None,
+    log_dir: Optional[Path] = None,
+    register: bool = False,
+    app_executable: Optional[str] = None,
+) -> Path:
+    """Render the unit and write it to ``unit_path()`` (see ``install_unit``)."""
+    return install_unit(python=python, port=port, workdir=workdir, log_dir=log_dir,
+                        register=register, app_executable=app_executable).path
+
+
+def install_unit(
+    *,
+    python: Optional[str] = None,
+    port: Optional[int] = None,
+    workdir: Optional[Path] = None,
+    log_dir: Optional[Path] = None,
+    register: bool = False,
+    app_executable: Optional[str] = None,
+) -> Outcome:
+    """Render the unit and write it to ``unit_path()``.
+
+    A unit installed from the packaged app runs the app (see
+    ``default_app_executable``); naming ``python`` asks for the engine itself.
+
+    If ``register`` is True, also register the unit with the OS service
+    manager (``launchctl``, ``systemctl --user``, or ``schtasks``), replacing a
+    job of the same label that is already loaded: launchd refuses to bootstrap
+    a label it already holds, which is what made installing again fail.
+    Registration failures are raised.
+    """
+    target = unit_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if app_executable is None and python is None:
+        app_executable = default_app_executable()
+    # Both forms name a path inside the running app: the app's executable, or the
+    # bundled interpreter.
+    started = app_executable or python or default_python()
+    if runs_from_temporary_place(started):
+        raise TemporaryPlaceError(
+            "resmon is running from a disk image or a download, which will not be there next time: "
+            "move resmon to Applications, open it from there, and install the background service again.")
+    if register and uses_launchd() and launchd_job().disabled:
+        raise ServiceBlockedError(BLOCKED_SENTENCE)
+    rendered = render_template(python=python, port=port, workdir=workdir, log_dir=log_dir,
+                               app_executable=app_executable)
+    target.write_text(rendered, encoding="utf-8")
+    try:
+        os.chmod(target, 0o644)
+    except OSError:
+        pass
+
+    if not register:
+        return Outcome(target)
+    if uses_launchd():
+        job = launchd_job()
+        if job.loaded and _inside(job):
+            # This engine is the service's. Stopping the job stops this process
+            # before it could start the job again, so another does both.
+            _hand_off("replace", target, app_executable)
+            return Outcome(target, restarting=True)
+        _register_launchd(target, job)
+        return Outcome(target)
+    _register_with_os(target)
+    return Outcome(target)
+
+
+def uninstall(*, deregister: bool = False) -> bool:
+    """Remove the unit file. Returns True if a file was removed (see ``uninstall_unit``)."""
+    return uninstall_unit(deregister=deregister).removed
+
+
+def uninstall_unit(*, deregister: bool = False) -> Outcome:
+    """Stop the service and remove its unit file.
+
+    If ``deregister`` is True, the job is stopped first, and on macOS the file
+    is removed only once launchd has let it go: a file removed while the job
+    keeps running made Settings say "Not installed" about a service launchd
+    went on restarting. A stop that fails is raised and the file stays.
+    """
+    target = unit_path()
+    if deregister and uses_launchd():
+        job = launchd_job()
+        if job.loaded and _inside(job):
+            _hand_off("remove", target, default_app_executable())
+            return Outcome(target, restarting=True)
+        if job.loaded:
+            _bootout(job)
+    elif deregister and target.exists():
+        try:
+            _deregister_with_os(target)
+        except Exception:
+            # Best effort elsewhere: systemd and Task Scheduler forget a unit
+            # whose file is gone at their next reload.
+            pass
+    if target.exists():
+        target.unlink()
+        return Outcome(target, removed=True)
+    return Outcome(target)
+
+
+def unit_runs() -> Optional[str]:
+    """What the installed unit starts: ``"app"``, ``"engine"``, or ``None`` (no unit, or unreadable)."""
+    try:
+        text = unit_path().read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    if "implementation_scripts.daemon" in text:
+        return "engine"
+    if "--service" in text:
+        return "app"
+    return None
+
+
+def is_installed() -> bool:
+    return unit_path().exists()
+
+
+# ---------------------------------------------------------------------------
+# launchd (macOS)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class LaunchdJob:
+    """What launchd says about the service's label in this login session."""
+
+    loaded: bool
+    pid: Optional[int]
+    disabled: bool
+
+
+# How long a stopped job is given to leave launchd: the app quits its engine
+# first, which allows a running search 20 s to stop.
+_BOOTOUT_WAIT_SEC = 30.0
+
+
+def _domain() -> str:
+    return f"gui/{os.getuid()}"
+
+
+def _target() -> str:
+    return f"{_domain()}/{service_label()}"
+
+
+def _launchctl(*args: str) -> subprocess.CompletedProcess:
+    """One launchctl call, bounded, never raising: a missing or wedged launchctl is a failed call."""
+    cmd = [launchctl_program(), *args]
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=_SERVICE_CMD_TIMEOUT_SEC,
+                              **hidden_window_kwargs())
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return subprocess.CompletedProcess(cmd, 1, "", f"{exc.__class__.__name__}: {exc}")
+
+
+def launchd_job() -> LaunchdJob:
+    """Ask launchd whether the label is loaded, its process, and whether it is turned off.
+
+    ``launchctl print`` answers for a loaded label only. A label macOS's Allow
+    in the Background has turned off is listed as disabled by
+    ``launchctl print-disabled``; launchd will not start it, and trying again
+    does not help.
+    """
+    shown = _launchctl("print", _target())
+    loaded = shown.returncode == 0
+    pid = None
+    if loaded:
+        found = re.search(r"^\s*pid = (\d+)\s*$", shown.stdout, re.MULTILINE)
+        pid = int(found.group(1)) if found else None
+    listed = _launchctl("print-disabled", _domain())
+    label = re.escape(service_label())
+    disabled = bool(re.search(rf'"{label}"\s*=>\s*(?:disabled|true)\b', listed.stdout))
+    return LaunchdJob(loaded=loaded, pid=pid, disabled=disabled)
+
+
+def _inside(job: LaunchdJob) -> bool:
+    """True when this process is the job's, or its child: the service app runs the engine as its child."""
+    return job.pid is not None and job.pid in (os.getpid(), os.getppid())
+
+
+def _bootout(job: LaunchdJob) -> None:
+    """Stop the job and wait until launchd has let the label go, or raise."""
+    asked = _launchctl("bootout", _target())
+    deadline = time.monotonic() + _BOOTOUT_WAIT_SEC
+    while time.monotonic() < deadline:
+        if not launchd_job().loaded:
+            return
+        time.sleep(0.25)
+    said = (asked.stderr or asked.stdout).strip()
+    raise RuntimeError(
+        "launchd did not stop the background service"
+        + (f" (launchctl bootout said: {said})" if said else "")
+        + ". It is still installed.")
+
+
+def _register_launchd(path: Path, job: Optional[LaunchdJob] = None) -> None:
+    job = job or launchd_job()
+    if job.disabled:
+        raise ServiceBlockedError(BLOCKED_SENTENCE)
+    if job.loaded:
+        _bootout(job)
+    started = _launchctl("bootstrap", _domain(), str(path))
+    if started.returncode != 0:
+        if launchd_job().disabled:
+            raise ServiceBlockedError(BLOCKED_SENTENCE)
+        said = (started.stderr or started.stdout).strip()
+        raise RuntimeError(f"launchctl bootstrap failed (exit {started.returncode}): {said}")
+
+
+# The steps a process outside the job takes for the service's own engine: stop
+# the job, wait for launchd to let the label go, then start it from the new
+# unit or remove the unit, and open the app again, which brings a window up on
+# the service that is now running (or on its own engine, once it is removed).
+_HAND_OFF = r"""
+L="$1"; T="$2"; D="$3"; P="$4"; MODE="$5"; APP="$6"
+"$L" bootout "$T" >/dev/null 2>&1
+i=0
+while "$L" print "$T" >/dev/null 2>&1; do
+  i=$((i+1)); [ "$i" -ge 120 ] && exit 1; sleep 0.25
+done
+if [ "$MODE" = remove ]; then
+  rm -f "$P"
+else
+  "$L" bootstrap "$D" "$P" || exit 1
+  i=0
+  until "$L" print "$T" 2>/dev/null | grep -q "pid = "; do
+    i=$((i+1)); [ "$i" -ge 120 ] && exit 1; sleep 0.25
+  done
+  sleep 3
+fi
+[ -n "$APP" ] && open -a "$APP"
+exit 0
+"""
+
+
+def _hand_off(mode: str, path: Path, app_executable: Optional[str]) -> None:
+    """Start a process outside the job that replaces (``mode="replace"``) or removes the service.
+
+    A new session, so launchd's stopping the job's process group does not stop
+    it too. ``app_executable`` is the app to open again afterwards, as a
+    ``.app`` bundle on macOS.
+    """
+    bundle = ""
+    if app_executable and ".app/Contents/MacOS/" in app_executable:
+        bundle = app_executable.split(".app/Contents/MacOS/", 1)[0] + ".app"
+    subprocess.Popen(
+        ["/bin/sh", "-c", _HAND_OFF, "resmon-service-hand-off",
+         launchctl_program(), _target(), _domain(), str(path), mode, bundle],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        start_new_session=True, close_fds=True, **hidden_window_kwargs(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# OS registration elsewhere (best-effort, never called from tests)
+# ---------------------------------------------------------------------------
+
+
+def _register_with_os(path: Path) -> None:
+    if sys.platform == "darwin":
+        _register_launchd(path)
+        return
+    if sys.platform == "win32":
+        _run([
+            "schtasks", "/Create", "/TN", "resmon-daemon",
+            "/XML", str(path), "/F",
+        ], "schtasks /Create")
+        return
+    # Linux / systemd --user
+    _run(["systemctl", "--user", "daemon-reload"], "systemctl daemon-reload")
+    _run(["systemctl", "--user", "enable", "--now", path.name], "systemctl enable")
+
+
+def _deregister_with_os(path: Path) -> None:
+    if sys.platform == "darwin":
+        job = launchd_job()
+        if job.loaded:
+            _bootout(job)
+        return
+    if sys.platform == "win32":
+        _run(["schtasks", "/Delete", "/TN", "resmon-daemon", "/F"], "schtasks /Delete")
+        return
+    _run(["systemctl", "--user", "disable", "--now", path.name], "systemctl disable")
+    _run(["systemctl", "--user", "daemon-reload"], "systemctl daemon-reload")
+
+
+# ``launchctl``, ``systemctl --user`` and ``schtasks`` are all reachable from
+# the POST /api/service/install and /uninstall endpoints, so an unbounded call
+# here blocks an HTTP request - and the ASGI worker thread serving it - for as
+# long as the OS takes. A wedged systemd user session is enough. The other
+# subprocess sites in this codebase already bound themselves (desktop_notifier
+# at 5 s, report_exporter at 180 s); these two were the exception.
+_SERVICE_CMD_TIMEOUT_SEC = 30.0
+
+
+def _run(cmd: list[str], label: str) -> None:
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=_SERVICE_CMD_TIMEOUT_SEC,
+            **hidden_window_kwargs(),
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            f"{label} timed out after {_SERVICE_CMD_TIMEOUT_SEC:.0f}s "
+            f"(command: {' '.join(cmd)})"
+        ) from None
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"{label} failed (exit {result.returncode}): {result.stderr.strip() or result.stdout.strip()}"
+        )
+
+
+def _run_first_successful(cmds: list[list[str]], label: str) -> None:
+    last_err: Optional[str] = None
+    for cmd in cmds:
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=_SERVICE_CMD_TIMEOUT_SEC,
+                **hidden_window_kwargs(),
+            )
+        except subprocess.TimeoutExpired:
+            last_err = f"timed out after {_SERVICE_CMD_TIMEOUT_SEC:.0f}s"
+            continue
+        if result.returncode == 0:
+            return
+        last_err = result.stderr.strip() or result.stdout.strip()
+    raise RuntimeError(f"{label} failed: {last_err}")

@@ -1,0 +1,165 @@
+{
+  "name": "resmon",
+  "version": "1.0.0",
+  "description": "resmon — Research Monitor desktop application",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ryanjosephkamp/resmon.git"
+  },
+  "main": "dist/electron/main.js",
+  "scripts": {
+    "build:electron": "tsc --project tsconfig.electron.json",
+    "build:atlas": "vite build --config atlas/vite.config.ts",
+    "build": "npm run build:atlas && npm run build:electron",
+    "start": "npm run build && electron .",
+    "gen:zero-reason": "node scripts/generate-zero-reason.js",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit && tsc --noEmit --project atlas/tsconfig.json && node scripts/atlas-api.mjs --check",
+    "typecheck:e2e": "tsc --noEmit --project e2e/tsconfig.json",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "e2e": "playwright test --config e2e/playwright.config.ts",
+    "e2e:smoke": "playwright test --config e2e/playwright.config.ts e2e/smoke.spec.ts",
+    "e2e:window": "playwright test --config e2e/playwright.config.ts e2e/window-manager.spec.ts",
+    "e2e:review": "node scripts/e2e-review.js",
+    "journeys": "playwright test --config journeys/playwright.config.ts",
+    "typecheck:journeys": "tsc --noEmit --project journeys/tsconfig.json",
+    "perf:ui": "playwright test --config perf/playwright.config.ts",
+    "typecheck:perf": "tsc --noEmit --project perf/tsconfig.json",
+    "demos": "playwright test --config demos/playwright.config.ts",
+    "demos:media": "ts-node-transpile-only --project demos/tsconfig.json demos/media.ts",
+    "typecheck:demos": "tsc --noEmit --project demos/tsconfig.json",
+    "prepare:backend": "node scripts/prepare-backend.js",
+    "dist": "npm run build && electron-builder --publish never",
+    "dist:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist",
+    "gen:atlas-api": "node scripts/atlas-api.mjs --write"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.105.0",
+    "@tanstack/react-virtual": "3.14.20",
+    "electron-updater": "^6.8.9",
+    "katex": "0.19.0",
+    "openapi-fetch": "^0.17.0",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "react-router-dom": "^7.14.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@fontsource/spectral": "^5.3.0",
+    "@playwright/test": "1.62.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/jest": "^30.0.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^4.7.0",
+    "electron": "^41.2.0",
+    "electron-builder": "^26.8.1",
+    "eslint": "^10.13.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.13.0",
+    "jest": "^30.4.2",
+    "jest-environment-jsdom": "^30.4.1",
+    "openapi-typescript": "^7.13.0",
+    "ts-jest": "^29.4.12",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.71.2",
+    "vite": "^6.4.5"
+  },
+  "build": {
+    "appId": "com.resmon.app",
+    "productName": "resmon",
+    "copyright": "Ryan Kamp",
+    "directories": {
+      "output": "release",
+      "buildResources": "build-resources"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build-resources/backend",
+        "to": "backend"
+      }
+    ],
+    "beforePack": "scripts/prepare-backend.js",
+    "protocols": [
+      {
+        "name": "resmon link",
+        "schemes": [
+          "resmon"
+        ]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "bundleVersion": "11.0.0",
+      "target": [
+        "dmg"
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build-resources/entitlements.mac.plist",
+      "entitlementsInherit": "build-resources/entitlements.mac.plist"
+    },
+    "asar": true,
+    "dmg": {
+      "artifactName": "resmon-${version}-${arch}.${ext}",
+      "writeUpdateInfo": false
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "resmon-${version}-setup-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "include": "build-resources/installer.nsh"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "resmon-${version}-${arch}.${ext}",
+      "category": "Science",
+      "maintainer": "Ryan Kamp"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "ryanjosephkamp",
+        "repo": "resmon"
+      }
+    ]
+  },
+  "overrides": {
+    "openapi-typescript": {
+      "typescript": "$typescript"
+    }
+  }
+}

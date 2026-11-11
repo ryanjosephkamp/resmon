@@ -1,0 +1,270 @@
+---
+/**
+ * A rendered Markdown document: the guide, the reference documents, and the
+ * API contract use this.
+ *
+ * Three columns on a wide screen: the rail, every page in this part of the
+ * site in its order with the current one lit; the document; and its own
+ * contents. On a phone the rail folds into a plain list under the document and
+ * the contents sit above the text. The title is set in a cartouche, the
+ * double-ruled block the app sets its plate's title in.
+ *
+ * The contents list is built from the generated heading ids rather than from a
+ * hand-written list, so it cannot fall out of step with the document. It only
+ * appears when there is enough document to be worth navigating, four or more
+ * top-level sections, and it is plain links, so it works with JavaScript off.
+ */
+import Base from './Base.astro';
+import type { Heading } from '../lib/markdown';
+import { url } from '../lib/urls';
+import Cartouche from '../components/Cartouche.astro';
+
+export interface RailItem {
+  title: string;
+  /** Path on this site, without the base. */
+  href: string;
+}
+
+interface Props {
+  title: string;
+  description: string;
+  path: string;
+  /** The part of the site this page belongs to, set in the line under the title. */
+  section?: string;
+  /** Rendered beneath the title: a summary or a source path. */
+  meta?: string;
+  html: string;
+  headings: Heading[];
+  /** Every page in this part of the site, in order. */
+  rail?: { label: string; href: string; items: RailItem[] };
+}
+
+const { title, description, path, section, meta, html, headings, rail } = Astro.props;
+
+const sections = headings.filter((heading) => heading.depth === 2);
+const showContents = sections.length >= 4;
+const here = (href: string) => href === path;
+---
+
+<Base title={title} description={description} path={path} width="full">
+  <div class:list={['doc', rail && 'has-rail', showContents && 'has-contents']}>
+    {
+      rail && (
+        <nav class="rail" aria-label={rail.label}>
+          <a class="rail-head" href={url(rail.href)} aria-current={here(rail.href) ? 'page' : undefined}>
+            {rail.label}
+          </a>
+          <ol>
+            {rail.items.map((item) => (
+              <li>
+                <a href={url(item.href)} aria-current={here(item.href) ? 'page' : undefined}>
+                  {item.title}
+                </a>
+              </li>
+            ))}
+          </ol>
+        </nav>
+      )
+    }
+
+    <article class="doc-body">
+      <Cartouche title={title} section={section} meta={meta} />
+
+      {
+        showContents && (
+          <nav class="contents" aria-labelledby="contents-heading">
+            <h2 id="contents-heading" class="contents-heading">
+              On this page
+            </h2>
+            <ul>
+              {sections.map((item) => (
+                <li>
+                  <a href={`#${item.slug}`} set:html={item.text} />
+                </li>
+              ))}
+            </ul>
+          </nav>
+        )
+      }
+
+      <div class="prose" set:html={html} />
+
+      {/* Anything a page wants beneath the document: a pager, a related list. */}
+      <slot />
+    </article>
+  </div>
+</Base>
+
+<style>
+  .doc {
+    display: grid;
+    gap: var(--space-6);
+    padding-block: var(--space-6) var(--space-8);
+  }
+
+  .doc-body {
+    min-width: 0;
+    max-width: var(--measure-wide);
+  }
+
+  /* ---- The rail -------------------------------------------------------- */
+
+  .rail {
+    order: 2;
+    font-size: var(--text-sm);
+    border-top: var(--border-width) solid var(--color-border);
+    padding-top: var(--space-4);
+  }
+
+  .rail-head {
+    display: block;
+    margin-bottom: var(--space-2);
+    font-weight: var(--weight-semibold);
+    color: var(--color-text);
+    text-decoration: none;
+  }
+
+  .rail ol {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    columns: 2 11rem;
+    column-gap: var(--space-5);
+  }
+
+  .rail li + li {
+    margin-top: 0;
+  }
+
+  .rail li a {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding-block: var(--space-1);
+    color: var(--color-text-muted);
+    text-decoration: none;
+    break-inside: avoid;
+    transition: color var(--duration-fast) var(--ease);
+  }
+
+  /* A lit point, as the chart marks the paper you are on. */
+  .rail li a::before {
+    content: '';
+    flex-shrink: 0;
+    width: var(--space-1);
+    height: var(--space-1);
+    border-radius: 50%;
+    background: var(--color-border-strong);
+  }
+
+  .rail a:hover {
+    color: var(--color-text);
+  }
+
+  .rail a[aria-current='page'] {
+    color: var(--color-text);
+    font-weight: var(--weight-semibold);
+  }
+
+  /* The page you are on is ringed, as Today rings a new paper. */
+  .rail li a[aria-current='page']::before {
+    background: var(--color-accent-mark);
+    outline: var(--border-width) solid var(--color-accent-mark);
+    outline-offset: var(--border-width-heavy);
+  }
+
+  /* ---- Contents -------------------------------------------------------- */
+
+  .contents {
+    max-width: var(--measure);
+    margin-bottom: var(--space-6);
+    padding-block: var(--space-3);
+    border-block: var(--border-width) solid var(--color-border);
+  }
+
+  .contents-heading {
+    margin: 0 0 var(--space-2);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--color-text);
+    border: 0;
+    padding: 0;
+  }
+
+  .contents ul {
+    margin: 0;
+    padding-inline-start: var(--space-5);
+    font-size: var(--text-sm);
+    columns: 2 14rem;
+    column-gap: var(--space-6);
+  }
+
+  .contents li + li {
+    margin-top: var(--space-1);
+  }
+
+  .contents a {
+    color: var(--color-text-muted);
+  }
+
+  .contents a:hover {
+    color: var(--color-text);
+  }
+
+  /* ---- Wide screens: rail, document, contents -------------------------- */
+
+  @media (min-width: 64rem) {
+    .doc.has-rail {
+      grid-template-columns: var(--rail) minmax(0, 1fr);
+      gap: var(--space-7);
+    }
+
+    .rail {
+      order: 0;
+      position: sticky;
+      top: var(--space-5);
+      align-self: start;
+      border-top: 0;
+      padding-top: 0;
+    }
+
+    .rail ol {
+      columns: auto;
+    }
+  }
+
+  @media (min-width: 84rem) {
+    .doc.has-rail.has-contents .doc-body {
+      display: grid;
+      grid-template-columns: minmax(0, var(--measure)) var(--rail);
+      column-gap: var(--space-7);
+      max-width: none;
+      align-items: start;
+    }
+
+    .doc.has-rail.has-contents .doc-body > :global(.cartouche) {
+      grid-column: 1 / -1;
+    }
+
+    .doc.has-rail.has-contents .contents {
+      grid-column: 2;
+      grid-row: 2 / span 2;
+      position: sticky;
+      top: var(--space-5);
+      border-block: 0;
+      border-inline-start: var(--border-width) solid var(--color-border);
+      padding: 0 0 0 var(--space-4);
+    }
+
+    .doc.has-rail.has-contents .contents ul {
+      columns: auto;
+      padding-inline-start: 0;
+      list-style: none;
+    }
+
+    .doc.has-rail.has-contents .prose,
+    .doc.has-rail.has-contents .doc-body > :global(:not(.cartouche):not(.contents)) {
+      grid-column: 1;
+    }
+  }
+</style>

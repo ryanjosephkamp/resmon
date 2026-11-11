@@ -1,0 +1,30 @@
+---
+/**
+ * The guide index: every guide page, in its `order`, in the site's listing
+ * form.
+ */
+import { getCollection } from 'astro:content';
+import Base from '../../layouts/Base.astro';
+import IndexList from '../../components/IndexList.astro';
+import Cartouche from '../../components/Cartouche.astro';
+import { url } from '../../lib/urls';
+
+const guide = (await getCollection('guide')).sort((a, b) => a.data.order - b.data.order);
+---
+
+<Base
+  title="Guide"
+  description="Installing, running and configuring resmon: the long-form documentation, a page per topic."
+  path="/guide/"
+  width="wide"
+>
+  <Cartouche title="Guide" meta="Installing, running, and configuring resmon, a page per topic." />
+
+  <IndexList
+    rows={guide.map((entry) => ({
+      href: url(`/guide/${entry.id}/`),
+      title: entry.data.title,
+      description: entry.data.summary,
+    }))}
+  />
+</Base>

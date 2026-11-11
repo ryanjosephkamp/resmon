@@ -1,0 +1,191 @@
+/**
+ * resmon's app as the background service, and as the poster of its notifications.
+ *
+ * A background service that is a bare Python process, started by launchd (or
+ * systemd, or Task Scheduler), is nothing the OS can tell is resmon, so its
+ * notifications would go out through `osascript` and macOS would credit every
+ * one to Script Editor: its name, its icon, and a click that opened Script
+ * Editor. A process cannot post under another app's name, so the app has to be
+ * the one posting, which means the app has to be running.
+ *
+ * Launched with `--service`, the app is that process: it starts the engine
+ * (`implementation_scripts.daemon`, the service's entry point) as its
+ * child, keeps no window and no Dock icon, and stays up when a window it
+ * opened is closed. A notification the engine sends to the listener here is
+ * posted by the app, and clicking it opens the run. Opening resmon while the
+ * service runs opens a window in this same process, on the same engine.
+ *
+ * This file holds the parts that do not need Electron, so they can be tested
+ * as plain functions; `main.ts` wires them to the app.
+ */
+import * as crypto from 'crypto';
+import * as http from 'http';
+
+/** True when this launch is the background service rather than a window. */
+export function isServiceLaunch(argv: readonly string[], env: NodeJS.ProcessEnv): boolean {
+  return argv.includes('--service') || env.RESMON_SERVICE === '1';
+}
+
+/**
+ * Whether a second launch, handed over to the resmon already running, asks for
+ * a window. A person opening resmon does. The service starting does not: it
+ * found resmon already running and quits, and launchd starts it again every ten
+ * seconds until it is the only one. Answered with a window, each of those
+ * starts brought the running window to the front, every ten seconds, for as
+ * long as it was open.
+ */
+export function opensWindowFor(argv: readonly string[]): boolean {
+  return !argv.includes('--service');
+}
+
+/**
+ * The port the service's engine listens on: `--port=N` on the command line, as
+ * a unit installed from the packaged app passes it, else `RESMON_DAEMON_PORT`,
+ * as the unit sets it and as `service_manager.default_port` reads it, else 8742.
+ *
+ * A value that is set and is not a port is an error, not a reason to fall
+ * back: a service that quietly took the default would be a second resmon on
+ * someone else's port, which is the shape `backendPort.test.ts` exists to
+ * keep out of the renderer.
+ */
+export function servicePort(env: NodeJS.ProcessEnv, argv: readonly string[] = []): number {
+  const flag = argv.find((a) => a.startsWith('--port='));
+  const raw = flag !== undefined ? flag.slice('--port='.length) : env.RESMON_DAEMON_PORT;
+  const where = flag !== undefined ? '--port' : 'RESMON_DAEMON_PORT';
+  if (raw === undefined || raw === '') return 8742;
+  const port = Number(raw);
+  if (!/^\d+$/.test(raw) || port < 1 || port > 65535) {
+    throw new Error(`${where} is set to ${JSON.stringify(raw)}, which is not a port.`);
+  }
+  return port;
+}
+
+/** The flags a service unit passes the app that the engine reads (`daemon._apply_state_args`, `_log_dir_arg`). */
+const ENGINE_FLAGS = ['--db-path=', '--reports-dir=', '--log-dir='];
+
+/**
+ * The state flags of the app's own command line, handed on to the engine it
+ * starts as the service. A unit installed from the packaged app passes the
+ * database, the reports folder, and (on Windows, where the unit cannot redirect
+ * output) the log folder to the app, and the engine is the one that reads them.
+ */
+export function engineFlags(argv: readonly string[]): string[] {
+  return argv.filter((a) => ENGINE_FLAGS.some((flag) => a.startsWith(flag) && a.length > flag.length));
+}
+
+/**
+ * The executable a service unit should start to run this app, which the app
+ * tells the engines it starts (`RESMON_APP_EXECUTABLE`), or null when no unit
+ * could run it: a source checkout, or Linux. On Linux the unit runs the engine
+ * itself: a `systemd --user` unit has no display, which Electron needs to start,
+ * while the bare engine runs headless.
+ */
+export function appExecutable(platform: NodeJS.Platform, execPath: string, packaged: boolean): string | null {
+  if (!packaged || platform === 'linux') return null;
+  return execPath;
+}
+
+/** One notification as the engine sends it. */
+export interface Notice {
+  title: string;
+  body: string;
+  executionId: number | null;
+}
+
+/** The most a notice may carry; the engine's bodies are a few hundred bytes. */
+const MAX_NOTICE_BYTES = 16 * 1024;
+
+/** A notice from the request body, or null when it is not one. */
+export function parseNotice(raw: string): Notice | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof value !== 'object' || value === null) return null;
+  const { title, body, execution_id: executionId } = value as Record<string, unknown>;
+  if (typeof title !== 'string' || typeof body !== 'string') return null;
+  if (executionId !== null && executionId !== undefined
+    && !(typeof executionId === 'number' && Number.isInteger(executionId) && executionId > 0)) {
+    return null;
+  }
+  return { title, body, executionId: typeof executionId === 'number' ? executionId : null };
+}
+
+/** Where the engine sends notices, and what it must present to be heard. */
+export interface NoticeListener {
+  url: string;
+  token: string;
+  close(): void;
+}
+
+/**
+ * A listener on loopback that takes notices from the engine this app started.
+ *
+ * Bound to 127.0.0.1 on a port the OS picks, and answering only a request
+ * that carries the token minted here, which reaches the engine in its
+ * environment and nowhere else (`desktop_notifier.configure_host_from_environment`
+ * takes it out again). Any other local process gets 401 and posts nothing.
+ *
+ * `onNotice` says whether the app posted it. When it could not (no
+ * notification support here), the answer is 503 and the engine posts the
+ * notification itself, through the operating system's own tool, rather than
+ * the notification being lost.
+ */
+export function startNoticeListener(onNotice: (notice: Notice) => boolean): Promise<NoticeListener> {
+  const token = crypto.randomBytes(32).toString('base64url');
+  const expected = Buffer.from(`Bearer ${token}`);
+  const server = http.createServer((req, res) => {
+    const given = Buffer.from(req.headers.authorization ?? '');
+    const authorized = given.length === expected.length && crypto.timingSafeEqual(given, expected);
+    if (req.method !== 'POST' || req.url !== '/notify' || !authorized) {
+      req.resume();
+      res.writeHead(authorized ? 404 : 401).end();
+      return;
+    }
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > MAX_NOTICE_BYTES) {
+        res.writeHead(413).end();
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (res.writableEnded) return;
+      const notice = parseNotice(Buffer.concat(chunks).toString('utf-8'));
+      if (!notice) {
+        res.writeHead(400).end();
+        return;
+      }
+      res.writeHead(onNotice(notice) ? 204 : 503).end();
+    });
+  });
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      if (address === null || typeof address === 'string') {
+        reject(new Error('the notice listener has no port'));
+        return;
+      }
+      resolve({
+        url: `http://127.0.0.1:${address.port}/notify`,
+        token,
+        close: () => server.close(),
+      });
+    });
+  });
+}
+
+/**
+ * The renderer route that shows a run, for a notice about one: its run page,
+ * or the run log beside Ask the sources when the notice names no run.
+ */
+export function routeForNotice(notice: Notice): string {
+  return notice.executionId === null ? '/search/ask' : `/runs/${notice.executionId}`;
+}

@@ -1,0 +1,80 @@
+# Saved conversations: browse, snapshot, export
+
+The Chats page reads the assistant tables and the schema-15 choice metadata. It adds no
+runtime, permission or filesystem endpoint. Creation of a conversation and continuation
+of a saved one follow the [choices contract](assistant-choices.md). The plain list,
+`GET /api/assistant/sessions`, defaults to 50, ordered by updated timestamp then ID
+descending.
+
+`GET /api/assistant/sessions/browse` accepts `limit` (default 50, 1–100),
+`before_id` (positive SQLite 64-bit integer), `through_id` (nonnegative SQLite 64-bit integer) and `q` (up to
+200 characters). Absent `through_id` chooses the current maximum session ID, or 0.
+Rows sort by ID descending, with `id <= through_id` and optional `id < before_id`.
+The response contains `sessions`, `through_id`, `next_before_id` (nullable) and
+`has_more`, derived by requesting one extra row. Each row includes ID, displayed
+title, stored runtime/model/timestamps and message count. `q` is a parameterized,
+literal substring over the displayed title (`New conversation` for absent/empty
+stored titles); `%`, `_` and the escape character are escaped. SQLite folds ASCII
+case; non-ASCII characters match literally. This freezes an ID ceiling, not row
+contents, title membership or a historical total. Refresh includes newly created IDs.
+
+`GET /api/assistant/sessions/{id}` returns `session`, `messages`, `totals` and
+`running`. The SQLite fields share one read transaction, rolled back on exit.
+A connection with pending writes is refused rather than committed or called persisted.
+`snapshot` carries `captured_at_utc`, `basis=persisted_messages_only`,
+`message_count`, `last_message_id` (null for no messages). `activity_observation` carries `observed_at_utc`, `turn_claimed`, `cli_running`,
+`basis=in_memory_observation_not_atomic_with_sqlite`. `running` means the
+registered CLI-process observation. None establishes historical completion.
+
+Session, list, and browse rows carry `choices` (null for unknown historical settings or
+`{unreadable:true}` for malformed metadata). Detail carries `choices_version=1` and
+`turn_choices`, read in the same SQLite transaction as messages and totals. Each turn
+identifies its user message, optional persisted assistant message, immutable requested
+choices and ordered literal runtime model reports. Absence of reports is not a model,
+effort or completion claim. A corrupt cross-session reply link is marked unreadable.
+
+`GET /api/assistant/sessions/{id}/export?format=json|markdown` returns a JSON envelope:
+`session_id`, `format`, `filename`, `content_type`, `text`, and `snapshot`. Filenames
+are `resmon-chat-<id>.json` or `.md`; MIME types are `application/json` and
+`text/markdown`. Generated UTF-8 text may be at most 8 MiB per format. Larger output
+returns 413 with an explicit refusal and no truncation. Missing sessions return 404;
+invalid query parameters/format return 422. These reads do not require an available CLI.
+
+Both serializers use the same snapshot helper. JSON version 1 contains an explicit
+session allowlist (ID, stored title, runtime/model, created/updated strings), ordered
+messages (ID, role, exact content, timestamp, nullable recorded tokens/cost), snapshot,
+separately observed current activity, `completion_status=unknown` and limitations.
+Each tool field is `{data, unreadable}`; absent storage has null data. Unparseable JSON
+also carries `raw`, preserving the original stored text. No CLI coordination IDs,
+settings, environment, config paths or unrelated chats are added as metadata. Saved
+message/tool text is preserved even if it contains sensitive information. Review it
+before sharing. Recorded cost is not a billing claim; null is not zero.
+
+Markdown places every variable value inside a literal code fence longer than any
+backtick run in that value. This preserves text while preventing it from becoming
+active Markdown links or HTML. Framing is formatting, not file byte equality.
+Neither format includes live-only fragments, pending cards, inferred approval/effect
+history, current effort or a promise of final completion.
+
+JSON is version 1 and carries `choices_version=1`, `choices` and `turn_choices`.
+Markdown carries these same public fields in a literal fenced section. The private route
+comparison digest, configured locator and native session coordination ID are excluded
+from generated choice metadata. All metadata counts toward the 8 MiB limit.
+
+The renderer validates session/format/filename/type and JSON content identity before
+requesting a Blob download. Changing selection invalidates a pending export. A download
+request is not confirmation of a native save. Scripted Electron `setSavePath` checks
+prove saved bytes separately from any human chooser observation.
+
+Continue opens the same local session in the existing Ask provider without sending.
+Its first historical send requires explicit same-runtime-kind confirmation. API
+confirmation discloses sending saved user/assistant text to the chosen future provider;
+Claude confirmation discloses a fresh native session without earlier local messages.
+Previously bound choices stay fixed; a choice change starts a new empty conversation.
+One active turn owns its session synchronously in this renderer. Other chats remain
+browsable/readable/exportable; target changes/new chat/active-session deletion wait.
+Opening the active session preserves its stream and cards. Stop sends the existing
+cancel request and retains ownership until both that request and the stream reader
+settle. History refresh follows settlement. Late selection, creation, permission and
+stream callbacks cannot retarget a later selection. Another renderer's active claim is
+an observation, not a reattachment feature; backend 409 remains visible.

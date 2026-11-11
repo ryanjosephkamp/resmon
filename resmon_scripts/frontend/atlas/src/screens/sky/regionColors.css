@@ -1,0 +1,12 @@
+:root[data-theme="dark"] {
+  --region-1: #529af5; --region-2: #d9a226; --region-3: #ed74ab;
+  --region-4: #50ac61; --region-5: #b68aef; --region-6: #10b8bf;
+}
+:root[data-theme="light"] {
+  --region-1: #1e47b8; --region-2: #885100; --region-3: #b72e64;
+  --region-4: #287837; --region-5: #7449b8; --region-6: #006d78;
+}
+.region-menu { max-height: min(520px, 70vh); overflow-y: auto; }
+.region-tools { display: grid; grid-template-columns: 1fr; gap: 6px; padding: 12px; }
+.region-tools input, .region-tools select { width: 100%; }
+.region-choice-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }

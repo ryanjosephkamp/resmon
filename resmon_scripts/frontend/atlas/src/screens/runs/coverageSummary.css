@@ -1,0 +1,4 @@
+.coverage-summary { max-width: 86ch; margin: 0 0 22px; }
+.coverage-summary .coverage-sentence { margin: 12px 0 0; }
+.coverage-summary .coverage-sentence:first-child { font-size: 16px; margin-top: 0; }
+.coverage-summary strong { font-weight: 650; color: var(--ink); }

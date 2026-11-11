@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "kind": "person",
+  "display_name": "Jason Priem",
+  "names": [
+    {
+      "value": "Jason Priem",
+      "script": "latin"
+    }
+  ],
+  "identifiers": {
+    "orcid": {
+      "value": "0000-0001-6187-6610",
+      "cited": "Verified 2026-09-06 against the public ORCID record: GET https://pub.orcid.org/v3.0/0000-0001-6187-6610/person returned this name."
+    }
+  },
+  "affiliations": [],
+  "field_hints": [],
+  "notes": "Altmetrics and open scholarly infrastructure; co-founder of OurResearch."
+}

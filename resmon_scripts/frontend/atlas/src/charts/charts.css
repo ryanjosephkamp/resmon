@@ -1,0 +1,37 @@
+/*
+ * A chart's tooltip (`ChartTip.tsx`): one look for every chart and map. It is
+ * set over the page, so it casts the panel shadow, the one thing that does.
+ * The number leads in the ink; the mark's name, its parts' labels, and what it
+ * counts are quieter; a part is keyed by a short stroke of its chart color,
+ * not a box. It appears and moves at once, so there is no motion to reduce,
+ * and crossing from one mark to the next never fades it out and in again.
+ * Colors are the theme's tokens: nothing here names one.
+ */
+
+.chart-tip {
+  position: fixed; inset: auto; left: 0; top: 0; margin: 0; z-index: 40; pointer-events: none;
+  display: grid; gap: 3px; box-sizing: border-box; width: max-content; max-width: min(320px, calc(100vw - 16px));
+  padding: 9px 11px 10px; border: 1px solid var(--rule-2); border-radius: 8px;
+  background: var(--raise); box-shadow: var(--shadow);
+  font: 400 12.5px/1.4 var(--sans); color: var(--ink-2); text-align: left;
+}
+.chart-tip p { margin: 0; }
+.chart-tip-name { font: 500 12px/1.3 var(--sans); color: var(--ink-3); overflow-wrap: anywhere; }
+.chart-tip-value { font: 600 14px/1.3 var(--sans); color: var(--ink); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.chart-tip-lines { list-style: none; margin: 2px 0 0; padding: 0; display: grid; gap: 2px; }
+.chart-tip-lines li { display: flex; align-items: baseline; gap: 6px; }
+.chart-tip-lines b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.chart-tip-key { flex: none; align-self: center; width: 12px; height: 2px; border-radius: 1px; background: var(--ink-3); }
+.chart-tip-key[data-key="accent"] { background: var(--accent-mark); }
+.chart-tip-key[data-key="context"] { background: var(--chart-context); }
+.chart-tip-key[data-key="fault"] { background: var(--fault); }
+.chart-tip-key[data-key="ink"] { background: var(--ink); }
+.chart-tip-note { font-size: 12px; color: var(--ink-3); overflow-wrap: anywhere; }
+.chart-tip-opens {
+  display: flex; align-items: center; gap: 6px; margin-top: 4px !important; padding-top: 6px;
+  border-top: 1px solid var(--rule); font-size: 12px; color: var(--ink-2);
+}
+.chart-tip-opens .icon { width: 12px; height: 12px; color: var(--accent-ink); }
+
+/* Where a map's tip is set: the paper under the pointer, as a box the tip keeps clear of. */
+.plate-tip-at { position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px; pointer-events: none; }

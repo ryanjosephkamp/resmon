@@ -1,0 +1,740 @@
+"""The reproducible search record.
+
+Every systematic review's methods section requires the same account: what was
+searched, where, on what date, with what software, how many records each
+database returned, and how many were removed as duplicates. Reviewers assemble
+it by hand in spreadsheets, months after the fact, from memory and browser
+history — and journals increasingly ask for it because searches that cannot be
+reproduced cannot be trusted.
+
+resmon already records all of it and throws none of it away. This module is the
+report format, not new data collection.
+
+Scope, held deliberately narrow
+-------------------------------
+This ships the **search log**. It does not attempt screening state
+(include/exclude/reason per paper), because that is a different product —
+Rayyan and Covidence do screening, commercially and well. The search-and-
+document half is the part nobody does, and it is the part resmon is accidentally
+most of the way to serving.
+
+The honesty problem: resmon's numbers are not PRISMA's boxes
+------------------------------------------------------------
+It would be easy, and wrong, to print resmon's counters under PRISMA headings
+and let a reviewer assume they mean what PRISMA means. They do not, quite:
+
+* **Records identified per database** maps cleanly. ``execution_sources``
+  records exactly what each source returned, before anything was done to it.
+
+* **Duplicate records removed** does *not* map cleanly. resmon detects the same
+  paper arriving from two databases and **keeps both rows**, flagging the
+  overlap rather than deleting either. So the figure reported is "records
+  identified as duplicates of a record from another source", with the retention
+  stated. The reviewer decides what to do about them; resmon does not decide on
+  their behalf and must not imply it has.
+
+* **Records already held from earlier runs** has no PRISMA box at all. It is a
+  consequence of resmon being a *monitor* rather than a one-shot search: a
+  routine that has run weekly for a year re-encounters what it already has. It
+  is reported under its own heading, explicitly outside the flow diagram.
+
+* **Records marked ineligible by automation tools** is the nearest PRISMA box
+  for records resmon discarded as unusable (no title, no identifier). Reported
+  as what it is — a data-quality discard, not a relevance judgement.
+
+Each figure carries a ``prisma`` field naming its box, or ``None`` where there
+is no honest match. A record that quietly mislabels its own numbers would be
+worse than no record, because a reviewer would publish it.
+
+Undermeasured history
+---------------------
+``cross_source`` was computed on every run since the beginning and never stored.
+Runs from before that column exists report it as ``None`` — *not recorded* —
+rather than as zero. "We did not measure this" and "there were none" are
+different claims, and printing the second on the first's behalf is exactly the
+kind of small lie that makes a methods section wrong.
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+from datetime import datetime, timezone
+
+from . import zero_reason as zero_reason_module
+from . import search_terms, source_coverage
+from .config import APP_NAME, APP_VERSION
+from .api_registry import RETIRED_NAMES
+from .database import get_execution_sources
+from .repo_catalog import REPOSITORY_CATALOG
+
+_CATALOG_NAMES = {entry.slug: entry.name for entry in REPOSITORY_CATALOG}
+
+# PRISMA 2020 identification-stage box names, used verbatim so a reviewer can
+# match them against the template without translating.
+_PRISMA_IDENTIFIED = "Records identified from databases"
+_PRISMA_DUPLICATES = "Duplicate records removed before screening"
+_PRISMA_AUTOMATION = "Records marked as ineligible by automation tools"
+_PRISMA_SCREENED = "Records screened"
+
+
+def _parameters(execution: dict) -> dict:
+    raw = execution.get("parameters")
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _keywords(params: dict) -> list[str]:
+    """The terms the run asked its sources for (``search_terms.from_params``).
+
+    A run stored with only a typed query asked for that query's words and
+    quoted phrases, and is recorded with those.
+    """
+    terms = search_terms.from_params(params)
+    return list(terms.terms) if terms else []
+
+
+def _match(params: dict) -> str | None:
+    """``any`` or ``all``: whether a paper had to match any term or every one; None with no terms."""
+    terms = search_terms.from_params(params)
+    return terms.match if terms else None
+
+
+#: The record's words for how the terms combined.
+_MATCH_SENTENCES = {
+    "any": "Any term: a paper with any one of the terms was kept",
+    "all": "All terms: a paper had to have every term",
+}
+
+
+_AUTHOR_QUERY_WORDS = {
+    "author": 'author "{value}"',
+    "orcid": "ORCID {value}",
+    "semantic_scholar": "Semantic Scholar author {value}",
+}
+
+
+def _selection_order(params: dict, recorded: dict) -> list[str]:
+    """The sources a record names, in the order the run selected them."""
+    selected = params.get("repositories")
+    order = [s for s in selected if isinstance(s, str)] if isinstance(selected, list) else []
+    return order + sorted(s for s in recorded if s not in order)
+
+
+def _nothing_sent(source: dict | None) -> str:
+    """Why a source whose requests are described was sent nothing, from its outcome."""
+    if source is None:
+        return "Nothing was sent."
+    outcome = source_coverage.outcome(source)
+    if source.get("status") == "cancelled":
+        return ("Nothing was sent before you stopped this source." if outcome["label"] == "stopped by you"
+                else "Nothing was sent before the run was canceled.")
+    if source.get("status") == "skipped_missing_key" or source.get("zero_reason") == "missing_key":
+        return "Nothing was sent: no API key is configured for it."
+    if outcome["category"] == "non_answer":
+        return f"Nothing was sent: {outcome['label']}."
+    return "Nothing was sent."
+
+
+def _queries_as_sent(params: dict, sources: list[dict]) -> list[dict] | None:
+    """Each source's query as its requests carried it, by source in selection order.
+
+    Every client puts the run's terms into a query of its own
+    (``search_terms``): arXiv sends each term as an ``all:`` clause joined
+    with OR or AND and adds a submission-date window, Crossref takes
+    ``query`` and a ``filter``, and a source asked once per term lists each
+    term's request. The engine records
+    what each request that went out carried, in the client's own description
+    of its requests (paging, the fields asked back, contact addresses, and keys
+    are never part of it). ``None`` is a run from before that record existed,
+    which says nothing about what was sent rather than repeating the words
+    typed as if they had been.
+    """
+    recorded = params.get("queries_sent")
+    if not isinstance(recorded, dict):
+        return None
+    rows = {s["source"]: s for s in sources}
+    out: list[dict] = []
+    for slug in _selection_order(params, recorded):
+        entry = recorded.get(slug, ...)
+        row = {"source": slug, "name": _display_name(slug), "sent": [], "omitted": 0, "note": None}
+        if entry is ...:
+            row["note"] = "Not recorded: the run kept no account of this source's requests."
+        elif entry is None:
+            row["note"] = "Not recorded: this source's client does not say what its requests carry."
+        else:
+            sent = entry.get("sent") if isinstance(entry, dict) else None
+            row["sent"] = [str(q) for q in sent] if isinstance(sent, list) else []
+            row["omitted"] = int(entry.get("omitted") or 0) if isinstance(entry, dict) else 0
+            if not row["sent"]:
+                row["note"] = _nothing_sent(rows.get(slug))
+        out.append(row)
+    return out
+
+
+def _query_as_sent(params: dict) -> str | None:
+    """The run's query, as one line. Its value is what it always was.
+
+    A keyword run gives the terms as typed, joined into one string. That is
+    **not** what went over the wire: each source's client turns the terms into
+    a query of its own, and those are ``queries_as_sent``. The field keeps its
+    name and its value because callers read it as a string; the record's
+    readers label it as the terms typed.
+
+    A person watch sends no query string: each source's client builds its own
+    author query from the profile, and the engine records what each one put
+    into its request. Those are listed by source in selection order. A watch
+    run from before that record existed has none, and reads as not recorded
+    rather than as a guess from the profile.
+    """
+    if params.get("entity_profile") is None and not params.get("entity_mode"):
+        return params.get("query")
+    sent = params.get("author_queries")
+    if not isinstance(sent, dict):
+        return None
+    if not sent:
+        # Every source declined to be asked, or the run was canceled before a
+        # search that had been sent came back with its record.
+        return "No person query was recorded as sent on this run."
+    selected = params.get("repositories")
+    order = [s for s in selected if s in sent] if isinstance(selected, list) else []
+    order += sorted(s for s in sent if s not in order)
+    parts = []
+    for slug in order:
+        query = sent[slug] if isinstance(sent[slug], dict) else {}
+        kind, value = query.get("kind"), query.get("value")
+        if not isinstance(value, str):
+            continue
+        words = (value if kind == "query" else
+                 _AUTHOR_QUERY_WORDS[kind].format(value=value) if kind in _AUTHOR_QUERY_WORDS
+                 else None)
+        if words is not None:
+            parts.append(f"{_display_name(slug)}: {words}")
+    return "; ".join(parts) or None
+
+
+def build(conn: sqlite3.Connection, execution_id: int) -> dict:
+    """Assemble the complete, dated account of one search."""
+    row = conn.execute(
+        """
+        SELECT e.*, r.name AS routine_name, r.schedule_cron AS routine_schedule,
+               c.name AS configuration_name
+        FROM executions e
+        LEFT JOIN routines r ON r.id = e.routine_id
+        LEFT JOIN saved_configurations c ON c.id = e.saved_configuration_id
+        WHERE e.id = ?
+        """,
+        (int(execution_id),),
+    ).fetchone()
+    if row is None:
+        raise LookupError(f"No execution with id {execution_id}")
+    execution = dict(row)
+    params = _parameters(execution)
+
+    sources = get_execution_sources(conn, execution_id)
+    identified_total = sum(int(s["result_count"] or 0) for s in sources)
+
+    # Sources that were selected but returned nothing usable are as much a part
+    # of the record as the productive ones: a reviewer reading "we searched
+    # NASA ADS" needs to know it answered with an error every time.
+    per_source = [
+        {
+            "source": s["source"],
+            "coverage": source_coverage.outcome(s),
+            "records_identified": int(s["result_count"] or 0),
+            "status": s["status"],
+            # The reason a zero is a zero. NULL on every row written before
+            # schema 10, which reads as "not recorded" rather than as an
+            # answer -- see zero_reason.py.
+            "zero_reason": s.get("zero_reason") or (
+                "not_recorded" if _is_zero(s) else None
+            ),
+            "answered": _answered(s),
+            "note": _source_note(s),
+        }
+        for s in sources
+    ]
+
+    dedup = _dedup_block(execution)
+    queries = _queries_as_sent(params, sources)
+
+    return {
+        "record_type": "resmon_search_record",
+        "record_version": 1,
+        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "software": {
+            "name": APP_NAME,
+            "version": APP_VERSION,
+            # Named so a methods section can cite the tool that ran the search.
+            "citation": f"{APP_NAME} {APP_VERSION}",
+        },
+        "search": {
+            "execution_id": execution["id"],
+            "execution_type": execution["execution_type"],
+            "run_at": execution["start_time"],
+            "completed_at": execution.get("end_time"),
+            "status": execution["status"],
+            "keywords": _keywords(params),
+            # How the keywords combined: ``any`` or ``all``, None for a run
+            # with no keywords (a person watch, a find).
+            "match": _match(params),
+            "query_as_sent": _query_as_sent(params),
+            # What each source's requests carried, one row a source; None for
+            # a run from before the record of it.
+            "queries_as_sent": queries,
+            "date_from": params.get("date_from"),
+            "date_to": params.get("date_to"),
+            # How a watch's moving window reached these dates, when it moves:
+            # the record of the fire, sentence and all. None for fixed dates.
+            "date_window": params.get("date_window_computed"),
+            "max_results_per_source": params.get("max_results"),
+            "routine_name": execution.get("routine_name"),
+            "routine_schedule": execution.get("routine_schedule"),
+            "configuration_name": execution.get("configuration_name"),
+        },
+        "coverage": source_coverage.build(execution, sources),
+        "sources": per_source,
+        "identification": {
+            "records_identified": identified_total,
+            "sources_searched": len(per_source),
+            # "Answered" now means the source was asked and replied. A
+            # source whose endpoint 503'd is recorded ``ok / 0`` -- every
+            # client degrades rather than raising -- and counting it as having
+            # answered was the overstatement this phase exists to remove.
+            "sources_that_answered": sum(
+                1 for s in per_source if s["answered"]),
+            "prisma": _PRISMA_IDENTIFIED,
+        },
+        "deduplication": dedup,
+        # Stated in the payload rather than left to the reader to infer, and
+        # carried into the Markdown so it cannot be separated from the numbers.
+        "caveats": _caveats(dedup, per_source),
+    }
+
+
+def _display_name(slug: str) -> str:
+    """A source by the name it is shown under, a withdrawn one included."""
+    return _CATALOG_NAMES.get(slug) or RETIRED_NAMES.get(slug) or slug
+
+
+def _zero_detail(source: dict) -> dict:
+    raw = source.get("zero_detail")
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw:
+        try:
+            parsed = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _is_zero(source: dict) -> bool:
+    return int(source.get("result_count") or 0) == 0
+
+
+def _answered(source: dict) -> bool:
+    return zero_reason_module.answered(
+        source["status"],
+        int(source.get("result_count") or 0),
+        source.get("zero_reason"),
+    )
+
+
+def _source_note(source: dict) -> str | None:
+    projected = source_coverage.outcome(source)
+    if projected["category"] == "unknown" and "malformed" in projected["note"]:
+        return projected["note"]
+    status = source["status"]
+    if status == "ok":
+        # A zero is now explained where the explanation was recorded, and
+        # explicitly unexplained where it was not.
+        if _is_zero(source):
+            return zero_reason_module.sentence(
+                _display_name(source["source"]),
+                source.get("zero_reason"),
+                _zero_detail(source),
+            )
+        if projected.get("partial"):
+            return projected["note"]
+        return None
+    if status == "error" and source.get("zero_reason") == "retired":
+        return zero_reason_module.sentence(
+            _display_name(source["source"]), "retired", _zero_detail(source),
+        )
+    if status == "skipped_missing_key":
+        return (
+            "Selected, but the API key it requires was not configured, so this "
+            "source returned nothing. It did not contribute to the search."
+        )
+    if status == "error":
+        return (
+            "Selected, but the query failed: "
+            f"{source.get('error_message') or 'unknown error'}. This source did "
+            "not contribute to the search."
+        )
+    if status == "cancelled":
+        return source_coverage.outcome(source)["note"]
+    return None
+
+
+# Why a run's deduplication figure can be absent besides its age: it stopped
+# before that step. A canceled run must not be described as "older than the
+# version that stored this figure".
+_STOPPED_BEFORE_DEDUP = {
+    "cancelled": "The run was canceled before deduplication, so this figure was never computed.",
+    "failed": "The run failed before deduplication, so this figure was never computed.",
+    "interrupted": "The run was interrupted before deduplication, so this figure was never computed.",
+}
+
+
+def _dedup_block(execution: dict) -> dict:
+    """The deduplication figures, each labeled with the box it belongs in."""
+    cross_source = execution.get("dedup_cross_source")
+    stopped = _STOPPED_BEFORE_DEDUP.get(execution.get("status") or "")
+    return {
+        "records_processed": execution.get("dedup_total"),
+        "cross_source_duplicates": {
+            "count": cross_source,
+            "recorded": cross_source is not None,
+            "prisma": _PRISMA_DUPLICATES,
+            "meaning": (
+                "Records identified as the same paper as a record from a "
+                "different source. resmon flags these and keeps both rows — it "
+                "does not remove either, so this is a count of duplicates "
+                "found, not of duplicates deleted."
+            ),
+            "not_recorded_reason": (
+                None if cross_source is not None
+                else f"{stopped} Not recorded is not zero." if stopped
+                else "This run predates the version that stored this figure. It was "
+                "computed at the time but not kept. Not recorded is not zero."
+            ),
+        },
+        "already_held": {
+            "count": execution.get("dedup_duplicates"),
+            # No PRISMA box: this is an artifact of monitoring over time, not a
+            # step in a one-shot systematic search.
+            "prisma": None,
+            "meaning": (
+                "Records this search returned that were already in the corpus "
+                "from an earlier run. This has no equivalent in a PRISMA flow "
+                "diagram, which describes a single search rather than a "
+                "repeating one, and is reported separately for that reason."
+            ),
+        },
+        "discarded_unusable": {
+            "count": execution.get("dedup_invalid"),
+            "prisma": _PRISMA_AUTOMATION,
+            "meaning": (
+                "Records discarded because they lacked a title or a usable "
+                "identifier. This is a data-quality discard, not a relevance "
+                "judgement — nothing was excluded here on its subject matter."
+            ),
+        },
+        "records_added": {
+            "count": execution.get("dedup_new"),
+            "prisma": _PRISMA_SCREENED,
+            "meaning": (
+                "Records newly added to the corpus by this search, and "
+                "therefore available for screening."
+            ),
+        },
+    }
+
+
+def _caveats(dedup: dict, sources: list[dict]) -> list[str]:
+    caveats = [
+        "resmon retains cross-source duplicates rather than removing them. The "
+        "duplicate figure is a count of overlap found, and both copies remain "
+        "in the corpus for you to resolve.",
+        "This record covers one execution. A review that searched on several "
+        "dates needs the record from each of them.",
+        "resmon does not record screening decisions. Inclusion and exclusion "
+        "happen outside it, and no figure here should be presented as a "
+        "screening outcome.",
+    ]
+    if not dedup["cross_source_duplicates"]["recorded"]:
+        caveats.insert(0, (
+            "The cross-source duplicate count was not recorded for this run. It "
+            "is absent, not zero — do not report it as a measured zero."
+        ))
+    unproductive = [s for s in sources if s["status"] != "ok"]
+    if unproductive:
+        names = ", ".join(_display_name(s["source"]) for s in unproductive)
+        caveats.append(
+            f"{len(unproductive)} of the {len(sources)} recorded sources did not "
+            f"contribute records ({names}). A search strategy that lists them as "
+            "searched would be overstating its coverage."
+        )
+
+    # An ``ok / 0`` row is where the overstatement actually hides: every client
+    # degrades rather than raising, so a source whose endpoint 503'd, whose
+    # reply would not parse, or that cannot answer this window at all is
+    # recorded exactly like a source that answered and had nothing. Those are
+    # separated here because a reviewer citing "we searched 12 databases" on
+    # the strength of a run where three of them never answered is making a
+    # claim the record does not support.
+    could_not_answer = [
+        s for s in sources
+        if s["status"] == "ok" and not s["answered"]
+        and s["zero_reason"] != "not_recorded"
+    ]
+    if could_not_answer:
+        names = ", ".join(_display_name(s["source"]) for s in could_not_answer)
+        one = len(could_not_answer) == 1
+        caveats.append(
+            f"{len(could_not_answer)} of the {len(sources)} recorded sources "
+            f"did not answer, so there is nothing to count ({names}). "
+            f"{'Its note below says' if one else 'Their notes below say'} why. "
+            f"{'It' if one else 'They'} did not contribute to this search."
+        )
+
+    partial = [s for s in sources if s.get("coverage", {}).get("partial")]
+    if partial:
+        names = ", ".join(_display_name(s["source"]) for s in partial)
+        caveats.append(
+            f"{len(partial)} of the {len(sources)} recorded sources contributed "
+            f"records but may be incomplete ({names}). Their notes below say why."
+        )
+
+    # Only a source that answered is unexplained by its status. A canceled,
+    # failed or key-less source carries no zero reason because its status is the
+    # reason, and its own note says so; counting it here put "resmon did not
+    # record why" beside "the run was canceled while this source was being
+    # queried" for the same source.
+    unrecorded = [
+        s for s in sources if s["zero_reason"] == "not_recorded" and s["status"] == "ok"
+    ]
+    if unrecorded:
+        names = ", ".join(_display_name(s["source"]) for s in unrecorded)
+        caveats.append(
+            f"resmon did not record why {len(unrecorded)} of the "
+            f"{len(sources)} sources returned nothing ({names}). Those zeros are "
+            "unexplained, not measured — do not report them as evidence that "
+            "there was nothing to find."
+        )
+    return caveats
+
+
+# ---------------------------------------------------------------------------
+# Markdown
+# ---------------------------------------------------------------------------
+
+
+def _n(value) -> str:
+    """Render a count, keeping "not recorded" visibly distinct from zero."""
+    return "not recorded" if value is None else f"{value:,}"
+
+
+# The outcome column must not read "answered" for every ``ok`` row, because
+# some of those rows are ones where the source never answered at all. These are
+# the short labels; the sentence underneath each table carries the reason.
+_OUTCOME_LABELS = {
+    "window_unanswerable": "could not answer this window",
+    "upstream_failure": "did not answer",
+    "parse_failure": "reply unreadable",
+    "rights_filtered": "answered; nothing storable",
+    "records_unusable": "answered; nothing storable",
+    "answered_empty": "answered, zero",
+    "answered_in_part": "answered in part",
+    "not_recorded": "zero, reason not recorded",
+    "missing_key": "no API key configured",
+    "retired": "withdrawn",
+}
+
+
+def _outcome_label(source: dict) -> str:
+    if source.get("coverage"):
+        return source["coverage"]["label"]
+    if source["status"] == "ok":
+        reason = source.get("zero_reason")
+        if not reason:
+            return "answered"
+        return _OUTCOME_LABELS.get(reason, reason.replace("_", " "))
+    if source.get("zero_reason") == "retired":
+        return _OUTCOME_LABELS["retired"]
+    return zero_reason_module.status_label(source["status"])
+
+
+def _text(value: object) -> str:
+    text = str(value if value is not None else "not recorded")
+    text = " ".join(text.split())
+    for char in "\\`*_{}[]()#+-.!|>":
+        text = text.replace(char, "\\" + char)
+    return text.replace("&", "&amp;").replace("<", "&lt;")
+
+
+def _code(value: object) -> str:
+    """Text for inside a Markdown code span in a table cell: one line, no backticks or pipes."""
+    return " ".join(str(value).split()).replace("`", "'").replace("|", "\\|")
+
+
+def to_markdown(record: dict) -> str:
+    """The record as a methods-section-shaped document.
+
+    Ordered the way PRISMA's identification stage is read: what was searched,
+    what each database returned, what happened to those records, and then —
+    never separated from the numbers — what the numbers do not mean.
+    """
+    search = record["search"]
+    lines: list[str] = []
+
+    lines.append("# Search Record")
+    lines.append("")
+    lines.append(
+        f"Generated {record['generated_at']} by "
+        f"{record['software']['citation']}."
+    )
+    lines.append("")
+
+    coverage = record.get("coverage")
+    if coverage:
+        lines.extend(["## Source coverage", "", _text(coverage["summary"]), "",
+                      f"Genuine empty answers (within answered): {coverage['counts']['genuine_empty']}.", ""])
+        for note in coverage["notes"]:
+            lines.append("- " + _text(note))
+        for title, rows in (("Coverage basis", coverage["sources"]),
+                            ("Additional recorded sources outside saved selection", coverage["additional_sources"])):
+            if not rows:
+                continue
+            lines.extend(["", "### " + title, "", "| Source | Category | Returned | Recorded at | Reason |", "|---|---|---:|---|---|"])
+            for row in rows:
+                # An answer in part is said as one in this column too: the
+                # category alone would read as an answer for the whole window.
+                category = "answered, in part" if row.get("in_part") else row["category"]
+                lines.append("| " + " | ".join(_text(v) for v in (
+                    row["source"], category, row["result_count"], row["recorded_at"], row["note"])) + " |")
+        lines.append("")
+
+    lines.append("## The search")
+    lines.append("")
+    lines.append(f"| Field | Value |")
+    lines.append("|---|---|")
+    lines.append(f"| Run at | {search['run_at']} |")
+    lines.append(f"| Completed | {search.get('completed_at') or '—'} |")
+    status = "canceled" if search["status"] == "cancelled" else search["status"]
+    lines.append(f"| Status | {status} |")
+    keywords = search["keywords"]
+    lines.append(
+        f"| Search terms | {', '.join(f'`{k}`' for k in keywords) if keywords else '—'} |"
+    )
+    if keywords and search.get("match") in _MATCH_SENTENCES:
+        lines.append(f"| Match | {_MATCH_SENTENCES[search['match']]} |")
+    queries = search.get("queries_as_sent")
+    person = search.get("query_as_sent") and not search.get("keywords")
+    if queries:
+        for row in queries:
+            said = (" ".join(f"`{_code(q)}`" for q in row["sent"]) if row["sent"]
+                    else _text(row["note"]))
+            if row["omitted"]:
+                said += f" and {row['omitted']} more"
+            lines.append(f"| Query as sent to {_text(row['name'])} | {said} |")
+    elif person:
+        # A person watch's author queries, as each client noted what it put
+        # into its request.
+        lines.append(f"| Query as sent | `{_code(search['query_as_sent'])}` |")
+    else:
+        # The terms typed are under Search terms; they are not the query any
+        # source was sent.
+        lines.append("| Query as sent | not recorded for this run |")
+    start, end = search.get("date_from"), search.get("date_to")
+    # One bound is said as one bound: a start date alone would read as a day.
+    window = (f"{start} to {end}" if start and end else
+              f"from {start}, with no end date" if start else
+              f"up to {end}" if end else "unbounded")
+    lines.append(f"| Publication window | {window} |")
+    computed = search.get("date_window")
+    if isinstance(computed, dict) and computed.get("sentence"):
+        lines.append(f"| How the dates were set | {_text(computed['sentence'])} |")
+    lines.append(
+        f"| Per-source cap | {_n(search.get('max_results_per_source'))} |"
+    )
+    if search.get("routine_name"):
+        lines.append(
+            f"| Watch | {search['routine_name']} "
+            f"(`{search.get('routine_schedule') or ''}`) |"
+        )
+    if search.get("configuration_name"):
+        lines.append(f"| Saved configuration | {search['configuration_name']} |")
+    lines.append(f"| Software | {record['software']['citation']} |")
+    lines.append(f"| resmon execution id | {search['execution_id']} |")
+    lines.append("")
+    if queries:
+        lines.append(
+            "Each query as sent is the source's request as resmon sent it, "
+            "without its paging, contact address, or key.")
+        lines.append("")
+
+    lines.append("## Records identified, by database")
+    lines.append("")
+    lines.append(f"*PRISMA: {_PRISMA_IDENTIFIED}*")
+    lines.append("")
+    lines.append("| Database | Records | Outcome |")
+    lines.append("|---|---:|---|")
+    for source in record["sources"]:
+        outcome = _outcome_label(source)
+        lines.append(
+            f"| {_text(source['source'])} | {source['records_identified']:,} | {_text(outcome)} |"
+        )
+    ident = record["identification"]
+    recorded_answered = (sum(s["coverage"]["category"] == "answered" for s in record["sources"])
+                         if coverage else ident["sources_that_answered"])
+    # Answered in part is said apart: resmon read a stretch of the window and
+    # stopped, which is an answer for that stretch alone.
+    in_part = (sum(bool(s["coverage"].get("in_part")) for s in record["sources"])
+               if coverage else 0)
+    lines.append(f"| **Total** | **{ident['records_identified']:,}** | "
+                 f"{recorded_answered} of "
+                 f"{ident['sources_searched']} recorded sources answered"
+                 f"{f' ({in_part} in part)' if in_part else ''} |")
+    lines.append("")
+
+    for source in record["sources"]:
+        if source["note"]:
+            lines.append(f"- **{_text(source['source'])}** — {_text(source['note'])}")
+    if any(s["note"] for s in record["sources"]):
+        lines.append("")
+
+    lines.append("## What happened to those records")
+    lines.append("")
+    dedup = record["deduplication"]
+    lines.append("| Figure | Count | PRISMA box |")
+    lines.append("|---|---:|---|")
+    lines.append(
+        f"| Records processed | {_n(dedup['records_processed'])} | — |")
+    lines.append(
+        f"| Duplicates of a record from another source | "
+        f"{_n(dedup['cross_source_duplicates']['count'])} | "
+        f"{_PRISMA_DUPLICATES} |")
+    lines.append(
+        f"| Discarded as unusable | {_n(dedup['discarded_unusable']['count'])} | "
+        f"{_PRISMA_AUTOMATION} |")
+    lines.append(
+        f"| Added to the corpus | {_n(dedup['records_added']['count'])} | "
+        f"{_PRISMA_SCREENED} |")
+    lines.append(
+        f"| Already held from an earlier run | "
+        f"{_n(dedup['already_held']['count'])} | *no PRISMA equivalent* |")
+    lines.append("")
+
+    for key in ("cross_source_duplicates", "already_held", "discarded_unusable",
+                "records_added"):
+        block = dedup[key]
+        lines.append(f"- **{key.replace('_', ' ').capitalize()}** — {block['meaning']}")
+        if block.get("not_recorded_reason"):
+            lines.append(f"  - {block['not_recorded_reason']}")
+    lines.append("")
+
+    lines.append("## What these numbers do not mean")
+    lines.append("")
+    for caveat in record["caveats"]:
+        lines.append(f"- {_text(caveat)}")
+    lines.append("")
+
+    return "\n".join(lines)

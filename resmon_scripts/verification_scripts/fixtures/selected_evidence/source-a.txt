@@ -1,0 +1,5 @@
+Synthetic study A
+This authored fixture enrolled 12 participants.
+It did not compare treatments or establish a causal effect.
+The café sample includes é and 😀 without Unicode normalization.
+Repeated phrase. Repeated phrase.

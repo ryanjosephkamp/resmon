@@ -1,0 +1,42 @@
+{
+ "results": [
+  {
+   "id": "2291103c1d534c5dbf924dd7f4676f8b",
+   "bibjson": {
+    "title": "A Model for Rapid Innovation for Engagement, Enrollment, and Data and Sample Collection in a Diverse Cohort Study: Insights from All of Us Participant Labs",
+    "author": [
+     {
+      "affiliation": "Scripps Research Translational Institute, Scripps Research, La Jolla, CA",
+      "name": "Janna Ter Meer, PhD"
+     },
+     {
+      "affiliation": "Scripps Research Translational Institute, Scripps Research, La Jolla, CA",
+      "name": "Jessica Chen, BS"
+     },
+     {
+      "affiliation": "Scripps Research Translational Institute, Scripps Research, La Jolla, CA",
+      "name": "Romina Foster-Bonds, MHS"
+     }
+    ],
+    "year": "2025",
+    "month": "09",
+    "identifier": [
+     {
+      "id": "2949-7612",
+      "type": "eissn"
+     },
+     {
+      "id": "10.1016/j.mcpdig.2025.100227",
+      "type": "doi"
+     }
+    ],
+    "link": [
+     {
+      "type": "fulltext",
+      "url": "http://www.sciencedirect.com/science/article/pii/S2949761225000343"
+     }
+    ]
+   }
+  }
+ ]
+}

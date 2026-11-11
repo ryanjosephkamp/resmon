@@ -1,0 +1,243 @@
+/**
+ * Launch, navigation, memory and idle CPU of the real app.
+ *
+ * Written to measure any build of resmon with the same yardstick, so it knows
+ * nothing about the interface's markup. It knows three things: how to start
+ * the app in isolation, the address of each screen (`atlas/src/screenPaths.ts`),
+ * and when a page has *settled*.
+ *
+ * **Settled** is: every request the page started since the clock began has
+ * finished, and the DOM has not changed for `QUIET_MS`. The time reported is
+ * the moment of the last DOM change, not the end of the quiet window, so the
+ * wait itself is not counted. Requests are watched by wrapping `fetch` and
+ * `XMLHttpRequest` in an init script; one still open after `LONG_LIVED_MS` is a
+ * stream or a long poll and stops gating. A request that changed nothing on
+ * screen gates the wait but does not move the time.
+ *
+ * Every number is specific to the machine it was taken on. `python -m perf`
+ * records which machine.
+ */
+import { test } from '@playwright/test';
+import type { ElectronApplication, Page } from '@playwright/test';
+import { execFileSync } from 'child_process';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { SCREEN_PATHS } from '../atlas/src/screenPaths';
+import { cloneFile, launchApp } from './app';
+
+const QUIET_MS = 600;
+
+const LONG_LIVED_MS = 10_000;
+const SETTLE_TIMEOUT_MS = 90_000;
+
+interface Settle {
+  settledAt: number;
+  lastMutation: number;
+  requests: number;
+  timedOut: boolean;
+  instrumented: boolean;
+}
+
+interface RunSample {
+  launchCold: number;
+  launchWarm: number;
+  firstWindowCold: number;
+  navigation: Record<string, number>;
+  memoryMb: Record<string, number>;
+  idleCpuPercent: Record<string, number>;
+}
+
+function required(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} is not set; run this through python -m perf`);
+  return value;
+}
+
+/**
+ * The instrumentation, installed in every document before the app's own code.
+ *
+ * A string, because it runs in the renderer, not here. It is idempotent so a
+ * second install in the same document is a no-op.
+ */
+const INSTRUMENT = `(() => {
+  if (window.__resmonPerf) return;
+  const s = { inflight: new Map(), next: 0, lastMutation: 0, requests: 0 };
+  window.__resmonPerf = s;
+  const begin = () => { const id = ++s.next; s.inflight.set(id, Date.now()); s.requests++; return id; };
+  const end = (id) => { s.inflight.delete(id); };
+  const realFetch = window.fetch.bind(window);
+  window.fetch = (input, init) => {
+    const id = begin();
+    return realFetch(input, init).then((response) => {
+      // The body is what the page waits for, so the request ends when a copy
+      // of it has been read, not when the headers arrive.
+      response.clone().arrayBuffer().then(() => end(id), () => end(id));
+      return response;
+    }, (error) => { end(id); throw error; });
+  };
+  const RealXHR = window.XMLHttpRequest;
+  const send = RealXHR.prototype.send;
+  RealXHR.prototype.send = function (...args) {
+    const id = begin();
+    this.addEventListener('loadend', () => end(id));
+    return send.apply(this, args);
+  };
+  new MutationObserver(() => { s.lastMutation = Date.now(); })
+    .observe(document, { subtree: true, childList: true, characterData: true, attributes: true });
+})();`;
+
+/** Wait until the page settles after `since` (epoch ms); see the file header. */
+async function settle(win: Page, since: number): Promise<Settle> {
+  return win.evaluate(async ({ since, quiet, longLived, timeout }) => {
+    type PerfState = { inflight: Map<number, number>; lastMutation: number; requests: number };
+    const s = (window as unknown as { __resmonPerf?: PerfState }).__resmonPerf;
+    const deadline = Date.now() + timeout;
+    for (;;) {
+      const now = Date.now();
+      if (s) {
+        let gating = 0;
+        for (const started of s.inflight.values()) {
+          if (started >= since && now - started < longLived) gating += 1;
+        }
+        const lastMutation = Math.max(s.lastMutation, since);
+        const hasContent = (document.body?.innerText ?? '').trim().length > 40;
+        if (gating === 0 && hasContent && document.readyState === 'complete' && now - lastMutation >= quiet) {
+          return { settledAt: lastMutation, lastMutation, requests: s.requests, timedOut: false, instrumented: true };
+        }
+      }
+      if (now > deadline) {
+        return { settledAt: now, lastMutation: s ? s.lastMutation : 0, requests: s ? s.requests : 0,
+                 timedOut: true, instrumented: Boolean(s) };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }, { since, quiet: QUIET_MS, longLived: LONG_LIVED_MS, timeout: SETTLE_TIMEOUT_MS });
+}
+
+async function launch(state: string): Promise<{ app: ElectronApplication; win: Page; started: number; firstWindow: number }> {
+  return launchApp(state, INSTRUMENT);
+}
+
+function processTree(root: number): { pid: number; rssMb: number; cpuS: number; role: string }[] {
+  const out = execFileSync('ps', ['-axo', 'pid=,ppid=,rss=,time=,command='], { encoding: 'utf8' });
+  const rows = out.split('\n').map((line) => line.trim().split(/\s+/)).filter((p) => p.length >= 5);
+  const children = new Map<number, number[]>();
+  const info = new Map<number, { rss: number; cpu: number; command: string }>();
+  for (const [pid, ppid, rss, time, ...command] of rows) {
+    const p = Number(pid);
+    children.set(Number(ppid), [...(children.get(Number(ppid)) ?? []), p]);
+    info.set(p, { rss: Number(rss), cpu: cpuSeconds(time), command: command.join(' ') });
+  }
+  const seen = new Set<number>();
+  const stack = [root];
+  while (stack.length) {
+    const pid = stack.pop() as number;
+    if (seen.has(pid)) continue;
+    seen.add(pid);
+    stack.push(...(children.get(pid) ?? []));
+  }
+  return [...seen].filter((pid) => info.has(pid)).map((pid) => {
+    const { rss, cpu, command } = info.get(pid) as { rss: number; cpu: number; command: string };
+    return { pid, rssMb: rss / 1024, cpuS: cpu, role: role(command) };
+  });
+}
+
+function cpuSeconds(value: string): number {
+  let days = 0;
+  let rest = value;
+  if (rest.includes('-')) {
+    const [d, r] = rest.split('-');
+    days = Number(d);
+    rest = r;
+  }
+  const parts = rest.split(':').map(Number);
+  while (parts.length < 3) parts.unshift(0);
+  return days * 86400 + parts[0] * 3600 + parts[1] * 60 + parts[2];
+}
+
+function role(command: string): string {
+  const c = command.toLowerCase();
+  if (c.includes('resmon.py') || c.includes('implementation_scripts.daemon')) return 'backend';
+  if (c.includes('--type=renderer')) return 'renderer';
+  if (c.includes('--type=gpu-process')) return 'gpu';
+  if (c.includes('--type=utility')) return 'utility';
+  if (c.includes('--type=')) return 'helper';
+  return 'main';
+}
+
+function byRole(rows: { role: string; value: number }[]): Record<string, number> {
+  const out: Record<string, number> = { total: 0 };
+  for (const { role: r, value } of rows) {
+    out[r] = (out[r] ?? 0) + value;
+    out.total += value;
+  }
+  return out;
+}
+
+test('launch, navigation and resources', async () => {
+  const runs = Number(process.env.RESMON_PERF_RUNS || '5');
+  const corpus = required('RESMON_PERF_CORPUS');
+  const outFile = required('RESMON_PERF_OUT');
+  const work = process.env.RESMON_PERF_WORK || fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-perf-'));
+  const idleSeconds = Number(process.env.RESMON_PERF_IDLE_SECONDS || '20');
+  const routes = SCREEN_PATHS.map((screen) => ({ hash: screen.path, name: screen.name }));
+  const samples: RunSample[] = [];
+  const problems: string[] = [];
+
+  for (let run = 0; run < runs; run += 1) {
+    const state = path.join(work, `ui-${run}`);
+    fs.rmSync(state, { recursive: true, force: true });
+    fs.mkdirSync(state, { recursive: true });
+    cloneFile(corpus, path.join(state, 'resmon.db'));
+
+    // Cold: a fresh Chromium profile and a database this app has never opened.
+    const first = await launch(state);
+    const cold = await settle(first.win, 0);
+    if (!cold.instrumented) problems.push(`run ${run}: the first document was not instrumented`);
+    if (cold.timedOut) problems.push(`run ${run}: the first screen did not settle`);
+    await first.app.close();
+
+    // Warm: the same profile and database, launched again.
+    const { app, win, started } = await launch(state);
+    const warm = await settle(win, 0);
+    if (warm.timedOut) problems.push(`run ${run}: the warm first screen did not settle`);
+
+    const navigation: Record<string, number> = {};
+    // Every route, from wherever the previous one left the app, then back to
+    // the first, so the first is measured as a navigation too.
+    const order = [...routes.slice(1), routes[0]];
+    for (const route of order) {
+      const since = await win.evaluate((hash) => {
+        const t = Date.now();
+        window.location.hash = hash;
+        return t;
+      }, route.hash);
+      const result = await settle(win, since);
+      if (result.timedOut) problems.push(`run ${run}: ${route.hash} did not settle`);
+      navigation[route.hash] = result.settledAt - since;
+    }
+
+    // Idle: the app as a person leaves it, on its first screen.
+    await win.waitForTimeout(10_000);
+    const root = app.process().pid as number;
+    const memory = byRole(processTree(root).map((p) => ({ role: p.role, value: p.rssMb })));
+    const before = new Map(processTree(root).map((p) => [p.pid, p.cpuS]));
+    await win.waitForTimeout(idleSeconds * 1000);
+    const cpu = byRole(processTree(root).map((p) => ({
+      role: p.role, value: (100 * (p.cpuS - (before.get(p.pid) ?? p.cpuS))) / idleSeconds,
+    })));
+    await app.close();
+
+    samples.push({
+      launchCold: cold.settledAt - first.started,
+      launchWarm: warm.settledAt - started,
+      firstWindowCold: first.firstWindow - first.started,
+      navigation,
+      memoryMb: memory,
+      idleCpuPercent: cpu,
+    });
+    fs.writeFileSync(outFile, JSON.stringify({ routes, samples, problems }, null, 2));
+  }
+  fs.writeFileSync(outFile, JSON.stringify({ routes, samples, problems }, null, 2));
+});

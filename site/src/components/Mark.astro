@@ -1,0 +1,24 @@
+---
+/**
+ * resmon's mark: the glass logo the app's icon is cut from, at the size a
+ * masthead or a footer line sets it. It is a raster (there is no vector of
+ * it), served at three times its display size so it stays sharp.
+ */
+import { url } from '../lib/urls';
+
+interface Props {
+  class?: string;
+}
+const { class: className } = Astro.props;
+---
+
+<img class:list={['mark', className]} src={url('/mark.webp')} width="96" height="96" alt="" decoding="async" />
+
+<style>
+  .mark {
+    display: block;
+    width: var(--brand-mark);
+    height: var(--brand-mark);
+    flex-shrink: 0;
+  }
+</style>

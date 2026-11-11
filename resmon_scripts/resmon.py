@@ -1,0 +1,11279 @@
+"""resmon — Research Monitor backend (FastAPI application)."""
+
+import asyncio
+import copy
+import json
+import os
+import queue
+import re
+import sqlite3
+import shutil
+import sys
+import tempfile
+import threading
+from collections import OrderedDict
+import time
+import uuid
+import zipfile
+import logging
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Callable, Iterable, Iterator, Literal, Optional, TypeVar, Union, get_args
+
+import httpx
+
+# Ensure the implementation_scripts package is importable
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from contextlib import asynccontextmanager, contextmanager
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Response
+from starlette.requests import Request
+from starlette.responses import FileResponse, Response, StreamingResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from implementation_scripts import backup as backup_module
+from implementation_scripts import api_auth, runtime_identity, library, library_export, library_text, evidence, evidence_reader, evidence_export
+from implementation_scripts import library_folder, library_removal, library_thumbs
+from implementation_scripts import selected_evidence, selected_evidence_runtime, selected_evidence_export
+from implementation_scripts import delivery, upgrade_copy
+from implementation_scripts import full_text, paper_find
+from implementation_scripts import assistant_files
+from implementation_scripts.config import (
+    APP_NAME, APP_VERSION, DEFAULT_DB_PATH, PORT_FILE, REPORTS_DIR,
+)
+from implementation_scripts.database import (
+    DEFAULT_COLLECTION_NAME,
+    get_connection,
+    init_db,
+    get_routines,
+    get_routine_by_id,
+    insert_routine,
+    update_routine,
+    delete_routine,
+    get_executions,
+    count_executions,
+    get_execution_by_id,
+    get_execution_by_request_id,
+    record_missed_fire,
+    missed_fire_summary,
+    mark_missed_fires_ran_late,
+    get_missed_fires,
+    get_execution_sources,
+    get_execution_ai,
+    get_execution_documents,
+    get_execution_documents_page,
+    get_routine_document_ids,
+    get_documents_by_ids,
+    update_execution_status,
+    touch_execution_heartbeat,
+    get_executions_restarted_from,
+    insert_execution,
+    set_execution_saved_configuration,
+    get_configurations,
+    insert_configuration,
+    update_configuration,
+    delete_configuration,
+    get_setting,
+    set_setting,
+    save_progress_events,
+    get_progress_events,
+    get_lifecycle_for_document,
+    SCHEMA_VERSION,
+    KEPT_THROUGH_SETTINGS_RESET,
+    get_schema_version,
+    utc_now_iso,
+)
+from implementation_scripts.credential_manager import (
+    store_credential,
+    get_credential,
+    probe_credential,
+    keyring_is_responsive,
+    PRESENT,
+    delete_credential,
+    probe_api_key,
+    push_ephemeral,
+    pop_ephemeral,
+    AI_CREDENTIAL_NAMES,
+    SMTP_CREDENTIAL_NAMES,
+    migrate_legacy_global_ai_key,
+    is_allowed_credential_name,
+)
+from implementation_scripts.ai_lanes import SUBSCRIPTION_PROVIDERS, resolve_chain
+from implementation_scripts.ai_models import (
+    list_available_models as ai_list_available_models,
+    list_subscription_catalog,
+    ModelListError,
+)
+from implementation_scripts.config_manager import (
+    export_configs,
+    import_configs,
+)
+from implementation_scripts.sweep_engine import SweepEngine
+from implementation_scripts.api_registry import list_repositories
+from implementation_scripts.zero_reason import answered as zero_answered, in_part as zero_in_part
+from implementation_scripts import (
+    analytics, assistant_choices, assistant_export, assistant_runtime, assistant_store,
+    coverage_audit, date_window, embedding_job, map_facets, today,
+    embeddings, explorer, lifecycle, match_explain, near_duplicates, paper_collections,
+    reading_queue, reference_export, response_models, search_record, search_terms, source_contact,
+    source_coverage,
+    source_wall, vector_index, watch_profiles,
+    watchdog,
+)
+# ``collection_map`` and ``shared_wording`` are imported where they are used:
+# both bring numpy, which an engine that has drawn no map and scanned nothing
+# has no need of, and which adds to every start and to the idle service.
+from implementation_scripts.assistant_permissions import broker as permission_broker
+from implementation_scripts.progress import progress_store
+from implementation_scripts.admission import (
+    admission,
+    routine_claims,
+    RoutineAlreadyRunning,
+    RoutineFireWaiting,
+)
+from implementation_scripts.scheduler import (
+    ResmonScheduler,
+    _build_trigger as _scheduler_trigger,
+    set_dispatcher,
+    set_overlap_recorder,
+)
+from implementation_scripts.repo_catalog import (
+    REPOSITORY_CATALOG,
+    catalog_as_dicts,
+    credential_names as catalog_credential_names,
+)
+
+# ---------------------------------------------------------------------------
+# App setup
+# ---------------------------------------------------------------------------
+
+def _ensure_clients_loaded_on_startup() -> None:
+    """Import every source client before the engine answers or fires anything."""
+    from implementation_scripts import api_registry
+    try:
+        api_registry._ensure_loaded()
+    except Exception:
+        # A client that cannot be imported is a bug the first run reports in
+        # its own words; it must not stop the engine from starting.
+        logging.getLogger(__name__).exception("Could not load the source clients at startup")
+
+
+def _recover_library_on_startup(started_at: float) -> None:
+    """Remove an import lock, and its unpublished bytes, that an import a stopped engine was in left behind."""
+    try:
+        library.recover_stale_import_lock(_get_db(), started_at)
+    except Exception:
+        logging.getLogger(__name__).exception("Could not check the Library's import lock at startup")
+
+
+def _init_full_text_on_startup() -> None:
+    """Give the PDF worker its connections, record downloads a stopped engine left as interrupted,
+    remove the staging folders it left, and start the worker if requests are waiting from before."""
+    try:
+        full_text.worker.configure(_open_connection)
+        conn = _get_db()
+        full_text.adopt_interrupted(conn)
+        full_text.clear_stale_staging()
+        if conn.execute("SELECT 1 FROM full_text_downloads WHERE state = 'waiting' LIMIT 1").fetchone():
+            full_text.worker.wake()
+    except Exception:
+        logging.getLogger(__name__).exception("Could not start the PDF worker at startup")
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """Startup/shutdown hooks.
+
+    Replaces four deprecated ``@app.on_event`` handlers. Order matters and is
+    preserved exactly as the decorators were registered: admission limits are
+    hydrated first, then the legacy AI-key migration, then the scheduler (which
+    reads routines and therefore needs the database ready). The handlers stay as
+    ordinary module-level functions so tests can still call them directly.
+    """
+    # This engine's start: a Library lock that names no owner and is older than
+    # it was left by an import that stopped (``_recover_library_on_startup``).
+    started_at = time.time()
+    # First, before anything opens the database: a staged restore replaces the
+    # file every later hook is about to read.
+    _apply_pending_restore_on_startup()
+    # Every source client registers on import. Loaded here, once, so no run is
+    # ever the registry's first user (``api_registry._ensure_loaded``).
+    _ensure_clients_loaded_on_startup()
+    _init_admission_on_startup()
+    _migrate_legacy_ai_key_on_startup()
+    # Before the scheduler: a routine that fires the moment it starts must not
+    # be mistaken for a leftover of the process that died (schema 19).
+    _reconcile_executions_on_startup()
+    _init_scheduler_on_startup()
+    # After the scheduler, because a routine that fires the moment it starts
+    # should find a drain already running rather than wait for the idle poll.
+    _init_delivery_on_startup()
+    # Before the PDF worker, which imports into the Library.
+    _recover_library_on_startup(started_at)
+    _init_full_text_on_startup()
+    _selected_startup()
+    try:
+        yield
+    finally:
+        _selected_shutdown()
+        full_text.worker.shutdown()
+        _shutdown_delivery()
+        _shutdown_scheduler()
+
+
+app = FastAPI(title=APP_NAME, version=APP_VERSION, lifespan=_lifespan)
+
+
+# CORS answers the renderer's origin and nothing else, read live from
+# ``api_auth`` because an attached daemon learns that origin after it starts.
+#
+# A wildcard ``allow_origins`` plus an ``Access-Control-Allow-Private-Network:
+# true`` stamped on every response would let any web page in any browser on the
+# machine read and drive the API. So no origin is listed here, and Private
+# Network Access is answered only on a preflight that asks for it, from the
+# renderer. The authoritative checks (Host, Origin, token) are ``LocalApiGuard``,
+# registered below the Library guard so that it runs outermost; see
+# ``implementation_scripts/api_auth.py``.
+#
+# ``FailureAnswer`` is added first, so it runs inside CORS: a route that raises
+# is answered with a sentence CORS marks for the renderer, not with the
+# outermost layer's unmarked "Internal Server Error".
+app.add_middleware(api_auth.FailureAnswer)
+app.add_middleware(
+    api_auth.RendererCORSMiddleware,
+    allow_origins=(),
+    allow_methods=["*"],
+    allow_headers=["*"],
+    allow_private_network=True,
+)
+
+# ---------------------------------------------------------------------------
+# Database connections
+# ---------------------------------------------------------------------------
+#
+# A single module-level ``sqlite3.Connection``, opened with
+# ``check_same_thread=False`` and handed to every FastAPI request thread and
+# every execution worker thread spawned by ``_launch_execution``, would have
+# nothing serializing them.
+#
+# sqlite3 connections are not safe to use concurrently from multiple threads.
+# Python 3.10 and 3.11 mostly got away with it because their sqlite3 module
+# holds the GIL across most operations; 3.12 releases it far more aggressively,
+# so the race is lost reliably there and only intermittently on 3.10/3.11. It
+# surfaced as ``InterfaceError: bad parameter or other API misuse``,
+# ``ProgrammingError: Cannot operate on a closed database``, and
+# ``OperationalError: cannot start a transaction within a transaction``.
+#
+# So each thread gets its own connection. ``_get_db()`` is the single choke
+# point every one of the call sites in this module goes through, so the
+# isolation applies everywhere at once rather than only on the worker path.
+#
+# Two details keep this working with the test suite:
+#
+#   * ``_shared_conn`` is kept as an *anchor*. An in-memory database lives only
+#     as long as a connection to it is open, so the anchor holds it open while
+#     per-thread connections come and go. Keeping the name also preserves the
+#     ``resmon_mod._shared_conn = None`` reset idiom that a dozen test modules
+#     use directly.
+#   * ``":memory:"`` is translated to a private temp file. A plain ``:memory:``
+#     connection is visible only to itself, so per-thread connections would each
+#     get their own empty database. The obvious alternative, a shared-cache
+#     ``file:...?mode=memory&cache=shared`` URI, is worse than it looks: shared
+#     cache takes *table-level* locks and reports contention as SQLITE_LOCKED,
+#     which ``busy_timeout`` does not retry, so a worker writing while a request
+#     reads raises "database table is locked". Production is always a file with
+#     WAL, where one writer and many readers coexist happily -- so tests get
+#     exactly that, and exercise the same locking behavior resmon ships.
+
+_db_path: str | None = None  # overridable for testing
+_shared_conn = None  # anchor connection; keeps an in-memory database alive
+_db_initialized = False
+
+_db_generation = 0  # bumped on reset to invalidate per-thread connections
+_db_local = threading.local()
+# Every connection handed out, paired with the thread that owns it.
+#
+# The owner is recorded because closing a connection from a *different* thread
+# while its owner is mid-statement does not raise -- it segfaults. Connections
+# are opened with ``check_same_thread=False``, so nothing in sqlite3 serializes
+# a close against another thread's in-flight query, and CPython hands the C
+# library a connection it is still using. ``close_db`` uses the owner to refuse
+# exactly that; see the note there.
+_db_conns: list[tuple[sqlite3.Connection, threading.Thread]] = []
+_db_lock = threading.Lock()
+
+
+_memory_dir: tempfile.TemporaryDirectory | None = None
+
+
+def _ephemeral_db_path(generation: int) -> str:
+    """Return the temp-file path standing in for ``":memory:"``."""
+    global _memory_dir
+    if _memory_dir is None:
+        _memory_dir = tempfile.TemporaryDirectory(prefix="resmon-ephemeral-db-")
+    return str(Path(_memory_dir.name) / f"resmon_{generation}.db")
+
+
+def _db_file_path() -> str:
+    """The file the configured database lives in (a temporary one for ``":memory:"``)."""
+    path = _db_path or None
+    return (
+        _ephemeral_db_path(_db_generation) if path == ":memory:"
+        else (str(path) if path else str(DEFAULT_DB_PATH))
+    )
+
+
+def _open_connection():
+    """Open one connection to the configured database."""
+    db_str = _db_file_path()
+    conn = sqlite3.connect(db_str, check_same_thread=False, timeout=30)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA foreign_keys=ON;")
+    conn.execute("PRAGMA busy_timeout=5000;")
+    with _db_lock:
+        _release_finished_threads_connections_locked()
+        _db_conns.append((conn, threading.current_thread()))
+    return conn
+
+
+def _release_finished_threads_connections_locked() -> None:
+    """Close the connections of threads that have ended. Hold ``_db_lock``.
+
+    ``_db_conns`` keeps a reference to every connection so ``close_db`` can
+    find them, and nothing else ever removed one. A thread's own reference
+    dies with its thread-local storage, but this list's does not, so every
+    thread that ever touched the database left a connection open for the life
+    of the process: two file handles each, the database and its WAL. Request
+    threads come and go constantly -- anyio retires a worker after ten idle
+    seconds -- and every run has a thread of its own. The background service
+    runs under launchd's default limit of 256 open files, so about twenty
+    minutes of someone using the app was enough: the service then refused
+    every connection, routine fires included, with ``[Errno 24] Too many open
+    files``. Measured on a wedged service: 124 handles on ``resmon.db`` and 120
+    on ``resmon.db-wal``.
+
+    Closing here is safe for the reason ``close_db`` gives: a thread that has
+    finished cannot be inside a statement on its connection. The anchor is
+    kept whoever opened it, because an in-memory database lives only while a
+    connection to it is open.
+    """
+    kept: list[tuple[sqlite3.Connection, threading.Thread]] = []
+    for owned, owner in _db_conns:
+        if owner.is_alive() or owned is _shared_conn:
+            kept.append((owned, owner))
+            continue
+        try:
+            owned.close()
+        except Exception:
+            pass
+    _db_conns[:] = kept
+
+
+def _get_db():
+    """Return this thread's initialized database connection."""
+    global _shared_conn, _db_initialized, _db_generation
+
+    if _shared_conn is None:
+        # A reset (or first use): invalidate every per-thread connection by
+        # moving the generation forward, then re-anchor.
+        _db_generation += 1
+        _shared_conn = _open_connection()
+        if not _db_initialized:
+            # ``":memory:"`` stands for a throwaway database (a temporary file
+            # here), which keeps no copy of itself before an upgrade.
+            init_db(conn=_shared_conn, keep_upgrade_copy=_db_path != ":memory:")
+            _db_initialized = True
+
+    conn = getattr(_db_local, "conn", None)
+    if conn is None or getattr(_db_local, "generation", None) != _db_generation:
+        conn = _open_connection()
+        _db_local.conn = conn
+        _db_local.generation = _db_generation
+    return conn
+
+
+def _close_db(conn):
+    """No-op — a thread keeps its connection for its lifetime."""
+    pass
+
+
+# ---------------------------------------------------------------------------
+# Naming a collection
+# ---------------------------------------------------------------------------
+
+#: A collection as a request names it: its id, or its name. Absent (None) is the
+#: default collection, so a client from before collections reads what it read.
+CollectionRef = Optional[Union[int, str]]
+
+
+#: A collection named in a query string, by its id or its name; absent, the default collection.
+_COLLECTION_QUERY = Query(None, max_length=200, description=(
+    "The collection, by its id or its name. Absent, the default collection."))
+
+
+def _collection_refusal(exc: "paper_collections.CollectionError") -> HTTPException:
+    return HTTPException(exc.status, exc.message)
+
+
+def _collection_id(conn, ref: CollectionRef) -> int:
+    """The id of the collection a request names, or a 404 that says which name was not found."""
+    try:
+        return paper_collections.resolve(conn, ref)
+    except paper_collections.CollectionError as exc:
+        raise _collection_refusal(exc) from None
+
+
+# ---------------------------------------------------------------------------
+# Pydantic models
+# ---------------------------------------------------------------------------
+
+class DiveRequest(BaseModel):
+    repository: str
+    query: str
+    keywords: Optional[list[str]] = None
+    # Whether a paper must match any of the keywords (the default) or all of
+    # them. Absent, a search with keywords matches any, and one with only a
+    # typed query matches all its words (``search_terms.from_params``).
+    match: Optional[Literal["any", "all"]] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    max_results: int = 100
+    ai_enabled: bool = False
+    ai_settings: Optional[dict] = None
+    ephemeral_credentials: Optional[dict[str, str]] = None
+    # When the user launches the dive from a saved configuration via
+    # ConfigLoader, the frontend echoes that config's id so the new execution
+    # row can be linked back to it.
+    saved_configuration_id: Optional[int] = None
+    # Duplicate protection. An optional client-generated id for *this
+    # submission*, so a double click, a retried request or a renderer that
+    # remounted mid-flight yields one run rather than two. Generated at click
+    # time, never at page load: an id fixed when the page rendered would make
+    # the user's genuine second search look like a duplicate of their first.
+    request_id: Optional[str] = None
+    # The collection the run's papers land in, by id or name: the window's
+    # collection it was started from. Absent, the default collection.
+    collection: CollectionRef = None
+
+class FindRequest(BaseModel):
+    """Look Up a Paper: a DOI, an arXiv id, a PMID or a title, asked of many sources at once."""
+
+    query: str
+    # The sources to ask. Absent, every source that can look up this kind.
+    repositories: Optional[list[str]] = None
+    request_id: Optional[str] = None
+    # The collection the paper lands in, by id or name. Absent, the default one.
+    collection: CollectionRef = None
+
+
+class DocumentIdsBody(BaseModel):
+    document_ids: list[int]
+
+
+class SweepRequest(BaseModel):
+    repositories: list[str]
+    query: str
+    keywords: Optional[list[str]] = None
+    # See DiveRequest.match.
+    match: Optional[Literal["any", "all"]] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    max_results: int = 100
+    ai_enabled: bool = False
+    ai_settings: Optional[dict] = None
+    ephemeral_credentials: Optional[dict[str, str]] = None
+    # See DiveRequest.saved_configuration_id.
+    saved_configuration_id: Optional[int] = None
+    # See DiveRequest.request_id.
+    request_id: Optional[str] = None
+    # See DiveRequest.collection.
+    collection: CollectionRef = None
+
+
+class RestartRequest(BaseModel):
+    """Body of ``POST /api/executions/{id}/restart``. Every field optional.
+
+    The route took no body at all before this; it still answers a request that
+    sends none, because the renderer's Restart button and every existing caller
+    do exactly that.
+    """
+
+    # See DiveRequest.request_id.
+    request_id: Optional[str] = None
+    # Run again: a completed run's search, once more. Without it only a run
+    # that stopped before it finished (interrupted, failed, canceled) is
+    # restarted, as Restart has always done.
+    again: bool = False
+
+
+class DeliveryTargetCreate(BaseModel):
+    """One destination for a routine's report.
+
+    ``target`` is the address for ``email`` and the directory for ``folder``.
+    An empty email target means "the recipient configured under Settings ->
+    Email", which is where the address came from before schema 21 and still
+    does for every routine the migration seeded.
+    """
+
+    channel: str
+    target: str = ""
+    mode: str = "automatic"
+    enabled: bool = True
+
+
+class DeliveryTargetUpdate(BaseModel):
+    target: Optional[str] = None
+    mode: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+class RoutineCreate(BaseModel):
+    name: str
+    schedule_cron: str
+    parameters: dict
+    # What the user is really looking for, in their own words. Optional, and
+    # deliberately not defaulted from the keywords: the coverage audit reports
+    # which of the two it compared against, and a silent fallback written into
+    # the column would make every routine claim a stated intent it never had.
+    intent: Optional[str] = None
+    is_active: bool = True
+    email_enabled: bool = False
+    email_ai_summary_enabled: bool = False
+    ai_enabled: bool = False
+    ai_settings: Optional[dict] = None
+    storage_settings: Optional[dict] = None
+    notify_on_complete: bool = False
+    # Where the watch's papers land, by id or name. Absent, the default collection.
+    collection: CollectionRef = None
+    # Whether each run gets its new papers' open-access PDFs into the Library
+    # (``full_text.for_watch_run``). Off unless asked for.
+    download_full_text: bool = False
+
+class RoutineUpdate(BaseModel):
+    name: Optional[str] = None
+    schedule_cron: Optional[str] = None
+    parameters: Optional[dict] = None
+    intent: Optional[str] = None
+    is_active: Optional[bool] = None
+    email_enabled: Optional[bool] = None
+    email_ai_summary_enabled: Optional[bool] = None
+    ai_enabled: Optional[bool] = None
+    ai_settings: Optional[dict] = None
+    storage_settings: Optional[dict] = None
+    notify_on_complete: Optional[bool] = None
+    # Point the watch's later runs at another collection, by id or name. Papers
+    # its earlier runs filed stay where they are.
+    collection: CollectionRef = None
+    download_full_text: Optional[bool] = None
+
+class ConfigCreate(BaseModel):
+    name: str
+    config_type: str
+    parameters: dict
+    # When the SaveConfigButton on Calendar / Dashboard / Results & Logs
+    # creates a config from an existing manual execution, the frontend
+    # includes the execution id so the backend can stamp
+    # ``executions.saved_configuration_id`` in the same request — "last save
+    # wins" if the user saves the same execution multiple times.
+    link_to_execution_id: Optional[int] = None
+
+class ConfigUpdate(BaseModel):
+    name: Optional[str] = None
+    parameters: Optional[dict] = None
+
+class SettingsBody(BaseModel):
+    settings: dict
+
+class ExecutionSettingsBody(BaseModel):
+    max_concurrent_executions: int
+    routine_fire_queue_limit: int
+
+class CredentialValidate(BaseModel):
+    provider: str
+    # Absent: test the key already stored for an AI provider, which the
+    # renderer never holds and so cannot send.
+    key: Optional[str] = None
+    # The Custom provider needs the user-supplied OpenAI-compatible
+    # base URL (e.g. ``https://api.together.xyz/v1``) to build the probe.
+    base_url: Optional[str] = None
+
+class CredentialStore(BaseModel):
+    value: str
+
+class AIModelsRequest(BaseModel):
+    provider: str
+    # Optional API key. When absent the stored credential for the provider
+    # (if any) is used. Never logged or returned to the caller.
+    key: Optional[str] = None
+    # Required for ``custom``. Ignored for all other providers.
+    base_url: Optional[str] = None
+    # Custom provider only — auth header prefix (default ``Bearer``).
+    header_prefix: Optional[str] = None
+    # Required for ``local`` — the ollama endpoint URL.
+    endpoint: Optional[str] = None
+    # Subscription lanes only — the full path to the agent CLI, when the
+    # user has set one. Never a credential: it is a path to a binary.
+    binary_path: Optional[str] = None
+    # ``ask`` finds the command the way Ask's connection does
+    # (``assistant_runtime.codex_cli_path``) when no path is given; anything
+    # else, or nothing, finds it the way a summary lane does.
+    purpose: Optional[str] = None
+
+class ConfigExport(BaseModel):
+    ids: list[int]
+
+
+class ExecutionExport(BaseModel):
+    ids: list[int]
+
+
+# ---------------------------------------------------------------------------
+# Health
+# ---------------------------------------------------------------------------
+
+_STARTED_AT = datetime.now(timezone.utc).isoformat()
+
+
+def _check_expected_runtime(expected_runtime_id: Optional[str]) -> None:
+    if expected_runtime_id is None:
+        return
+    if not runtime_identity.valid_runtime_id(expected_runtime_id):
+        raise HTTPException(422, "expected_runtime_id must be a canonical lowercase UUID4")
+    actual = runtime_identity.current_runtime_id()
+    if expected_runtime_id != actual:
+        raise HTTPException(409, {"code": "instance_mismatch",
+            "message": "This request reached a different running app.",
+            "expected_runtime_id": expected_runtime_id, "actual_runtime_id": actual})
+
+
+def _daemon_build_id() -> Optional[str]:
+    from implementation_scripts.daemon import build_id
+    return build_id()
+
+
+@app.get("/api/health", response_model=response_models.Health,
+         response_model_exclude_unset=True)
+def health(expected_runtime_id: Optional[str] = None):
+    """Liveness endpoint. Returns process identity so clients can attach-or-spawn.
+
+    ``embeddings`` reports whether *this* backend can load the vector extension,
+    and why not when it cannot. It is here rather than on a route of its own
+    because the renderer already reads health on startup to decide what to show,
+    and the rule is that a feature whose dependency is missing is
+    **absent** rather than present-and-broken: the Explorer's similarity sort and
+    the similar-papers panel are not rendered when this says ``null``. A user is
+    told the reason in Settings, not by a control that does nothing.
+
+    The load is attempted against a real connection on every call rather than
+    read from a cached probe. It is a ``dlopen`` of a 165 KB library, and a
+    health endpoint that answered from memory would keep reporting a capability
+    the process had lost.
+    """
+    _check_expected_runtime(expected_runtime_id)
+    conn = _get_db()
+    identity = runtime_identity.project(conn)
+    try:
+        embeddings = vector_index.extension_status(conn)
+    except Exception as exc:  # pragma: no cover - defense; the status call catches its own
+        embeddings = {"extension": None, "reason": f"{type(exc).__name__}: {exc}"}
+    finally:
+        _close_db(conn)
+    return {
+        "status": "ok",
+        "identity": identity,
+        "pid": os.getpid(),
+        "started_at": _STARTED_AT,
+        "version": APP_VERSION,
+        "build": _daemon_build_id(),
+        "embeddings": embeddings,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Search (manual dive / sweep)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/search/repositories", response_model=list[str],
+         response_model_exclude_unset=True)
+def search_repositories():
+    return list_repositories()
+
+
+@app.get("/api/repositories/catalog",
+         response_model=list[response_models.RepositoryCatalogEntry],
+         response_model_exclude_unset=True)
+def repositories_catalog():
+    """Return the static repository catalog (never returns secrets)."""
+    return catalog_as_dicts()
+
+
+@app.get("/api/credentials", response_model=response_models.CredentialsPresence,
+         response_model_exclude_unset=True)
+def credentials_presence():
+    """Return per-credential status for every known credential name.
+
+    Never returns the raw credential value.
+
+    Each entry carries ``present`` (kept for compatibility) and ``status``,
+    which is ``present``, ``absent`` or ``unreadable``. The last one matters:
+    an unsigned macOS build is denied access to keychain items stored under a
+    different code signature, and reporting that as "absent" tells the user their keys
+    are gone when they are simply unreachable. ``keyring_responsive`` is
+    False once a read has timed out, so the interface can say so once at the
+    top rather than fifteen times over. Each webhook destination's signing
+    secret (``webhook_secret_<id>``) is included for every webhook stored.
+    """
+    # Each webhook destination's signing secret is named after its row, so
+    # those names come from this corpus. Without them a saved secret was never
+    # reported, and the destinations list said "no secret yet" after one was
+    # stored.
+    conn = _get_db()
+    try:
+        webhook_names = {delivery.webhook_secret_name(i) for i in delivery.webhook_target_ids(conn)}
+    finally:
+        _close_db(conn)
+    names = sorted(
+        catalog_credential_names()
+        | AI_CREDENTIAL_NAMES
+        | SMTP_CREDENTIAL_NAMES
+        | webhook_names
+    )
+    statuses = {name: probe_credential(name) for name in names}
+    return {
+        "keyring_responsive": keyring_is_responsive(),
+        "credentials": {
+            name: {"present": status == PRESENT, "status": status}
+            for name, status in statuses.items()
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# AI summarization wiring
+# ---------------------------------------------------------------------------
+
+# Keys that participate in the LLM-factory settings payload. Persisted
+# values live in ``app_settings``; a per-execution override may be passed
+# through ``engine.config["ai_settings"]`` (request-body payload) and wins
+# on merge.
+_AI_SETTING_KEYS: tuple[str, ...] = (
+    "ai_chain",
+    "ai_provider",
+    "ai_model",
+    "ai_local_model",
+    "ai_local_endpoint",
+    "ai_custom_base_url",
+    "ai_summary_length",
+    "ai_tone",
+    "ai_temperature",
+    "ai_extraction_goals",
+    "ai_show_audit_prefix",
+    # The three subscription-lane keys. Absent from this tuple,
+    # ``_load_ai_settings_from_db`` would never read them, so ``resolve_chain``
+    # would build every subscription lane without the binary path or the cap
+    # the user had set. Absent from ``_SETTINGS_GROUPS["ai"]`` below, the
+    # ``PUT /api/settings/ai`` would drop them before they were ever stored. A
+    # setting is only real when it appears in both.
+    "ai_cli_path",
+    "ai_subscription_doc_cap",
+    "ai_effort",
+)
+
+# Per-execution override dicts sent through the request body use short keys.
+# Translate them onto the canonical ``ai_*`` names before merging so the
+# override actually wins. The map matches Settings → AI: ``provider``,
+# ``temperature``, ``extraction_goals``, and ``local_model`` are overridable
+# alongside the model, length, and tone.
+_AI_OVERRIDE_KEY_MAP: dict[str, str] = {
+    "provider": "ai_provider",
+    "model": "ai_model",
+    "local_model": "ai_local_model",
+    "length": "ai_summary_length",
+    "tone": "ai_tone",
+    "temperature": "ai_temperature",
+    "extraction_goals": "ai_extraction_goals",
+    # A routine can override the whole chain, not just the provider.
+    "chain": "ai_chain",
+}
+
+
+def _normalize_ai_override(override: dict | None) -> dict:
+    """Translate short-form override keys onto their canonical ``ai_*`` names."""
+    if not isinstance(override, dict):
+        return {}
+    out: dict = {}
+    for k, v in override.items():
+        if v is None:
+            continue
+        if isinstance(v, str) and not v.strip():
+            continue
+        canonical = _AI_OVERRIDE_KEY_MAP.get(k, k)
+        out[canonical] = v
+    return out
+
+
+# The single-provider keys that belong to whichever provider is stored. An
+# override naming another provider must not inherit them: the stored model is
+# another provider's model, and the stored command path is another command.
+_PROVIDER_BOUND_AI_KEYS: tuple[str, ...] = ("ai_model", "ai_local_model", "ai_cli_path", "ai_effort")
+
+
+def _merge_ai_override(persisted: dict, override: dict) -> dict:
+    """The AI settings one run uses: what is stored, with the run's own choices on top.
+
+    An override that names a provider and carries no chain is a different lane
+    for this run, and only that lane. ``resolve_chain`` prefers a stored chain to
+    the single-provider keys, so the chain is set aside here; left in place it
+    ran the stored lanes and silently ignored the provider the run or the watch
+    asked for, which is what happened to every such override once a chain was
+    stored. Where the override names a provider other than the stored one, the
+    stored provider's own keys are dropped rather than inherited, so a lane the
+    override left without a model is skipped with that reason instead of
+    running another provider's model.
+    """
+    merged = {**persisted, **override}
+    provider = str(override.get("ai_provider") or "").strip().lower()
+    if not provider or override.get("ai_chain"):
+        return merged
+    merged["ai_chain"] = ""
+    stored = str(persisted.get("ai_provider") or "").strip().lower()
+    if provider != stored:
+        for key in _PROVIDER_BOUND_AI_KEYS:
+            if key not in override:
+                merged[key] = ""
+    # An Ollama lane reads ``ai_local_model`` before ``ai_model``; an override's
+    # model is the one this run asked for.
+    if provider == "local" and override.get("ai_model") and "ai_local_model" not in override:
+        merged["ai_local_model"] = override["ai_model"]
+    return merged
+
+
+def _ai_choice_event(enabled: bool, chain: list, override: dict, prompt_params: dict) -> dict:
+    """What a run was set to do about summaries, as one progress event.
+
+    Emitted at the start of every run, on or off, so a run's own record says
+    whether it summarized and with what, rather than leaving a run that found
+    no papers to look like one that never asked. ``lane_source`` is ``run``
+    when the lanes came from the run's or the watch's own settings and
+    ``settings`` when they came from Settings › AI.
+    """
+    from_run = bool(override.get("ai_provider") or override.get("ai_chain"))
+    adjusted = [key for key, name in (
+        ("length", "ai_summary_length"), ("tone", "ai_tone"),
+        ("temperature", "ai_temperature"), ("extraction_goals", "ai_extraction_goals"),
+    ) if name in override]
+    lanes = [
+        {"label": lane.label, "kind": lane.kind, "provider": lane.provider, "model": lane.model}
+        for lane in chain
+    ]
+    if not enabled:
+        message = "AI summaries: off for this run."
+    elif not lanes:
+        message = "AI summaries: on, but no provider is configured, so none can be written."
+    else:
+        message = "AI summaries: on, with " + ", then ".join(lane["label"] for lane in lanes) + (
+            ", as set for this run." if from_run else ", from the AI settings.")
+    return {
+        "type": "ai_choice",
+        "enabled": enabled,
+        "lane_source": "run" if from_run else "settings",
+        "lanes": lanes if enabled else [],
+        "adjusted": adjusted if enabled else [],
+        "length": prompt_params.get("length"),
+        "tone": prompt_params.get("tone"),
+        "message": message,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _load_ai_settings_from_db(conn) -> dict:
+    """Return a dict of persisted ``ai_*`` settings (values may be ``""``)."""
+    out: dict = {}
+    for key in _AI_SETTING_KEYS:
+        try:
+            value = get_setting(conn, key)
+        except Exception:
+            value = None
+        if value is not None:
+            out[key] = value
+    return out
+
+
+def _build_prompt_params(merged: dict) -> dict:
+    """Distill prompt knobs from merged AI settings.
+
+    Also carries ``_show_audit_prefix`` + ``_audit_provider`` + ``_audit_model``
+    so :class:`SummarizationPipeline` can prepend the audit-trail prefix
+    without a direct DB lookup.
+    """
+    length = str(merged.get("ai_summary_length") or "").strip() or "standard"
+    tone = str(merged.get("ai_tone") or "").strip() or "technical"
+    goals = merged.get("ai_extraction_goals")
+    params: dict = {"length": length, "tone": tone}
+    if goals:
+        params["extraction_goals"] = str(goals)
+    # Surface ``ai_temperature`` so it reaches
+    # ``RemoteLLMClient.generate`` (which reads ``params['temperature']``).
+    # Empty / unparseable values fall back to the client default.
+    raw_temp = str(merged.get("ai_temperature") or "").strip()
+    if raw_temp:
+        try:
+            params["temperature"] = float(raw_temp)
+        except (TypeError, ValueError):
+            pass
+    # Audit-prefix controls. Default is enabled; only an explicit "false"
+    # (case-insensitive) disables the prefix.
+    raw_flag = str(merged.get("ai_show_audit_prefix") or "").strip().lower()
+    params["_show_audit_prefix"] = raw_flag != "false"
+    provider = str(merged.get("ai_provider") or "").strip().lower()
+    if provider == "local":
+        model = str(merged.get("ai_local_model") or "").strip()
+    else:
+        model = str(merged.get("ai_model") or "").strip()
+    params["_audit_provider"] = provider
+    params["_audit_model"] = model
+    return params
+
+
+def _apply_embedding_settings_to_engine(engine: SweepEngine, exec_id: int, conn) -> None:
+    """Attach ``engine.embedding_lane``, or record why there is none.
+
+    Mirrors :func:`_apply_ai_settings_to_engine`. Separate from it on purpose:
+    the two lanes are configured independently, and a user who wants semantic
+    search without AI summaries — or the reverse — must not have to enable both.
+
+    **The extension is checked here rather than inside the engine**, because
+    that is where the honest message differs. Vectors are still written when the
+    index will not load; what is unavailable is *ranking*, and telling the user
+    that once per run beats a sweep that looks like it did nothing.
+    """
+    lane = _current_embedding_lane(conn)
+    engine.embedding_lane = lane
+    if lane is None:
+        return
+    extension = vector_index.extension_status(conn)
+    if extension["extension"] is None:
+        progress_store.emit(exec_id, {
+            "type": "log_entry",
+            "level": "warn",
+            "message": (
+                "Embedding will run, but this build cannot rank by meaning: "
+                f"{extension['reason']} The vectors are stored and will be usable "
+                "once the extension loads."
+            ),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+
+def _apply_ai_settings_to_engine(
+    engine: SweepEngine,
+    exec_id: int,
+    conn,
+    ephemeral_credentials: Optional[dict[str, str]],
+) -> None:
+    """Attach ``engine.ai_lanes`` and ``engine.config['ai_prompt_params']``.
+
+    Behavior:
+
+    * Always merge persisted ``ai_*`` settings with the per-execution
+      override in ``engine.config["ai_settings"]`` (override wins).
+    * Resolve the merged settings into lanes. **No client is built here.**
+      ``ChainRunner`` builds each lane, lane 0 included, from the lane
+      itself — which is the only place that knows what kind of lane it is.
+    * Emit one ``log_entry`` warning when nothing at all is configured, i.e.
+      when ``resolve_chain`` is empty; never raise.
+    * Populate ``engine.config["ai_prompt_params"]`` from the merged
+      settings so :class:`SummarizationPipeline` can honor Summary-Length
+      / Tone selectors.
+
+    This function does not call :func:`build_llm_client_from_settings` and hand
+    the result to the engine as ``llm_client``. That function has no
+    subscription branch: for a subscription-primary configuration it returns
+    ``None``, and announcing *"AI skipped: API key missing"* on every run would
+    be wrong while the chain goes on to drive the CLI perfectly well. A message
+    that is wrong about work the app is doing correctly is the overclaim in
+    reverse, and a subscription lane is the primary route.
+
+    Building lane 0 here would also mislabel a routine override that carried
+    ``provider`` without ``chain``: the override provider would do the work
+    while lane 0's ``execution_ai`` row named the persisted chain's lane.
+    """
+    persisted = _load_ai_settings_from_db(conn)
+    override = _normalize_ai_override(engine.config.get("ai_settings"))
+    merged = _merge_ai_override(persisted, override)
+
+    ai_enabled = bool(engine.config.get("ai_enabled"))
+    engine.config["ai_prompt_params"] = _build_prompt_params(merged)
+
+    if not ai_enabled:
+        engine.llm_client = None
+        engine.ai_lane = None
+        progress_store.emit(exec_id, _ai_choice_event(False, [], override, engine.config["ai_prompt_params"]))
+        return
+
+    # Resolve the configuration into lanes. When no ``ai_chain`` is stored,
+    # resolve_chain reads the single-provider ai_* keys as a one-lane chain.
+    # The engine knows *which* lane it is running, which is what lets it
+    # record the attempt in execution_ai.
+    chain = resolve_chain(merged)
+    engine.ai_lanes = chain
+    engine.ai_lane = chain[0] if chain else None
+    progress_store.emit(exec_id, _ai_choice_event(True, chain, override, engine.config["ai_prompt_params"]))
+    # The engine builds each lane's client lazily, so it needs the
+    # per-execution keys rather than a client built here.
+    engine.ai_ephemeral = ephemeral_credentials or None
+
+    # No prebuilt client. ``ChainRunner`` accepts ``primary_client`` and it
+    # stays as the seam tests construct an engine through, but the API path
+    # leaves it empty so every lane -- including lane 0 -- is built from the
+    # lane by ``build_client_for_lane``, which is the only builder that knows
+    # what a subscription lane is.
+    engine.llm_client = None
+
+    if not chain:
+        # Nothing is configured at all. Every other reason a lane cannot run
+        # -- no key, no model, CLI not found -- is known per lane rather than
+        # globally, so it is reported by the lane after the chain has tried,
+        # in ``SweepEngine``. Guessing here is what produced the false
+        # "API key missing".
+        progress_store.emit(exec_id, {
+            "type": "log_entry",
+            "level": "warn",
+            "message": "AI skipped: provider not configured",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+
+# ---------------------------------------------------------------------------
+# Renderer-presence heartbeat (Bug B follow-up — duplicate-notification fix)
+# ---------------------------------------------------------------------------
+#
+# The Electron renderer fires its own ``new Notification(...)`` on
+# completion. When the renderer is running, the headless-daemon-side
+# ``desktop_notifier.notify`` call (which on macOS goes through
+# ``osascript`` and is therefore attributed to Script Editor) duplicates
+# that notification under an unfamiliar app name. To avoid the dupe
+# while still preserving the headless-daemon path (app fully closed),
+# the renderer posts a lightweight heartbeat to the backend; when the
+# heartbeat is fresh, the backend suppresses its own dispatch and lets
+# the renderer alone show the notification.
+
+_RENDERER_HEARTBEAT_TTL_SEC = 15.0
+_renderer_last_heartbeat_ts: float = 0.0
+
+
+def _renderer_is_attached() -> bool:
+    """Return True if the renderer pinged us recently enough to handle
+    its own desktop notifications."""
+    if _renderer_last_heartbeat_ts <= 0:
+        return False
+    return (time.time() - _renderer_last_heartbeat_ts) <= _RENDERER_HEARTBEAT_TTL_SEC
+
+
+def _should_dispatch_desktop_notification(
+    *,
+    execution_type: str,
+    notify_manual: bool,
+    notify_automatic_mode: str,
+    routine_notify_on_complete: bool,
+) -> bool:
+    """Decide whether a completed execution warrants a desktop notification.
+
+    Mirrors the in-renderer logic in
+    ``ExecutionContext.maybeNotifyCompletion``:
+
+    * Manual runs (``deep_dive`` / ``deep_sweep``, and ``find_paper``, Find a
+      paper) honor ``notify_manual``.
+    * Automated runs (``automated_sweep``) honor the per-routine
+      ``notify_on_complete`` flag first; otherwise fall back to the
+      global ``notify_automatic_mode`` (``all`` fires for every routine,
+      ``none`` and ``selected`` suppress when the per-routine flag is
+      false).
+    """
+    if execution_type in ("deep_dive", "deep_sweep", "find_paper"):
+        return bool(notify_manual)
+    if execution_type == "automated_sweep":
+        if routine_notify_on_complete:
+            return True
+        return notify_automatic_mode == "all"
+    return False
+
+
+def _listed_names(names: list[str]) -> str:
+    """"arXiv", "arXiv and Crossref", "arXiv, bioRxiv, and Crossref": the serial comma from three."""
+    if len(names) <= 2:
+        return " and ".join(names)
+    return f"{', '.join(names[:-1])}, and {names[-1]}"
+
+
+# How many sources one part of a notification names before it counts them.
+_NOTIFICATION_NAMES = 3
+
+
+def _non_answer_parts(rows: list[dict], qualifier: str, total: int) -> list[str]:
+    """What happened to each source that did not answer, one part per kind.
+
+    Three kinds, in this order, each named up to three sources and counted
+    past that: a source the person stopped ("bioRxiv was stopped by you"), one
+    that refused on rate ("arXiv was rate-limited; try again after about 3:40
+    PM"), and every other non-answer ("Crossref did not answer"). A source the
+    person stopped did not fail to answer, and one that was rate-limited is
+    up, so neither is said to have not answered.
+    """
+    stopped: list[str] = []
+    limited: list[dict] = []
+    other: list[str] = []
+    for s in rows:
+        if s.get("category") != "non_answer" or not isinstance(s.get("source"), str):
+            continue
+        name = source_coverage._name(s["source"])
+        if s.get("label") == "stopped by you":
+            stopped.append(name)
+        elif s.get("rate_limited"):
+            limited.append({**s, "name": name})
+        else:
+            other.append(name)
+
+    def named(names: list[str], verb_one: str, verb_many: str) -> str:
+        if len(names) <= _NOTIFICATION_NAMES:
+            return f"{_listed_names(names)} {verb_one if len(names) == 1 else verb_many}"
+        return f"{len(names)} of {total} {qualifier}sources {verb_many}"
+
+    parts = []
+    if stopped:
+        parts.append(named(stopped, "was stopped by you", "were stopped by you"))
+    if limited:
+        from implementation_scripts import zero_reason as zero_reason_module  # noqa: PLC0415
+
+        part = named([s["name"] for s in limited], "was rate-limited", "were rate-limited")
+        # The latest time any of them gave, while it is still ahead.
+        times = [zero_reason_module.cooldown_until({"cooldown_until_utc": s.get("cooldown_until_utc")})
+                 for s in limited]
+        latest = max((t for t in times if t is not None), default=None)
+        again = zero_reason_module.again_words(
+            {"cooldown_until_utc": latest.isoformat()} if latest else None)
+        parts.append(f"{part}; {again}" if again else part)
+    if other:
+        parts.append(named(other, "did not answer", "did not answer"))
+    return parts
+
+
+def _notification_coverage_phrase(coverage: dict) -> str:
+    """How many of a run's sources answered, short enough for a notification.
+
+    Read from ``source_coverage.build`` -- the account the Results page and a
+    delivery envelope give -- so the notification can say no more than the
+    record does. A source whose outcome was not recorded is neither an answer
+    nor a failure here; it is counted as unknown, as it is everywhere else.
+    The sources that did not answer are said by what happened to them
+    (``_non_answer_parts``): "2 of 4 sources answered; bioRxiv was stopped by
+    you; arXiv did not answer."
+    """
+    total = int(coverage.get("total") or 0)
+    if total == 0:
+        return "no source outcome was recorded"
+    counts = coverage.get("counts") or {}
+    answered = int(counts.get("answered") or 0)
+    non_answer = int(counts.get("non_answer") or 0)
+    unknown = int(counts.get("unknown") or 0)
+    partial = int(counts.get("partial") or 0)
+    rows = coverage.get("sources") or []
+    # Where the run's saved selection cannot be read, the count is of the
+    # sources that left a record, which may not be every source it asked.
+    qualifier = "" if coverage.get("selection_known") else "recorded "
+    parts = _non_answer_parts(rows, qualifier, total)
+    if total == 1:
+        only = rows[0].get("source") if rows and isinstance(rows[0].get("source"), str) else None
+        source = source_coverage._name(only) if only else f"the {qualifier}source"
+        if non_answer:
+            phrase = parts[0] if parts else f"{source} did not answer"
+        elif unknown:
+            phrase = f"whether {source} answered is unknown"
+        else:
+            phrase = f"{source} answered"
+    else:
+        sources = f"{qualifier}sources"
+        if not non_answer and not unknown:
+            phrase = f"all {total} {sources} answered"
+        elif not non_answer:
+            phrase = f"whether {unknown} of {total} {sources} answered is unknown"
+        else:
+            if not parts:
+                # Counted where the record does not name them.
+                parts = [f"{non_answer} of {total} {sources} did not answer"]
+            # Every source accounted for by its non-answer needs no count of the answers.
+            head = [f"{answered} of {total} {sources} answered"] if answered or unknown else []
+            tail = [f"whether {unknown} answered is unknown"] if unknown else []
+            phrase = "; ".join(head + parts + tail)
+    if partial:
+        phrase += f" ({partial} only in part)"
+    return phrase
+
+
+# The plain words a notification's phrase can begin with. Anything else it
+# begins with is a number or a source's own name ("arXiv"), kept as it is.
+_PHRASE_LEADS = ("all ", "whether ", "the ", "no ", "which ")
+
+
+def _sentence(phrase: str) -> str:
+    """A phrase as a sentence: a plain first word raised, and a full stop."""
+    if phrase.startswith(_PHRASE_LEADS):
+        phrase = phrase[0].upper() + phrase[1:]
+    return phrase if phrase.endswith(".") else f"{phrase}."
+
+
+def _desktop_notification_words(
+    conn, execution_row: dict, routine_name: Optional[str],
+) -> tuple[str, str]:
+    """The title and the sentence a finished or ended run's notification carries.
+
+    In the app's words: a run "finished", "failed", or "was stopped", and a
+    watch is named in the title, so the body has room for what came of it.
+    The title begins "resmon: " for the fallback that posts through the
+    system's own notifier; the app strips it, because macOS already shows the
+    app's name beside every notification it posts.
+
+    The counts are read from the raw ``executions`` row, whose columns are
+    ``result_count`` and ``new_result_count``; an earlier reading of the
+    renderer's names for them made every notification say "0 results (0
+    new)". A count the row does not hold is said to be unrecorded, never
+    printed as zero: a quiet run and an unmeasured one must not read the same.
+    A finished find says instead how many of the sources it asked hold the
+    paper (``paper_find.notice_words``).
+    """
+    execution_type = str(execution_row.get("execution_type") or "").strip()
+    if routine_name:
+        subject = f"Watch \u201c{routine_name}\u201d"
+    else:
+        subject = {
+            "deep_dive": "Deep Dive",
+            "deep_sweep": "Deep Sweep",
+            "automated_sweep": "Watch Run",
+            "find_paper": "Look Up a Paper",
+        }.get(execution_type, "Run")
+
+    try:
+        coverage = source_coverage.build(
+            execution_row, get_execution_sources(conn, int(execution_row["id"])),
+        )
+        coverage_phrase = _notification_coverage_phrase(coverage)
+    except Exception:
+        logging.getLogger(__name__).debug(
+            "Coverage for the notification could not be read", exc_info=True,
+        )
+        coverage_phrase = "which sources answered could not be read"
+
+    status = str(execution_row.get("status") or "").strip().lower()
+    verb = {
+        "completed": "finished",
+        "failed": "failed",
+        "cancelled": "was stopped",
+        "interrupted": "was interrupted",
+    }.get(status, "ended")
+    title = f"resmon: {subject} {verb}"
+    if status != "completed":
+        return title, _sentence(coverage_phrase)
+    if execution_type == "find_paper":
+        # A find says whether the sources hold the paper, as its page does,
+        # rather than how many new papers it stored.
+        try:
+            found_words = paper_find.notice_words(conn, int(execution_row["id"]))
+        except Exception:
+            logging.getLogger(__name__).debug("A find's answers could not be read", exc_info=True)
+            found_words = None
+        if found_words:
+            return title, found_words
+    total = execution_row.get("result_count")
+    new = execution_row.get("new_result_count")
+
+    def papers(n: int) -> str:
+        return f"{n:,} paper" if n == 1 else f"{n:,} papers"
+
+    if isinstance(total, int) and isinstance(new, int):
+        counts = f"{new:,} new {'paper' if new == 1 else 'papers'} of {total:,} found"
+    elif isinstance(total, int):
+        counts = f"{papers(total)} found, how many new not recorded"
+    else:
+        counts = "the paper count was not recorded"
+    return title, _sentence(f"{counts}; {coverage_phrase}")
+
+
+def _desktop_notification_body(
+    conn, execution_row: dict, routine_name: Optional[str],
+) -> str:
+    """The sentence a finished or ended run's notification carries (see ``_desktop_notification_words``)."""
+    return _desktop_notification_words(conn, execution_row, routine_name)[1]
+
+
+def _dispatch_desktop_notification(conn, execution_row: dict) -> None:
+    """Best-effort OS-level desktop notification for a completed execution.
+
+    Reads the same settings keys consumed by the in-renderer notifier
+    plus the per-routine ``notify_on_complete`` flag, then dispatches via
+    :mod:`implementation_scripts.desktop_notifier`. Any failure is
+    logged at debug level and never raises.
+    """
+    try:
+        from implementation_scripts import desktop_notifier
+    except Exception:
+        return
+
+    # If the Electron renderer is attached, it will fire its own
+    # ``new Notification(...)``. Suppress the backend dispatch to avoid
+    # the duplicate (which on macOS arrives attributed to Script Editor
+    # because it's posted via ``osascript``).
+    if _renderer_is_attached():
+        return
+
+    execution_type = str(execution_row.get("execution_type") or "").strip()
+    if execution_type not in ("deep_dive", "deep_sweep", "find_paper", "automated_sweep"):
+        return
+
+    raw = _get_settings_group(conn, "notifications")
+    manual_raw = str(raw.get("notify_manual", "")).strip().lower()
+    if raw.get("notify_manual", "") == "":
+        notify_manual = True  # default-on for first-load parity with GET endpoint
+    else:
+        notify_manual = manual_raw in ("1", "true", "yes", "on")
+    mode = str(raw.get("notify_automatic_mode", "")).strip().lower()
+    if mode not in ("all", "selected", "none"):
+        mode = "none"
+
+    routine_notify_on_complete = False
+    routine_name: Optional[str] = None
+    routine_id = execution_row.get("routine_id")
+    if routine_id:
+        try:
+            routine = get_routine_by_id(conn, int(routine_id))
+            if routine:
+                routine_notify_on_complete = bool(routine.get("notify_on_complete"))
+                routine_name = str(routine.get("name") or "").strip() or None
+        except Exception:
+            pass
+
+    if not _should_dispatch_desktop_notification(
+        execution_type=execution_type,
+        notify_manual=notify_manual,
+        notify_automatic_mode=mode,
+        routine_notify_on_complete=routine_notify_on_complete,
+    ):
+        return
+
+    title, body = _desktop_notification_words(conn, execution_row, routine_name)
+
+    try:
+        exec_id = execution_row.get("id")
+        desktop_notifier.notify(title, body, execution_id=int(exec_id) if exec_id is not None else None)
+    except Exception:
+        logging.getLogger(__name__).debug(
+            "desktop_notifier.notify raised", exc_info=True,
+        )
+
+
+# How often a running execution stamps ``last_seen_at_utc`` from inside a stage.
+# ``update_current_stage`` already stamps it at every stage boundary the engine
+# crosses, which is enough for the stages that are short; ``querying`` against
+# twenty-two sources is not one of those, and a run that dies forty minutes into
+# it would otherwise carry a liveness stamp forty minutes old. 30 s is one
+# ``UPDATE ... WHERE id=? AND status='running'`` per execution per half minute,
+# which is nothing against a WAL database with one writer.
+_HEARTBEAT_SECONDS = 30.0
+
+
+def _start_execution_heartbeat(exec_id: int) -> tuple[threading.Thread, threading.Event]:
+    """Stamp ``last_seen_at_utc`` every 30 s until the row stops being ``running``.
+
+    Its own thread with its own connection, and a daemon thread so a
+    shutdown never waits on it. The stop event is set by the execution thread's
+    ``finally``; the ``status='running'`` scope in the UPDATE means that even if
+    that never happened, the heartbeat stops as soon as the row is terminal
+    rather than writing to a row another process has reconciled.
+    """
+    stop = threading.Event()
+
+    def _beat() -> None:
+        conn = None
+        try:
+            conn = _get_db()
+            while not stop.wait(_HEARTBEAT_SECONDS):
+                try:
+                    if not touch_execution_heartbeat(conn, exec_id):
+                        return
+                except sqlite3.Error:
+                    logging.getLogger(__name__).debug(
+                        "Heartbeat write failed for exec_id=%s", exec_id, exc_info=True)
+        finally:
+            if conn is not None:
+                try:
+                    _close_db(conn)
+                except Exception:
+                    pass
+
+    t = threading.Thread(target=_beat, daemon=True, name=f"heartbeat-{exec_id}")
+    t.start()
+    return t, stop
+
+
+def _launch_execution(
+    engine: SweepEngine,
+    exec_id: int,
+    conn,
+    ephemeral_credentials: Optional[dict[str, str]] = None,
+    claimed_routine_id: Optional[int] = None,
+    reservation: Optional[int] = None,
+) -> None:
+    """Run the pipeline in a background thread, then persist progress events.
+
+    ``claimed_routine_id`` is the routine whose per-routine claim this
+    execution holds (see ``RoutineClaimRegistry``). The claim is taken in
+    ``_dispatch_routine_fire`` *before* this thread starts -- that ordering is
+    the whole guard -- and released here, in the ``finally``, which is the only
+    place that runs whether the pipeline finished, failed or raised.
+
+    ``reservation`` is the slot a queued manual run was given when the queue
+    drained (``admission.admit_manual``). This execution's own id takes it
+    over once it is admitted; if the thread dies before that, the
+    reservation is released here, which hands the slot to the next in line.
+    """
+
+    def _run() -> None:
+        """Release the claim and the admission slot whatever happens, then run.
+
+        The pipeline's own ``finally`` (far below) releases both in the right
+        *order* -- the claim before ``admission.note_finished``, which can hand
+        a queued fire of this same routine to a fresh thread. But it cannot be
+        the only release: ``note_admitted``, the heartbeat start and
+        ``_get_db()`` all run before that ``try``, and an exception there --
+        a database that will not open is the realistic one -- would strand both.
+        A stranded claim answers every later fire of that routine 409 for a run
+        that never started; a stranded slot is worse, because it is global --
+        ``max_concurrent`` such deaths and every Deep Dive and Deep Sweep is
+        refused 429 while nothing at all is running. So both are released here
+        too. Both calls are idempotent (see ``note_finished`` for why its drain
+        had to be made so); releasing twice costs nothing and not releasing
+        costs the backend until it restarts.
+        """
+        try:
+            _run_pipeline()
+        except BaseException:
+            # A worker thread that raises out of itself leaves a bare traceback
+            # on the interpreter's excepthook and tells the log nothing about
+            # which execution it was. The row is left exactly as it is: nothing
+            # here observed what the search did, and schema 19's startup
+            # reconciliation is what decides whether it was interrupted.
+            logging.getLogger(__name__).exception(
+                "Execution worker raised before its own error handling: "
+                "exec_id=%s", exec_id,
+            )
+        finally:
+            # Same order as the pipeline's own release: the claim first, then
+            # the slot, because ``note_finished`` can dispatch a queued fire of
+            # this routine synchronously and that fire claims before it runs.
+            if claimed_routine_id is not None:
+                routine_claims.release(claimed_routine_id)
+            admission.note_finished(exec_id)
+            if reservation is not None:
+                # Already handed to the run below in the ordinary case, and
+                # then this does nothing.
+                admission.note_finished(reservation)
+
+    def _run_pipeline() -> None:
+        admission.note_admitted(exec_id)
+        if reservation is not None:
+            admission.release_reservation(reservation)
+        heartbeat_thread, heartbeat_stop = _start_execution_heartbeat(exec_id)
+        # Take this thread's own connection rather than reusing the request
+        # thread's. The two run concurrently -- the endpoint returns
+        # as soon as the thread is started -- and sharing one sqlite3.Connection
+        # between them is the race per-thread connections exist to remove. The
+        # engine is rebound too, since it captured the request's connection when
+        # it was constructed.
+        conn = _get_db()
+        engine.db = conn
+        try:
+            # Register any per-execution credentials BEFORE the engine runs
+            # so that client ``get_credential_for`` lookups see them.  Raw
+            # values are never logged.
+            push_ephemeral(exec_id, ephemeral_credentials or {})
+            # Attach an LLM client + prompt-parameter bundle to the
+            # engine immediately before run_prepared so AI summarization can
+            # actually execute. Settings precedence: per-execution override
+            # (``engine.config["ai_settings"]``) wins over persisted
+            # ``app_settings``. Factory returning ``None`` with
+            # ``ai_enabled=True`` results in a single ``log_entry`` progress
+            # event and the execution continues without AI.
+            _apply_ai_settings_to_engine(
+                engine, exec_id, conn, ephemeral_credentials,
+            )
+            # The embedding lane, resolved the same way and at the same
+            # point. It is independent of ``ai_enabled``: semantic search and AI
+            # summaries are separate features and a user may want either alone.
+            _apply_embedding_settings_to_engine(engine, exec_id, conn)
+            try:
+                engine.run_prepared(exec_id)
+            except Exception:
+                pass  # SweepEngine already marks status='failed' and emits error events
+        finally:
+            heartbeat_stop.set()
+            heartbeat_thread.join(timeout=5)
+            pop_ephemeral(exec_id)
+            progress_store.mark_complete(exec_id)
+            # Routine delivery hook (schema 21). Fires only for
+            # routine-backed executions, and only *enqueues*: one
+            # ``deliveries`` row per enabled target, then a wake for the drain
+            # thread that owns the sending. Nothing here talks to a mail
+            # server any more -- the pre-21 version did, on this thread, still
+            # holding the execution's admission slot, so an SMTP server that
+            # accepted the connection and then sat there held a slot for as
+            # long as it cared to. Any failure is logged and never fails the
+            # execution.
+            try:
+                row = get_execution_by_id(conn, exec_id)
+                if (
+                    row
+                    and row.get("execution_type") == "automated_sweep"
+                    and row.get("routine_id")
+                ):
+                    routine = get_routine_by_id(conn, row["routine_id"])
+                    if routine:
+                        queued = delivery.enqueue_for_execution(conn, row, routine)
+                        if queued:
+                            delivery.wake()
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "Routine delivery hook raised for exec_id=%s", exec_id,
+                )
+            # A watch with its opt-in on: its new papers' open-access PDFs,
+            # asked for now, up to the run's cap. Only asks; the worker
+            # fetches, on its own threads, and nothing here waits for it.
+            try:
+                row = get_execution_by_id(conn, exec_id)
+                if (
+                    row
+                    and row.get("execution_type") == "automated_sweep"
+                    and row.get("status") == "completed"
+                    and row.get("routine_id")
+                ):
+                    routine = get_routine_by_id(conn, row["routine_id"])
+                    if routine and routine.get("download_full_text"):
+                        full_text.worker.configure(_open_connection)
+                        full_text.for_watch_run(conn, exec_id)
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "Full-text hook raised for exec_id=%s", exec_id,
+                )
+            # Desktop notification dispatch.
+            # Fires from the backend so notifications work even under the
+            # headless-daemon path where the renderer is not running.
+            # Reads the same settings keys consumed by the in-renderer
+            # notifier (``notify_manual``, ``notify_automatic_mode``) plus
+            # the per-routine ``notify_on_complete`` flag.
+            try:
+                row = get_execution_by_id(conn, exec_id)
+                if row:
+                    _dispatch_desktop_notification(conn, row)
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "Desktop notification hook raised for exec_id=%s", exec_id,
+                )
+            # Shared wording: a run that brought new papers compares them with
+            # the collection, in the background, when the person has scanned
+            # before. It reads only; a failure is logged and never fails the run.
+            try:
+                row = get_execution_by_id(conn, exec_id)
+                if row and int(row.get("new_result_count") or 0) > 0:
+                    from implementation_scripts import shared_wording  # noqa: PLC0415 - see the imports
+                    shared_wording.scan_job.after_run(_get_db)
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "Shared-wording hook raised for exec_id=%s", exec_id,
+                )
+            # Persisting progress must never be able to strand the
+            # execution's concurrency slot. ``admission.note_finished`` is what
+            # returns that slot; if it is skipped the slot is held for the life
+            # of the process, and after ``max_concurrent`` such failures every
+            # Deep Dive and Deep Sweep is rejected with HTTP 429 while nothing
+            # is actually running. A locked database past the 5 s busy_timeout,
+            # a full disk, or a shutdown race is enough to trigger it.
+            try:
+                events = progress_store.get_events(exec_id)
+                save_progress_events(conn, exec_id, events)
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "Failed to persist progress events for exec_id=%s", exec_id,
+                )
+            finally:
+                try:
+                    progress_store.cleanup(exec_id)
+                except Exception:
+                    logging.getLogger(__name__).exception(
+                        "progress_store.cleanup failed for exec_id=%s", exec_id,
+                    )
+                # Before ``note_finished``, which may synchronously hand a
+                # queued fire of this same routine to a fresh thread: that
+                # thread claims before it runs, and it must not meet a claim
+                # this execution is only about to drop.
+                if claimed_routine_id is not None:
+                    routine_claims.release(claimed_routine_id)
+                admission.note_finished(exec_id)
+
+    t = threading.Thread(target=_run, daemon=True, name=f"exec-{exec_id}")
+    t.start()
+
+
+# Duplicate protection for a *submission* rather than for a routine. The
+# mechanism is the partial UNIQUE index over ``executions.request_id``, and the
+# two helpers below are the check that comes first and the answer when the check
+# and the insert raced anyway. The ticket is written in the run's own INSERT, so
+# no reader sees a run without it. There is deliberately no lock: the index
+# decides, the loser's INSERT writes nothing, and both callers end up holding the
+# same execution id. A lock would make the common case look safer without
+# covering the case that actually needs covering -- a second backend process,
+# which shares the database and not this module.
+
+
+def _duplicate_execution_for(conn, request_id: Optional[str]) -> Optional[dict]:
+    """The run this exact submission already started, or None.
+
+    ``None`` when no id was sent: a caller that does not send one is not asking
+    for duplicate protection and must not be given a previous run's id.
+    """
+    if not request_id:
+        return None
+    return get_execution_by_request_id(conn, request_id)
+
+
+def _winner_of_request_id(conn, request_id: Optional[str], error: sqlite3.IntegrityError) -> dict:
+    """The run another process started with this ticket, when this one's INSERT collided with it.
+
+    The ticket is written in the run's own INSERT (``insert_execution``), so no
+    reader sees a run without it; the partial UNIQUE index refuses a second row
+    with the same ticket, and this answers with the row that won. Any other
+    integrity error is re-raised.
+    """
+    conn.rollback()
+    winner = get_execution_by_request_id(conn, request_id) if request_id else None
+    if winner is None:
+        raise error
+    return winner
+
+
+def _queue_full_refusal(what: str) -> HTTPException:
+    """The answer when resmon runs as many as it allows and as many more wait as it queues."""
+    cap = admission.max()
+    return HTTPException(
+        status_code=429,
+        detail=(
+            f"resmon is already running {cap} run{'s' if cap != 1 else ''}, as many as it "
+            f"allows at once, and {admission.queue_limit()} more are waiting, as many as it "
+            f"queues. This {what} was not queued; ask again once one of them has finished."
+        ),
+        headers={"Retry-After": "5", "X-Resmon-Conflict": "admission_queue_full"},
+    )
+
+
+def _queued_answer(ticket: str, what: str) -> dict:
+    """What a manual run that waits for a slot is told: where it stands, and that it starts on its own."""
+    cap = admission.max()
+    position = admission.ticket_position(ticket) or 1
+    ahead = position - 1
+    return {
+        "queued": True,
+        "queue_position": position,
+        "ticket": ticket,
+        "detail": (
+            f"resmon is already running {cap} run{'s' if cap != 1 else ''}, as many as it allows "
+            f"at once, so this {what} waits"
+            + (f" behind {ahead} other{'s' if ahead != 1 else ''}" if ahead else "")
+            + ". It starts on its own when a run finishes; there is nothing more to do."
+        ),
+    }
+
+
+def _start_or_queue(
+    *,
+    request_id: Optional[str],
+    what: str,
+    info: dict,
+    launch: Callable[[Optional[int], Optional[str]], int],
+    response: Response,
+) -> dict:
+    """Start a manual run now, or queue it for the next free slot, and say which.
+
+    The door every manual run comes through: a Deep Dive, a Deep Sweep, and a
+    restart or a run asked for again. Past the run limit it waits in the same
+    queue a watch's fire waits in (``admission.admit_manual``) and is started
+    in turn, rather than refused as it once was, when a person had to watch
+    for a free slot and ask again. Only a full queue refuses it (429).
+
+    ``launch(reservation, ticket)`` prepares and starts the run and returns
+    its id; for a queued run it is called when its turn comes, on a fresh
+    thread, with the slot reserved for it and the ticket to stamp on its row.
+    A submission whose ``request_id`` is already waiting is answered with that
+    entry again rather than queued twice.
+    """
+    if request_id and admission.ticket_position(request_id) is not None:
+        response.status_code = 202
+        return {"execution_id": None, "duplicate": True, **_queued_answer(request_id, what)}
+    ticket = request_id or uuid.uuid4().hex
+
+    def start(reservation: int) -> None:
+        launch(reservation, ticket)
+
+    decision = admission.admit_manual(ticket, start, info)
+    if decision == "full":
+        raise _queue_full_refusal(what)
+    if decision == "queued":
+        response.status_code = 202
+        return {"execution_id": None, **_queued_answer(ticket, what)}
+    return {"execution_id": launch(None, request_id)}
+
+
+def _search_info(execution_type: str, repositories: list[str], query_params: dict) -> dict:
+    """What a waiting manual run is shown as, on the Runs tab: its kind and its search."""
+    keywords = query_params.get("keywords")
+    return {
+        "execution_type": execution_type,
+        "query": query_params.get("query"),
+        "keywords": list(keywords) if isinstance(keywords, list) else None,
+        "repositories": list(repositories),
+    }
+
+
+def _launch_search(
+    execution_type: str,
+    repositories: list[str],
+    query_params: dict,
+    *,
+    ai_enabled: bool,
+    ai_settings: Optional[dict],
+    ephemeral_credentials: Optional[dict[str, str]],
+    saved_configuration_id: Optional[int],
+) -> Callable[[Optional[int], Optional[str]], int]:
+    """Prepare and start a Deep Dive or Deep Sweep, on whichever thread its turn comes."""
+
+    def launch(reservation: Optional[int], request_id: Optional[str]) -> int:
+        conn = _get_db()
+        engine = SweepEngine(
+            db_conn=conn,
+            config={"ai_enabled": ai_enabled, "ai_settings": ai_settings},
+        )
+        try:
+            exec_id = engine.prepare_execution(execution_type, repositories, query_params, request_id=request_id)
+        except sqlite3.IntegrityError as error:
+            # Another process started this very submission between the check
+            # and here; that run is the answer, and this slot is not needed.
+            winner = _winner_of_request_id(conn, request_id, error)
+            if reservation is not None:
+                admission.note_finished(reservation)
+            return int(winner["id"])
+        # Link the new execution back to the saved
+        # configuration the user picked in ConfigLoader (if any).
+        if saved_configuration_id is not None:
+            set_execution_saved_configuration(conn, exec_id, saved_configuration_id)
+        progress_store.register(exec_id)
+        _launch_execution(engine, exec_id, conn, ephemeral_credentials=ephemeral_credentials,
+                          reservation=reservation)
+        return exec_id
+
+    return launch
+
+
+@app.post("/api/search/dive", response_model=response_models.RunStarted,
+          response_model_exclude_unset=True)
+def search_dive(body: DiveRequest, response: Response):
+    """Start a Deep Dive, or queue it when resmon runs as many as it allows (202)."""
+    conn = _get_db()
+    # Before the cap check, deliberately: a resubmission of a run that is
+    # already going is not a new demand on capacity, and answering it with 429
+    # would tell the user resmon is busy when what it is busy with is their own
+    # first click.
+    existing = _duplicate_execution_for(conn, body.request_id)
+    if existing is not None:
+        return {"execution_id": existing["id"], "duplicate": True}
+    query_params = {
+        "query": body.query,
+        "keywords": body.keywords,
+        **({"match": body.match} if body.match else {}),
+        "date_from": body.date_from,
+        "date_to": body.date_to,
+        "max_results": body.max_results,
+        "collection_id": _collection_id(conn, body.collection),
+    }
+    return _start_or_queue(
+        request_id=body.request_id, what="Deep Dive",
+        info=_search_info("deep_dive", [body.repository], query_params),
+        launch=_launch_search(
+            "deep_dive", [body.repository], query_params,
+            ai_enabled=body.ai_enabled, ai_settings=body.ai_settings,
+            ephemeral_credentials=body.ephemeral_credentials,
+            saved_configuration_id=body.saved_configuration_id,
+        ),
+        response=response,
+    )
+
+
+@app.post("/api/search/sweep", response_model=response_models.RunStarted,
+          response_model_exclude_unset=True)
+def search_sweep(body: SweepRequest, response: Response):
+    """Start a Deep Sweep, or queue it when resmon runs as many as it allows (202)."""
+    conn = _get_db()
+    # Before the cap check, deliberately: see ``search_dive``.
+    existing = _duplicate_execution_for(conn, body.request_id)
+    if existing is not None:
+        return {"execution_id": existing["id"], "duplicate": True}
+    query_params = {
+        "query": body.query,
+        "keywords": body.keywords,
+        **({"match": body.match} if body.match else {}),
+        "date_from": body.date_from,
+        "date_to": body.date_to,
+        "max_results": body.max_results,
+        "collection_id": _collection_id(conn, body.collection),
+    }
+    return _start_or_queue(
+        request_id=body.request_id, what="Deep Sweep",
+        info=_search_info("deep_sweep", list(body.repositories), query_params),
+        launch=_launch_search(
+            "deep_sweep", list(body.repositories), query_params,
+            ai_enabled=body.ai_enabled, ai_settings=body.ai_settings,
+            ephemeral_credentials=body.ephemeral_credentials,
+            saved_configuration_id=body.saved_configuration_id,
+        ),
+        response=response,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Find a paper (F2)
+# ---------------------------------------------------------------------------
+
+
+def _find_plan(query: str, repositories: Optional[list[str]]) -> tuple[paper_find.PaperQuery, list[str], list[dict]]:
+    """The find asked for: every source in the catalog accounted for, asked or not, and why not.
+
+    *repositories*, when given, are the sources to ask; one that could have
+    been asked and was not named is recorded as left out of this find.
+    """
+    try:
+        parsed = paper_find.parse(query)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    every = [entry["slug"] for entry in catalog_as_dicts()]
+    named = list(repositories) if repositories else every
+    asked, not_asked = paper_find.plan(parsed, list(dict.fromkeys(named + every)))
+    if repositories:
+        left = [slug for slug in asked if slug not in named]
+        asked = [slug for slug in asked if slug in named]
+        not_asked = [{"source": slug, "why": "Left out of this find."} for slug in left] + not_asked
+    return parsed, asked, not_asked
+
+
+@app.get("/api/find/plan", response_model=response_models.FindPlan,
+         response_model_exclude_unset=True)
+def find_plan(q: str = Query(..., max_length=500), repositories: Optional[str] = None):
+    """What a typed query reads as (a DOI, an arXiv id, a PMID, or a title), and which sources it would ask."""
+    named = [s for s in (repositories or "").split(",") if s] or None
+    parsed, asked, not_asked = _find_plan(q, named)
+    return {**parsed.as_params(), "asked": asked, "not_asked": not_asked}
+
+
+@app.post("/api/find", response_model=response_models.RunStarted, response_model_exclude_unset=True)
+def find_a_paper(body: FindRequest, response: Response):
+    """Look up a paper across the sources that can: a run, or queued like one (202).
+
+    Each source is asked by the kind it can be asked by; the copy that is the
+    paper is kept in the collection, every source's answer is recorded
+    (``GET /api/executions/{id}/find``), and the copies that share a DOI are
+    linked. A query no named source can look up is refused (400) with why.
+    """
+    conn = _get_db()
+    existing = _duplicate_execution_for(conn, body.request_id)
+    if existing is not None:
+        return {"execution_id": existing["id"], "duplicate": True}
+    parsed, asked, not_asked = _find_plan(body.query, body.repositories)
+    if not asked:
+        kind = paper_find.KIND_WORDS[parsed.kind]
+        # Why the sources named cannot, not that the others were left out.
+        named = set(body.repositories or [])
+        reasons = " ".join([item["why"] for item in not_asked if not named or item["source"] in named][:3])
+        raise HTTPException(400, f"No source named can look up {'an' if kind[0] in 'aeiou' else 'a'} {kind}. {reasons}")
+    query_params = {
+        "query": parsed.typed,
+        "find": {**parsed.as_params(), "not_asked": not_asked},
+        "max_results": paper_find.CANDIDATES,
+        "collection_id": _collection_id(conn, body.collection),
+    }
+    return _start_or_queue(
+        request_id=body.request_id, what="find",
+        info=_search_info("find_paper", asked, query_params),
+        launch=_launch_search(
+            "find_paper", asked, query_params, ai_enabled=False, ai_settings=None,
+            ephemeral_credentials=None, saved_configuration_id=None),
+        response=response,
+    )
+
+
+@app.get("/api/executions/{exec_id}/find", response_model=response_models.FindResult,
+         response_model_exclude_unset=True)
+def find_result(exec_id: int):
+    """A find's question and what each source it named said: found or not, how it matched, what differs, its open copy."""
+    conn = _get_db()
+    result = paper_find.result(conn, exec_id)
+    if result is None:
+        raise HTTPException(404, "That run is not a find.")
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Get the PDF (F1, L4)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/full-text/rules", response_model=response_models.FullTextRules,
+         response_model_exclude_unset=True)
+def full_text_rules():
+    """The limits on downloads, the license rule, and the sources and sites never downloaded from."""
+    return full_text.rules()
+
+
+@app.post("/api/full-text/for-documents", response_model=list[response_models.FullTextStatus],
+         response_model_exclude_unset=True)
+def full_text_for_documents(body: DocumentIdsBody):
+    """For each paper: its open copies, the one resmon would get or why none, its latest request, its Library PDF."""
+    if len(body.document_ids) > 200:
+        raise HTTPException(400, "Ask about at most 200 papers at once.")
+    return full_text.status_for(_get_db(), list(dict.fromkeys(body.document_ids)))
+
+
+@app.post("/api/documents/{doc_id}/full-text", response_model=response_models.FullTextRequest,
+         response_model_exclude_unset=True)
+def get_the_pdf(doc_id: int):
+    """Get the PDF: ask for this paper's open-access PDF into the Library.
+
+    Recorded before anything is fetched. A request that cannot go ahead (no
+    open copy with a stated license, a refused source, no Library folder, the
+    day's cap) comes back ``skipped`` with its reason and sends nothing.
+    """
+    conn = _get_db()
+    try:
+        return full_text.request(conn, doc_id, requested_by="person")
+    except LookupError:
+        raise HTTPException(404, "That paper is not in this database.") from None
+
+
+@app.get("/api/executions/{exec_id}/full-text", response_model=response_models.RunFullText,
+         response_model_exclude_unset=True)
+def run_full_text(exec_id: int):
+    """Every PDF a run asked for (a watch with its opt-in on), and what came of each."""
+    conn = _get_db()
+    if get_execution_by_id(conn, exec_id) is None:
+        raise HTTPException(404, "Run not found")
+    return full_text.for_execution(conn, exec_id)
+
+
+# ---------------------------------------------------------------------------
+# Routines CRUD
+# ---------------------------------------------------------------------------
+
+def _serialize_routine_for_config(routine: dict) -> dict:
+    """Return the ``parameters`` JSON payload for a routine-mirror config row.
+
+    The mirror row lives in ``saved_configurations`` with ``config_type='routine'``
+    so that the Configurations page can list it alongside manual configs. The
+    ``linked_routine_id`` key is what ties the two rows together across
+    sync/update/delete operations.
+    """
+    params = routine.get("parameters")
+    if isinstance(params, str):
+        try:
+            params = json.loads(params)
+        except (json.JSONDecodeError, TypeError):
+            params = {}
+    return {
+        "linked_routine_id": routine["id"],
+        "schedule_cron": routine.get("schedule_cron", ""),
+        # The intent travels with the mirror, so a routine built by loading a
+        # saved routine configuration keeps what it was for. Dropping it here
+        # would be a second place the field appears not to work.
+        "intent": routine.get("intent") or "",
+        "parameters": params or {},
+        "is_active": bool(routine.get("is_active")),
+        "email_enabled": bool(routine.get("email_enabled")),
+        "email_ai_summary_enabled": bool(routine.get("email_ai_summary_enabled")),
+        "ai_enabled": bool(routine.get("ai_enabled")),
+        "notify_on_complete": bool(routine.get("notify_on_complete")),
+        "execution_location": routine.get("execution_location", "local"),
+    }
+
+
+def _find_routine_config(conn, routine_id: int) -> Optional[dict]:
+    for row in get_configurations(conn, config_type="routine"):
+        raw = row.get("parameters")
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                continue
+        if isinstance(raw, dict) and raw.get("linked_routine_id") == routine_id:
+            return row
+    return None
+
+
+def _sync_routine_config(conn, routine_id: int) -> None:
+    routine = get_routine_by_id(conn, routine_id)
+    if not routine:
+        return
+    payload = _serialize_routine_for_config(routine)
+    existing = _find_routine_config(conn, routine_id)
+    if existing is not None:
+        update_configuration(conn, existing["id"], {
+            "name": routine["name"],
+            "parameters": json.dumps(payload),
+        })
+    else:
+        insert_configuration(conn, {
+            "name": routine["name"],
+            "config_type": "routine",
+            "parameters": json.dumps(payload),
+        })
+
+
+def _delete_routine_config(conn, routine_id: int) -> None:
+    existing = _find_routine_config(conn, routine_id)
+    if existing is not None:
+        delete_configuration(conn, existing["id"])
+
+
+# ---------------------------------------------------------------------------
+# Scheduler CRUD sync helpers
+#
+# Every routine endpoint that mutates the local row mirrors the change to
+# the APScheduler jobstore so schedule state matches the DB. Scheduler
+# exceptions are logged but never propagated, so a scheduler fault cannot
+# prevent the DB mutation from completing.
+# ---------------------------------------------------------------------------
+
+_scheduler_sync_logger = logging.getLogger(__name__)
+
+
+def _sched_add_routine(routine_id: int) -> None:
+    if scheduler is None:
+        return
+    conn = _get_db()
+    try:
+        row = get_routine_by_id(conn, routine_id)
+    finally:
+        _close_db(conn)
+    if not row or not row.get("is_active"):
+        return
+    try:
+        scheduler.add_routine(row)
+    except Exception:
+        _scheduler_sync_logger.exception(
+            "scheduler.add_routine failed for routine_id=%s", routine_id,
+        )
+
+
+def _sched_update_routine(routine_id: int) -> None:
+    if scheduler is None:
+        return
+    conn = _get_db()
+    try:
+        row = get_routine_by_id(conn, routine_id)
+    finally:
+        _close_db(conn)
+    if not row:
+        return
+    try:
+        if row.get("is_active"):
+            scheduler.update_routine(routine_id, row)
+        else:
+            scheduler.remove_routine(routine_id)
+    except Exception:
+        _scheduler_sync_logger.exception(
+            "scheduler sync failed on update for routine_id=%s", routine_id,
+        )
+
+
+def _sched_remove_routine(routine_id: int) -> None:
+    if scheduler is None:
+        return
+    try:
+        scheduler.remove_routine(routine_id)
+    except Exception:
+        _scheduler_sync_logger.exception(
+            "scheduler.remove_routine failed for routine_id=%s", routine_id,
+        )
+
+
+@app.post("/api/renderer/heartbeat", response_model=response_models.RendererHeartbeat,
+          response_model_exclude_unset=True)
+def renderer_heartbeat():
+    """Renderer-presence ping.
+
+    The Electron renderer posts here every few seconds while it is
+    running. The backend uses the most recent ping to decide whether
+    to suppress its own desktop-notification dispatch (which would
+    otherwise duplicate the in-renderer ``new Notification(...)`` and,
+    on macOS, surface under ``Script Editor`` because it's invoked via
+    ``osascript``). When the heartbeat is stale (renderer closed), the
+    backend resumes dispatching so the headless-daemon path still
+    works.
+    """
+    global _renderer_last_heartbeat_ts
+    _renderer_last_heartbeat_ts = time.time()
+    return {"ok": True, "ttl_sec": _RENDERER_HEARTBEAT_TTL_SEC}
+
+
+@app.get("/api/routines", response_model=list[response_models.RoutineRow],
+         response_model_exclude_unset=True)
+def list_routines():
+    conn = _get_db()
+    try:
+        routines = get_routines(conn)
+        # Enrich with last_execution / last_status so the Routines table
+        # can show the timestamp and status of each routine's most recent
+        # run. ``last_executed_at`` is stamped at fire-time; the status is
+        # resolved from the most recent ``executions`` row that carries
+        # the routine_id FK.
+        for r in routines:
+            rid = r.get("id")
+            r["last_execution"] = r.get("last_executed_at")
+            last_status = None
+            if rid is not None:
+                try:
+                    row = conn.execute(
+                        "SELECT status FROM executions "
+                        "WHERE routine_id = ? "
+                        "ORDER BY start_time DESC LIMIT 1",
+                        (int(rid),),
+                    ).fetchone()
+                    if row is not None:
+                        last_status = row["status"] if isinstance(row, sqlite3.Row) else row[0]
+                except Exception:
+                    last_status = None
+            r["last_status"] = last_status
+            # Fires that did not run -- those that came due while resmon was
+            # closed, and those refused because the previous run of this
+            # routine was still going, counted and timestamped apart by
+            # ``missed_fire_summary``. A zeroed summary for a routine that has
+            # missed none, rather than an absent key: the screen renders
+            # nothing either way, and a missing key would be
+            # indistinguishable from an older backend that cannot answer.
+            r["missed_fires"] = (
+                missed_fire_summary(conn, int(rid)) if rid is not None
+                else {"count": 0, "last_due_at_utc": None,
+                      "overlap_skipped": 0,
+                      "last_overlap_skipped_due_at_utc": None,
+                      "last_closed_miss_due_at_utc": None}
+            )
+        return routines
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/routines/{routine_id}", response_model=response_models.Routine,
+         response_model_exclude_unset=True)
+def get_routine(routine_id: int):
+    """Fetch a single routine by ID.
+
+    The renderer's notification path needs the per-routine
+    ``notify_on_complete`` flag to decide whether to fire a desktop
+    notification under ``notify_automatic_mode == 'selected'``. Without
+    this endpoint the renderer's fetch silently 404s and the per-routine
+    opt-in is treated as ``false``, which suppresses notifications even
+    when the user enabled the per-row toggle.
+    """
+    conn = _get_db()
+    try:
+        routine = get_routine_by_id(conn, routine_id)
+        if not routine:
+            raise HTTPException(404, "Watch not found")
+        # Coerce the same boolean-ish columns the list endpoint exposes
+        # so the renderer doesn't have to re-coerce ``0/1`` integers.
+        for col in (
+            "is_active",
+            "email_enabled",
+            "email_ai_summary_enabled",
+            "ai_enabled",
+            "notify_on_complete",
+            "download_full_text",
+        ):
+            if col in routine:
+                routine[col] = bool(routine[col])
+        routine["missed_fires"] = missed_fire_summary(conn, routine_id)
+        # The detail the summary counts, oldest first, for a screen that wants
+        # to list them rather than count them.
+        routine["missed_fire_details"] = get_missed_fires(conn, routine_id)
+        # A window that moves: the dates a run starting now would ask for,
+        # computed by the function a fire uses, so the watch's page states the
+        # same dates the run will. Absent for fixed dates or none.
+        upcoming = _upcoming_date_window(conn, routine_id, routine.get("parameters"))
+        if upcoming is not None:
+            routine["date_window_next"] = upcoming
+        return routine
+    finally:
+        _close_db(conn)
+
+
+def _upcoming_date_window(conn, routine_id: int, raw_parameters: object) -> Optional[dict]:
+    """The dates a run of this watch starting now would ask for, or None."""
+    try:
+        params = json.loads(raw_parameters) if isinstance(raw_parameters, str) else raw_parameters
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(params, dict) or params.get("date_window") is None:
+        return None
+    entity = params.get("entity")
+    if isinstance(entity, dict) and entity.get("mode") == "retractions":
+        return None
+    try:
+        window = date_window.normalized(params.get("date_window"))
+    except date_window.WindowError:
+        return None
+    return date_window.resolve(conn, routine_id, window, upcoming=True)
+
+
+def _validated_entity(conn, parameters: dict) -> Optional[dict]:
+    """`parameters.entity`, normalized, or None when the routine is a keyword one.
+
+    Validated at the seam rather than at fire time. A routine's
+    ``parameters`` is an untyped JSON blob, so an entity naming a
+    profile that does not exist would be stored, scheduled, and then fire every
+    morning into a run that could not do anything — the plausible-and-wrong
+    shape this app refuses. ``watch_profiles`` owns the sentences.
+    """
+    if not isinstance(parameters, dict) or "entity" not in parameters:
+        return None
+    try:
+        return watch_profiles.validate_entity_parameters(conn, parameters["entity"])
+    except watch_profiles.ProfileError as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
+def _validated_date_window(parameters: dict) -> Optional[dict]:
+    """`parameters.date_window`, checked as it will be stored, or None.
+
+    At the seam for the reason `_validated_entity` is: a window the engine
+    cannot read would be stored, scheduled, and found only when it fired.
+    """
+    try:
+        return date_window.validate_parameters(parameters)
+    except date_window.WindowError as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
+def _search_terms(parameters: object) -> list[str]:
+    """The words a routine's runs search for: its query and its keywords.
+
+    Both editors store the terms twice, as a ``keywords`` list and as the
+    ``query`` string a run sends, and an MCP-made routine stores only
+    ``query``; a term in either counts.
+    """
+    if not isinstance(parameters, dict):
+        return []
+    words = [str(k) for k in parameters.get("keywords") or [] if str(k).strip()] \
+        if isinstance(parameters.get("keywords"), list) else []
+    query = parameters.get("query")
+    if isinstance(query, str) and query.strip():
+        words.append(query)
+    return words
+
+
+def _validated_terms(parameters: dict) -> None:
+    """Refuse a keyword routine with nothing to search for.
+
+    Stored, such a routine sends every source it names an empty search on every
+    run. arXiv, DOAJ, and PLOS answer that with HTTP 400, so each run reads as a
+    row of failing sources when nothing about the sources is wrong. A routine
+    that follows a person (``entity``) has no terms by design, and its entity is
+    checked by ``_validated_entity`` instead.
+    """
+    if isinstance(parameters, dict) and parameters.get("entity") is not None:
+        return
+    if not _search_terms(parameters):
+        raise HTTPException(
+            400,
+            "A watch needs at least one search term, or a person to follow. With "
+            "none, every run would send its sources an empty search, which some "
+            "of them refuse.",
+        )
+    if parameters.get("match") is not None:
+        try:
+            search_terms.normalize_match(parameters["match"])
+        except ValueError:
+            raise HTTPException(
+                400,
+                "A watch's match is \"any\" (a paper with any of its terms) or "
+                "\"all\" (a paper with every term).",
+            ) from None
+
+
+def _entity_source_warning(entity: Optional[dict], parameters: dict) -> Optional[str]:
+    """Whether the sources this routine names can be asked about a person at all.
+
+    Said **at creation**, not only after a run comes back empty. `new_papers`
+    over three sources none of which supports an author query is a routine that
+    will run correctly and find nothing for ever, and the run's own
+    ``entity_unsupported`` zero reason would explain it only to someone who went
+    looking. The routine is still created: it is the user's call, sources gain
+    capabilities, and refusing would be resmon deciding for them.
+    """
+    if not entity or entity["mode"] != "new_papers":
+        return None
+    slugs = [str(r) for r in (parameters.get("repositories") or [])]
+    if not slugs:
+        return None
+    askable = [
+        slug for slug in slugs
+        for entry in REPOSITORY_CATALOG
+        if entry.slug == slug and entry.entity_search.author_query != "none"
+    ]
+    if askable:
+        return None
+    return (
+        "None of the sources this watch names can be asked about an author, "
+        "so it will find nothing until you add one that can. Each run will say "
+        "so on the source's row.")
+
+
+def _readable_schedule(schedule_cron: str, parameters: object) -> None:
+    """Refuse a schedule the scheduler cannot build a trigger from.
+
+    The scheduler builds a routine's trigger after the row is stored, and a
+    failure there is logged (``_sched_add_routine``) while the request still
+    succeeds; the calendar skips the routine the same way. So ``0 25 * * *``
+    would make a routine that said it was active, showed no next fire, and
+    never ran. This asks ``_build_trigger`` itself, from the schedule and the
+    parameters as they will be stored, so a valid structured ``_schedule``
+    (which the scheduler prefers) is what is checked when it is present.
+    """
+    try:
+        _scheduler_trigger({"schedule_cron": schedule_cron, "parameters": parameters})
+    except (ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(
+            400,
+            f"resmon cannot read the schedule “{schedule_cron}”, so it would never run ({exc}). "
+            "A schedule is five fields: minute, hour, day of the month, month and day of the "
+            "week, as in “0 8 * * 1-5” for weekdays at 8:00.",
+        ) from None
+
+
+@app.post("/api/routines", status_code=201, response_model=response_models.RoutineCreated,
+          response_model_exclude_unset=True)
+def create_routine(body: RoutineCreate):
+    conn = _get_db()
+    try:
+        entity = _validated_entity(conn, body.parameters)
+        _validated_terms(body.parameters)
+        _validated_date_window(body.parameters)
+        _readable_schedule(body.schedule_cron, body.parameters)
+        routine_dict = {
+            "name": body.name,
+            "schedule_cron": body.schedule_cron,
+            "parameters": json.dumps(body.parameters),
+            # Blank is stored as NULL rather than "": ``intent_for`` treats both
+            # as absent, and one representation of absent keeps the column
+            # answerable with a plain ``IS NULL``.
+            "intent": (body.intent or "").strip() or None,
+            "is_active": int(body.is_active),
+            "email_enabled": int(body.email_enabled),
+            "email_ai_summary_enabled": int(body.email_ai_summary_enabled),
+            "ai_enabled": int(body.ai_enabled),
+            "ai_settings": json.dumps(body.ai_settings) if body.ai_settings else None,
+            "storage_settings": json.dumps(body.storage_settings) if body.storage_settings else None,
+            "notify_on_complete": int(body.notify_on_complete),
+            "execution_location": "local",
+            "collection_id": _collection_id(conn, body.collection),
+            "download_full_text": int(body.download_full_text),
+        }
+        rid = insert_routine(conn, routine_dict)
+        _sync_routine_config(conn, rid)
+        if body.is_active:
+            _sched_add_routine(rid)
+        response = {"id": rid, "name": body.name}
+        if entity:
+            response["entity"] = entity
+            warning = _entity_source_warning(entity, body.parameters)
+            if warning:
+                response["entity_warning"] = warning
+        return response
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/routines/{routine_id}", response_model=response_models.RoutineUpdated,
+         response_model_exclude_unset=True)
+def update_routine_endpoint(routine_id: int, body: RoutineUpdate):
+    conn = _get_db()
+    try:
+        existing = get_routine_by_id(conn, routine_id)
+        if not existing:
+            raise HTTPException(404, "Watch not found")
+        updates = {}
+        if body.name is not None:
+            updates["name"] = body.name
+        if body.schedule_cron is not None:
+            updates["schedule_cron"] = body.schedule_cron
+        if body.parameters is not None:
+            _validated_entity(conn, body.parameters)
+            _validated_terms(body.parameters)
+            _validated_date_window(body.parameters)
+            updates["parameters"] = json.dumps(body.parameters)
+        if body.schedule_cron is not None or body.parameters is not None:
+            # Either can change which schedule runs, so the pair as it will be
+            # stored is checked. An update that touches neither is not, so a
+            # routine stored before this check can still be paused or renamed.
+            _readable_schedule(
+                updates.get("schedule_cron", existing.get("schedule_cron") or ""),
+                body.parameters if body.parameters is not None else existing.get("parameters"),
+            )
+        if body.intent is not None:
+            # An empty string is a *clear*, not a no-op: the editor sends the
+            # whole form, so a user who deletes the sentence means to remove it.
+            updates["intent"] = body.intent.strip() or None
+        if body.is_active is not None:
+            updates["is_active"] = int(body.is_active)
+        if body.email_enabled is not None:
+            updates["email_enabled"] = int(body.email_enabled)
+        if body.email_ai_summary_enabled is not None:
+            updates["email_ai_summary_enabled"] = int(body.email_ai_summary_enabled)
+        if body.ai_enabled is not None:
+            updates["ai_enabled"] = int(body.ai_enabled)
+        if body.ai_settings is not None:
+            updates["ai_settings"] = json.dumps(body.ai_settings)
+        if body.storage_settings is not None:
+            updates["storage_settings"] = json.dumps(body.storage_settings)
+        if body.notify_on_complete is not None:
+            updates["notify_on_complete"] = int(body.notify_on_complete)
+        if body.collection is not None:
+            updates["collection_id"] = _collection_id(conn, body.collection)
+        if body.download_full_text is not None:
+            updates["download_full_text"] = int(body.download_full_text)
+        update_routine(conn, routine_id, updates)
+        _sync_routine_config(conn, routine_id)
+        _sched_update_routine(routine_id)
+        return {"id": routine_id, **updates}
+    finally:
+        _close_db(conn)
+
+
+@app.delete("/api/routines/{routine_id}")
+def delete_routine_endpoint(routine_id: int):
+    conn = _get_db()
+    try:
+        existing = get_routine_by_id(conn, routine_id)
+        if not existing:
+            raise HTTPException(404, "Watch not found")
+        _sched_remove_routine(routine_id)
+        _delete_routine_config(conn, routine_id)
+        delete_routine(conn, routine_id)
+        return {"success": True}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/routines/{routine_id}/activate", response_model=response_models.RoutineActivation,
+          response_model_exclude_unset=True)
+def activate_routine(routine_id: int):
+    conn = _get_db()
+    try:
+        existing = get_routine_by_id(conn, routine_id)
+        if not existing:
+            raise HTTPException(404, "Watch not found")
+        update_routine(conn, routine_id, {"is_active": 1})
+        _sync_routine_config(conn, routine_id)
+        _sched_add_routine(routine_id)
+        return {"id": routine_id, "is_active": True}
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# Delivery (schema 21)
+# ---------------------------------------------------------------------------
+#
+# Targets belong to a routine; deliveries belong to an execution and are
+# listed either way round. The three action routes are the decisions the drain
+# is deliberately not allowed to make for the user: approve one that is
+# waiting for review, decide not to send it at all, and try a failed one again
+# after the backoff has given up.
+
+
+@app.get("/api/routines/{routine_id}/delivery-targets", response_model=response_models.DeliveryTargets,
+         response_model_exclude_unset=True)
+def list_routine_delivery_targets(routine_id: int):
+    conn = _get_db()
+    try:
+        if not get_routine_by_id(conn, routine_id):
+            raise HTTPException(404, "Watch not found")
+        return {
+            "routine_id": routine_id,
+            "targets": delivery.list_targets(conn, routine_id),
+            # What resmon can act on today, so a screen can offer exactly
+            # these rather than every value the CHECK admits.
+            "shipped_channels": list(delivery.SHIPPED_CHANNELS),
+        }
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/routines/{routine_id}/delivery-targets",
+          response_model=response_models.DeliveryTargetAdded, response_model_exclude_unset=True)
+def add_routine_delivery_target(routine_id: int, body: DeliveryTargetCreate):
+    conn = _get_db()
+    try:
+        if not get_routine_by_id(conn, routine_id):
+            raise HTTPException(404, "Watch not found")
+        try:
+            target_id = delivery.add_target(
+                conn, routine_id, channel=body.channel, target=body.target,
+                mode=body.mode, enabled=body.enabled,
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        return {"id": target_id, "routine_id": routine_id}
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/routines/{routine_id}/delivery-targets/{target_id}")
+def update_routine_delivery_target(
+    routine_id: int, target_id: int, body: DeliveryTargetUpdate,
+):
+    conn = _get_db()
+    try:
+        existing = delivery.get_target(conn, target_id)
+        if not existing or int(existing["routine_id"]) != routine_id:
+            raise HTTPException(404, "Delivery target not found")
+        updates = {k: v for k, v in body.model_dump().items() if v is not None}
+        try:
+            delivery.update_target(conn, target_id, updates)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        return {"id": target_id, "updated": sorted(updates)}
+    finally:
+        _close_db(conn)
+
+
+@app.delete("/api/routines/{routine_id}/delivery-targets/{target_id}")
+def delete_routine_delivery_target(routine_id: int, target_id: int):
+    conn = _get_db()
+    try:
+        existing = delivery.get_target(conn, target_id)
+        if not existing or int(existing["routine_id"]) != routine_id:
+            raise HTTPException(404, "Delivery target not found")
+        delivery.delete_target(conn, target_id)
+        # The deliveries already recorded against it keep their
+        # ``target_snapshot``; removing a destination does not unsay where a
+        # report was sent.
+        return {"success": True, "id": target_id}
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/routines/{routine_id}/deliveries", response_model=response_models.RoutineDeliveries,
+         response_model_exclude_unset=True)
+def list_routine_deliveries(routine_id: int, limit: int = 100):
+    conn = _get_db()
+    try:
+        if not get_routine_by_id(conn, routine_id):
+            raise HTTPException(404, "Watch not found")
+        return {
+            "routine_id": routine_id,
+            "deliveries": delivery.list_deliveries_for_routine(
+                conn, routine_id, limit=limit),
+            "summary": delivery.routine_delivery_summary(conn, routine_id),
+        }
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/executions/{exec_id}/deliveries")
+def list_execution_deliveries(exec_id: int):
+    conn = _get_db()
+    try:
+        if not get_execution_by_id(conn, exec_id):
+            raise HTTPException(404, "Execution not found")
+        return {
+            "execution_id": exec_id,
+            "deliveries": delivery.list_deliveries_for_execution(conn, exec_id),
+        }
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/deliveries/{delivery_id}/deliver", response_model=response_models.DeliveryActed,
+          response_model_exclude_unset=True)
+def approve_delivery(delivery_id: int):
+    """Release a delivery that was waiting for review. The only promotion."""
+    conn = _get_db()
+    try:
+        row = delivery.get_delivery(conn, delivery_id)
+        if not row:
+            raise HTTPException(404, "Delivery not found")
+        if not delivery.approve(conn, delivery_id):
+            raise HTTPException(
+                409,
+                f"This delivery is {row['state']}, not waiting for review.",
+            )
+        delivery.wake()
+        return {"id": delivery_id, "state": "queued"}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/deliveries/{delivery_id}/skip", response_model=response_models.DeliveryActed,
+          response_model_exclude_unset=True)
+def skip_delivery(delivery_id: int):
+    conn = _get_db()
+    try:
+        row = delivery.get_delivery(conn, delivery_id)
+        if not row:
+            raise HTTPException(404, "Delivery not found")
+        if not delivery.skip(conn, delivery_id):
+            raise HTTPException(
+                409,
+                f"This delivery is {row['state']} and cannot be skipped.",
+            )
+        return {"id": delivery_id, "state": "skipped"}
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/deliveries/{delivery_id}/bundle")
+def delivery_bundle(delivery_id: int, exp: str = "", sig: str = ""):
+    """The report bundle a webhook envelope linked to, for whoever holds the link.
+
+    This is the one route in resmon that answers without the local API token,
+    and it is the one route that is not for resmon: a webhook receiver is a
+    program the user pointed a routine at, and handing it the token that opens
+    every route would be a far worse trade than a signature over one delivery
+    id with an expiry on it. ``api_auth.AUTH_SIGNED_PATHS`` is where the guard
+    steps aside; everything it checks before the token -- the Host, and a
+    browser's Origin -- still applies here.
+
+    Every way of not being entitled to the file gets the same 403: a wrong
+    signature, an expired one, a destination with no secret stored, and a
+    delivery that was not a webhook at all. A caller guessing learns only that
+    it did not work.
+    """
+    def refuse():
+        raise HTTPException(
+            403,
+            {
+                "reason": "signature_invalid",
+                "message": (
+                    "This link is not valid for that delivery, or it has "
+                    "expired. Webhook bundle links last 24 hours."
+                ),
+            },
+        )
+
+    conn = _get_db()
+    try:
+        row = delivery.get_delivery(conn, delivery_id)
+        if row is None or row["channel"] != "webhook" or row["target_id"] is None:
+            refuse()
+        secret = get_credential(delivery.webhook_secret_name(row["target_id"]))
+        if not delivery.bundle_link_is_valid(delivery_id, exp, sig, secret):
+            refuse()
+        execution = get_execution_by_id(conn, int(row["execution_id"]))
+        if execution is None:
+            raise HTTPException(404, "That execution no longer exists.")
+        # Built on demand rather than kept: the bundle is a derived artifact
+        # and a copy of every delivered report sitting in a cache is a second
+        # place the user's corpus lives without them asking for one.
+        staging = tempfile.mkdtemp(prefix="resmon_bundle_link_")
+        try:
+            zip_path = _delivery_bundle(conn, execution, Path(staging))
+            payload = zip_path.read_bytes()
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+    finally:
+        _close_db(conn)
+    return Response(
+        content=payload,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="resmon_execution_{int(row["execution_id"])}.zip"'
+            ),
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@app.post("/api/deliveries/{delivery_id}/retry", response_model=response_models.DeliveryActed,
+          response_model_exclude_unset=True)
+def retry_delivery(delivery_id: int):
+    """Start the attempt sequence again, after the backoff has given up."""
+    conn = _get_db()
+    try:
+        row = delivery.get_delivery(conn, delivery_id)
+        if not row:
+            raise HTTPException(404, "Delivery not found")
+        if not delivery.retry(conn, delivery_id):
+            raise HTTPException(
+                409,
+                f"This delivery is {row['state']}; only a failed or skipped "
+                "delivery can be retried.",
+            )
+        delivery.wake()
+        return {"id": delivery_id, "state": "queued", "attempts": 0}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/routines/{routine_id}/run", response_model=response_models.RoutineRunStarted,
+          response_model_exclude_unset=True)
+def run_routine_now(routine_id: int, response: Response):
+    """Run a routine immediately, outside its schedule.
+
+    Routines can be activated or deactivated, and without this route running
+    one now would mean rebuilding its configuration by hand as a sweep. That
+    would be a gap in the application rather than only in the tool surface -- "run my arXiv routine
+    now" is something a person should be able to do from the interface too.
+
+    Deliberately a thin wrapper over ``_dispatch_routine_fire``, the same
+    function the scheduler calls, so a manual run and a scheduled fire take one
+    code path and cannot drift apart. Everything that makes a scheduled fire
+    correct -- admission control, the routine_id stamp, progress registration,
+    the last_executed_at update -- applies here for free because it is
+    literally the same code.
+
+    An **inactive** routine does run, and the response says so. ``is_active``
+    governs whether the scheduler fires a routine on its own; it is not a
+    statement that the routine may never run. Refusing here would mean a user
+    has to activate a routine, run it, and deactivate it again to get one
+    result.
+
+    At the run limit the fire is **queued**, and the answer is a 202 with no
+    execution id, ``queued`` and its place in the queue: it starts on its own
+    when a run finishes. Only when the queue is full too is it refused (409).
+    """
+    conn = _get_db()
+    try:
+        existing = get_routine_by_id(conn, routine_id)
+        if not existing:
+            raise HTTPException(404, "Watch not found")
+
+        was_inactive = not bool(existing.get("is_active"))
+        # A window the engine cannot read is said here, with its sentence,
+        # rather than as the capacity refusal below that the fire would become.
+        try:
+            stored_params = json.loads(existing.get("parameters") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            stored_params = None
+        if isinstance(stored_params, dict):
+            try:
+                date_window.normalized(stored_params.get("date_window"))
+            except date_window.WindowError as exc:
+                raise HTTPException(400, str(exc)) from None
+        try:
+            exec_id = _dispatch_routine_fire(
+                routine_id, existing.get("parameters") or "{}",
+                allow_inactive=True, raise_on_conflict=True, run_now=True,
+            )
+        except RoutineFireWaiting as waiting:
+            cap = admission.max()
+            if waiting.decision == "queued":
+                # Accepted, not started: the run begins when a slot frees, with
+                # nothing more for the person to do. Saying "wait and try again"
+                # here sent them to start a second one.
+                position = admission.queue_position(routine_id) or 1
+                ahead = position - 1
+                response.status_code = 202
+                return {
+                    "execution_id": None,
+                    "routine_id": routine_id,
+                    "was_inactive": was_inactive,
+                    "missed_fires_marked_ran_late": 0,
+                    "queued": True,
+                    "queue_position": position,
+                    "detail": (
+                        f"resmon is already running {cap} run{'s' if cap != 1 else ''}, as many "
+                        "as it allows at once, so this one is queued"
+                        + (f" behind {ahead} other{'s' if ahead != 1 else ''}" if ahead else "")
+                        + ". It starts on its own when a slot frees; there is nothing more to do."
+                        + (" The watch stays paused: this is one run because you asked for it."
+                           if was_inactive else "")
+                    ),
+                }
+            raise HTTPException(
+                409,
+                f"resmon is already running {cap} run{'s' if cap != 1 else ''}, as many as it "
+                f"allows at once, and {admission.queue_limit()} more are waiting, as many as it "
+                "queues. This run was not queued; start it again once one of them has finished.",
+                headers={"X-Resmon-Conflict": "admission_queue_full"},
+            )
+        except RoutineAlreadyRunning as conflict:
+            # A string detail, for the reason ``cancel_execution`` gives one: a
+            # renderer that renders ``detail`` shows [object Object] for a dict.
+            # The machine-readable half goes in a header, so a caller that wants
+            # to branch on the reason does not have to parse English.
+            raise HTTPException(
+                409,
+                (f"This watch is already running as run "
+                 f"{conflict.execution_id}. Wait for that run to finish, or "
+                 "cancel it, before starting another."
+                 if conflict.execution_id is not None else
+                 "This watch is already running. Wait for that run to "
+                 "finish, or cancel it, before starting another."),
+                headers={
+                    "X-Resmon-Conflict": "routine_already_running",
+                    "X-Resmon-Execution-Id": (
+                        str(conflict.execution_id)
+                        if conflict.execution_id is not None else ""),
+                },
+            )
+
+        if exec_id is None:
+            # Admission's answers are raised above, so what is left is a fire
+            # the dispatcher declined before admission: parameters it could
+            # not read, or a date window (checked above, so a race).
+            raise HTTPException(
+                409,
+                "resmon could not start this watch: its stored parameters could "
+                "not be read. Open it and save it again.",
+            )
+
+        # The fires resmon recorded as missed have now been answered by a run
+        # the user asked for. ``ran_late`` is the word schema 20 reserved for
+        # exactly this and nothing wrote until now -- it claims that a run was
+        # started after those fires came due, which is what happened, and not
+        # that each missed fire produced its own run.
+        ran_late = mark_missed_fires_ran_late(conn, routine_id)
+
+        return {
+            "execution_id": exec_id,
+            "routine_id": routine_id,
+            "was_inactive": was_inactive,
+            "missed_fires_marked_ran_late": ran_late,
+            "detail": (
+                "This watch is not scheduled; it was run once because you "
+                "asked for it." if was_inactive else
+                "Running now, in addition to its schedule."
+            ),
+        }
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/routines/{routine_id}/deactivate", response_model=response_models.RoutineActivation,
+          response_model_exclude_unset=True)
+def deactivate_routine(routine_id: int):
+    conn = _get_db()
+    try:
+        existing = get_routine_by_id(conn, routine_id)
+        if not existing:
+            raise HTTPException(404, "Watch not found")
+        update_routine(conn, routine_id, {"is_active": 0})
+        _sync_routine_config(conn, routine_id)
+        _sched_remove_routine(routine_id)
+        return {"id": routine_id, "is_active": False}
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/routines/{routine_id}/documents", response_model=response_models.RoutineDocuments,
+         response_model_exclude_unset=True)
+def routine_documents(routine_id: int, limit: Optional[int] = Query(None, ge=1),
+                      collection: Optional[str] = _COLLECTION_QUERY):
+    """The papers this routine's runs collected that a collection holds: a watch's constellation on its map.
+
+    Ids only, newest run first and each paper once, because what a screen does
+    with them is mark them on the collection map; a page of records is the
+    Explorer's job. Every one unless ``limit`` asks for fewer: ids are a few
+    bytes each, and a constellation drawn from the first 2,000 of a watch's
+    papers left the rest off the map. ``total`` counts all of them, so a screen
+    whose ``limit`` cut the list short can say so rather than imply the marks
+    are complete.
+    """
+    conn = _get_db()
+    try:
+        if not get_routine_by_id(conn, routine_id):
+            raise HTTPException(404, "Watch not found")
+        ids, total = get_routine_document_ids(conn, routine_id, limit=limit,
+                                              collection_id=_collection_id(conn, collection))
+        return {"routine_id": routine_id, "document_ids": ids, "total": total, "limit": limit}
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# Executions
+# ---------------------------------------------------------------------------
+
+def _enrich_execution_row(row: dict) -> dict:
+    """Add frontend-friendly fields (query, total_results, new_results).
+
+    Parses the JSON ``parameters`` blob to surface the search query, and
+    mirrors ``result_count`` / ``new_result_count`` under the names the UI
+    expects. The original columns are preserved.
+    """
+    if not row:
+        return row
+    params_raw = row.get("parameters")
+    query_val = None
+    keywords_val: list[str] | None = None
+    repos_val: list[str] | None = None
+    if params_raw:
+        try:
+            params = json.loads(params_raw) if isinstance(params_raw, str) else params_raw
+            if isinstance(params, dict):
+                query_val = (
+                    params.get("query")
+                    or params.get("q")
+                    or params.get("search_query")
+                )
+                kw = params.get("keywords")
+                if isinstance(kw, list) and kw:
+                    keywords_val = [str(k) for k in kw]
+                repos = params.get("repositories")
+                if isinstance(repos, list) and repos:
+                    repos_val = [str(r) for r in repos]
+                elif params.get("repository"):
+                    repos_val = [str(params["repository"])]
+        except (ValueError, TypeError):
+            query_val = None
+    # Fallback: legacy rows that predate keyword-list persistence only store
+    # the flat query string. We intentionally do NOT split on whitespace here
+    # because an unquoted multi-word term like ``machine learning`` would be
+    # mangled into ``['machine', 'learning']``. Preserve the raw query as a
+    # single keyword so multi-word terms stay intact; fresh executions always
+    # carry an explicit ``keywords`` list which takes precedence above.
+    if keywords_val is None and isinstance(query_val, str) and query_val.strip():
+        keywords_val = [query_val.strip()]
+    row["query"] = query_val
+    row["keywords"] = keywords_val
+    row["repositories"] = repos_val
+    row["total_results"] = row.get("result_count")
+    row["new_results"] = row.get("new_result_count")
+    return row
+
+
+def _source_outcomes(conn, exec_ids: list[int]) -> dict[int, dict]:
+    """A compact per-execution summary of which sources actually answered.
+
+    One query for a whole page rather than one per row: the Results list asks
+    for fifty executions at a time, and "n of m sources could not answer"
+    belongs on the row the user is already looking at rather than behind a
+    click. ``could_not_answer`` counts the zeros that were **not** answers --
+    an outage, an unreadable reply, a window the source cannot express, a
+    missing key, a retired source -- and ``not_recorded`` counts the zeros
+    resmon never observed, which are deliberately not folded into either
+    number. ``in_part`` counts, among the answered, the sources resmon's own
+    budget or the run's cap stopped after a stated stretch of the window.
+    """
+    if not exec_ids:
+        return {}
+    placeholders = ",".join("?" for _ in exec_ids)
+    rows = conn.execute(
+        f"""
+        SELECT execution_id, source, status, result_count, zero_reason
+        FROM execution_sources
+        WHERE execution_id IN ({placeholders})
+        """,
+        [int(i) for i in exec_ids],
+    ).fetchall()
+
+    summary: dict[int, dict] = {
+        int(i): {
+            "selected": 0, "answered": 0, "in_part": 0,
+            "could_not_answer": 0, "not_recorded": 0,
+            "sources_that_could_not_answer": [],
+        }
+        for i in exec_ids
+    }
+    for row in rows:
+        entry = summary[int(row["execution_id"])]
+        entry["selected"] += 1
+        reason = row["zero_reason"]
+        count = int(row["result_count"] or 0)
+        if zero_answered(row["status"], count, reason):
+            entry["answered"] += 1
+            if zero_in_part(row["status"], reason):
+                entry["in_part"] += 1
+        elif row["status"] == "ok" and count == 0 and reason in (None, "not_recorded"):
+            entry["not_recorded"] += 1
+        else:
+            entry["could_not_answer"] += 1
+            entry["sources_that_could_not_answer"].append(row["source"])
+    return summary
+
+
+@app.get("/api/coverage/source-wall", response_model=response_models.SourceWall,
+         response_model_exclude_unset=True)
+def source_wall_grid(
+    limit: int = Query(source_wall.DEFAULT_RUNS, ge=1, le=source_wall.MAX_RUNS),
+):
+    """Every source's recorded answer to each of the last ``limit`` runs.
+
+    The one read that crosses executions. `/api/executions` and
+    `/api/executions/{id}` each carry the coverage of a single run, which
+    answers "what did this run get"; nobody could ask "is my coverage still
+    what it was" without opening runs one at a time and comparing them by
+    hand. The rows have been on disk since schema 6.
+
+    The cells arrive **classified** -- one of the six states in
+    ``source_wall.WALL_STATES`` -- rather than as a status and a reason for
+    the caller to interpret. That is deliberate: every place that has
+    re-derived this classification has eventually derived it differently, and
+    the last time one did it put a tick on sources that had never been asked.
+
+    ``limit`` bounds what comes back, not what is read: there is no index on
+    ``executions.start_time``, so finding the newest runs scans the table and
+    sorts. Measured at 0.4 ms over 12 executions and 5.7 ms over 50,000.
+    """
+    conn = _get_db()
+    try:
+        return source_wall.build(conn, limit=limit)
+    finally:
+        _close_db(conn)
+
+
+def _listed(value: Optional[str]) -> Optional[list[str]]:
+    """A comma-separated query value as its parts; None when there are none."""
+    parts = [part.strip() for part in (value or "").split(",") if part.strip()]
+    return parts or None
+
+
+@app.get("/api/executions", response_model=list[response_models.RunRow],
+         response_model_exclude_unset=True,
+         responses={200: {"headers": {"X-Resmon-Total": {
+             "description": "How many runs match the filters, however many this page holds.",
+             "schema": {"type": "integer"},
+         }}}})
+def list_executions(
+    response: Response,
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    type: Optional[str] = Query(None, alias="type"),
+    routine_id: Optional[int] = Query(None),
+    status: Optional[str] = Query(None),
+    q: Optional[str] = Query(None, max_length=200),
+    omit_events: bool = Query(False),
+):
+    """The runs, newest first, a page at a time; how many match is the ``X-Resmon-Total`` header.
+
+    ``type`` and ``status`` each take one value or several, comma-separated
+    (``type=deep_dive,deep_sweep,find_paper`` is every search asked by hand). ``q``
+    matches a run's terms, its sources, its watch's or saved search's name,
+    or its number. ``omit_events`` leaves each row's stored
+    ``progress_events`` out (null): the Runs tab lists runs and reads a run's
+    events only on its own page. The total is a header, so the body stays
+    the list every reader of this route already reads.
+    """
+    conn = _get_db()
+    try:
+        # ``routine_id`` is one watch's runs, its nights, for a page that lists
+        # them without fetching every run resmon has made to filter them.
+        types = _listed(type)
+        statuses = _listed(status)
+        rows = get_executions(conn, limit=limit, offset=offset, routine_id=routine_id,
+                              execution_types=types, statuses=statuses, text=q,
+                              without_events=omit_events)
+        total = count_executions(conn, routine_id=routine_id, execution_types=types,
+                                 statuses=statuses, text=q)
+        outcomes = _source_outcomes(conn, [int(r["id"]) for r in rows])
+        for row in rows:
+            row["coverage"] = source_coverage.build(row, get_execution_sources(conn, int(row["id"])))
+            _enrich_execution_row(row)
+            row["source_outcomes"] = outcomes.get(int(row["id"]))
+        response.headers["X-Resmon-Total"] = str(total)
+        # Readable by the renderer, which is another origin.
+        response.headers["Access-Control-Expose-Headers"] = "X-Resmon-Total"
+        return rows
+    finally:
+        _close_db(conn)
+
+
+def _active_events(events: list[dict]) -> list[dict]:
+    """A running run's events with the repeating ones folded to their newest.
+
+    Each source's heartbeats (``query_progress``, phase ``searching``) to its
+    latest, and the counts of papers linked, embedded or summarized to theirs;
+    the start and end of each search and the log's lines are left out. Every
+    event that changes a source's or the run's state is kept, in order.
+    """
+    keep: set[int] = set()
+    latest: dict[tuple, int] = {}
+    for at, event in enumerate(events):
+        kind = event.get("type")
+        if kind == "query_progress":
+            if event.get("phase") == "searching":
+                latest[("beat", event.get("repository"))] = at
+            continue
+        if kind in ("link_progress", "ai_progress", "dedup_progress"):
+            latest[(kind, event.get("stage"))] = at
+            continue
+        if kind == "log_entry":
+            continue
+        keep.add(at)
+    keep.update(latest.values())
+    return [events[at] for at in sorted(keep)]
+
+
+# When the run monitor's panel was last opened: a run that failed after it is
+# the monitor's red mark until the panel is opened again. Kept in the engine,
+# so it holds across launches; until the panel is first opened, failures since
+# this engine started count.
+_RUNS_SEEN_KEY = "runs_seen_at"
+
+
+def _run_stamp() -> str:
+    """Now, as the sweep engine writes a run's ``end_time``, so the two compare as text."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+_ENGINE_STARTED_AT = _run_stamp()
+
+
+def _failed_unseen(conn) -> tuple[list[int], Optional[str]]:
+    """The runs that failed since the panel was last opened, newest first, and when that was."""
+    seen = get_setting(conn, _RUNS_SEEN_KEY) or None
+    since = seen or _ENGINE_STARTED_AT
+    # ``>=``: both stamps are to the second, so a run that failed in the second
+    # the panel was opened cannot be told to be before it or after. It counts as
+    # unseen: a failure shown red once too often is better than one never shown.
+    rows = conn.execute(
+        "SELECT id FROM executions WHERE status = 'failed' AND end_time >= ? "
+        "ORDER BY end_time DESC, id DESC LIMIT 20",
+        (since,),
+    ).fetchall()
+    return [int(row[0]) for row in rows], seen
+
+
+@app.post("/api/executions/seen", response_model=response_models.RunsSeen,
+          response_model_exclude_unset=True)
+def mark_runs_seen():
+    """The run monitor's panel was opened: every run that has failed until now is seen.
+
+    Clears the monitor's red mark (``failed_unseen`` on ``/active``) until a
+    run fails again. Nothing about any run changes.
+    """
+    conn = _get_db()
+    try:
+        at = _run_stamp()
+        set_setting(conn, _RUNS_SEEN_KEY, at)
+        return {"seen_at": at}
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/executions/active", response_model=response_models.ActiveRuns,
+         response_model_exclude_unset=True)
+def active_executions():
+    """The runs this engine is running, each with its search and its events, and the queue.
+
+    For the Runs tab's Running now and Waiting, read every two seconds while
+    anything runs or waits. A run is here from the moment it is registered
+    until its thread has finished with it; a run another engine is running
+    is not, and the run log lists it as running.
+    """
+    ids = progress_store.get_active_ids()
+    conn = _get_db()
+    try:
+        running = []
+        for exec_id in ids:
+            row = get_execution_by_id(conn, exec_id)
+            if not row:
+                continue
+            _enrich_execution_row(row)
+            running.append({
+                "id": int(row["id"]),
+                "execution_type": row["execution_type"],
+                "routine_id": row.get("routine_id"),
+                "saved_configuration_id": row.get("saved_configuration_id"),
+                "query": row.get("query"),
+                "keywords": row.get("keywords"),
+                "repositories": row.get("repositories"),
+                "start_time": row.get("start_time"),
+                "current_stage": row.get("current_stage"),
+                "restarted_from": row.get("restarted_from"),
+                "request_id": row.get("request_id"),
+                "events": _active_events(progress_store.get_events(exec_id)),
+            })
+        running.sort(key=lambda run: (run["start_time"] or "", run["id"]))
+        failed, seen = _failed_unseen(conn)
+        # What changes when any run starts or ends, here or in another engine
+        # on the same database: a run that starts and ends between two reads
+        # of this route changes nothing above, and the run log would not know
+        # to read itself again.
+        newest, ended = conn.execute("SELECT MAX(id), MAX(end_time) FROM executions").fetchone()
+        return {
+            "active_ids": ids,
+            "running": running,
+            "waiting": admission.waiting(),
+            "max_concurrent": admission.max(),
+            "queue_limit": admission.queue_limit(),
+            "failed_unseen": failed,
+            "seen_at": seen,
+            "newest_run_id": newest,
+            "last_ended_at": ended,
+        }
+    finally:
+        _close_db(conn)
+
+
+@app.delete("/api/executions/waiting/{ticket}", response_model=response_models.WaitingWithdrawn,
+            response_model_exclude_unset=True)
+def withdraw_waiting_run(ticket: str):
+    """Take a run that waits for a free slot out of the queue, before it starts.
+
+    Only a run asked for by hand: a watch's fire runs as its watch says, and
+    is stopped by pausing the watch. A run that has already started is not
+    waiting any more (404), and is stopped from its own page.
+    """
+    kind = admission.withdraw(ticket)
+    if kind is None:
+        raise HTTPException(404, "No run is waiting with that ticket; it may have started already.")
+    if kind == "routine":
+        raise HTTPException(409, (
+            "This is a watch's run, and it runs as its watch is set. Pause the watch to stop its runs."))
+    return {"withdrawn": True, "ticket": ticket}
+
+
+@app.get("/api/executions/{exec_id}", response_model=response_models.Run,
+         response_model_exclude_unset=True)
+def get_execution(exec_id: int, expected_runtime_id: Optional[str] = None):
+    _check_expected_runtime(expected_runtime_id)
+    conn = _get_db()
+    try:
+        row = get_execution_by_id(conn, exec_id)
+        if not row:
+            raise HTTPException(404, "Execution not found")
+        row["identity"] = runtime_identity.project(conn)
+        row["coverage"] = source_coverage.build(row, get_execution_sources(conn, exec_id))
+        _enrich_execution_row(row)
+        row["source_outcomes"] = _source_outcomes(conn, [exec_id]).get(exec_id)
+        # The other half of the restart link. ``restarted_from`` is a column;
+        # this is the reverse lookup, so a user reading an interrupted run can
+        # see what they started from it without hunting for it in the list.
+        row["restarted_into"] = get_executions_restarted_from(conn, exec_id)
+        # Each summary lane the run tried, in order, with what it achieved. Empty
+        # for a run that summarized nothing, whatever the reason; the run's
+        # ``ai_choice`` event says whether it was asked to.
+        row["ai_lanes"] = get_execution_ai(conn, exec_id)
+        return row
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/executions/{exec_id}/report", response_model=response_models.RunReport,
+         response_model_exclude_unset=True)
+def get_execution_report(exec_id: int):
+    conn = _get_db()
+    try:
+        row = get_execution_by_id(conn, exec_id)
+        if not row:
+            raise HTTPException(404, "Execution not found")
+        rpath = row.get("result_path")
+        if not rpath or not Path(rpath).exists():
+            raise HTTPException(404, "Report not found")
+        return {"report_text": Path(rpath).read_text(encoding="utf-8")}
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/executions/{exec_id}/log", response_model=response_models.RunLog,
+         response_model_exclude_unset=True)
+def get_execution_log(exec_id: int):
+    conn = _get_db()
+    try:
+        row = get_execution_by_id(conn, exec_id)
+        if not row:
+            raise HTTPException(404, "Execution not found")
+        lpath = row.get("log_path")
+        if not lpath or not Path(lpath).exists():
+            raise HTTPException(404, "Log not found")
+        return {"log_text": Path(lpath).read_text(encoding="utf-8")}
+    finally:
+        _close_db(conn)
+
+
+@app.delete("/api/executions/{exec_id}")
+def delete_execution(exec_id: int):
+    """Delete a run's record; its report and log files stay where they were written.
+
+    The row goes, and with it, by ``ON DELETE CASCADE``, what each source
+    answered (``execution_sources``), its AI lanes (``execution_ai``), where
+    its report was sent (``deliveries``), and its links to the papers it found
+    (``execution_documents``). The papers stay in the corpus, and a run
+    restarted from this one stays, without the link back.
+
+    A run that is still running is refused with 409. Its worker writes its
+    papers, its outcomes and its final status into the row as it goes, and a
+    row deleted under it would turn those writes into failures of a run the
+    person can no longer see.
+    """
+    conn = _get_db()
+    try:
+        row = get_execution_by_id(conn, exec_id)
+        if not row:
+            raise HTTPException(404, "Execution not found")
+        if row.get("status") == "running":
+            raise HTTPException(409, (
+                f"Run {exec_id} is still running, so it was not deleted. Stop it, "
+                "and delete it once it has stopped."))
+        conn.execute("DELETE FROM executions WHERE id = ?", (exec_id,))
+        conn.commit()
+        return {"success": True}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/executions/export")
+def export_executions(body: ExecutionExport):
+    """Bundle the reports, papers, records and logs of the selected executions into a .zip.
+
+    The output path respects the Storage tab's configured export directory
+    when set; otherwise a temporary file is used. Raises 404 if no executions
+    in the selection exist.
+    """
+    conn = _get_db()
+    try:
+        rows = []
+        for eid in body.ids:
+            row = get_execution_by_id(conn, eid)
+            if row:
+                rows.append(row)
+        if not rows:
+            raise HTTPException(404, "No matching executions found")
+
+        export_dir = get_setting(conn, "export_directory") or ""
+        if export_dir:
+            out_dir = Path(export_dir).expanduser()
+            try:
+                out_dir.mkdir(parents=True, exist_ok=True)
+            except Exception as exc:
+                raise HTTPException(400, f"Invalid export_directory: {exc}")
+            fname = f"resmon_executions_{datetime.now().strftime('%Y%m%dT%H%M%S')}.zip"
+            out_path = out_dir / fname
+        else:
+            tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+            tmp.close()
+            out_path = Path(tmp.name)
+
+        _build_execution_zip(rows, out_path, **_bundle_inputs(conn, rows))
+        return {"path": str(out_path), "count": len(rows)}
+    finally:
+        _close_db(conn)
+
+
+# What a download route answers, for the OpenAPI document: the archive's bytes,
+# never JSON. Without it the schema would describe a JSON body nobody sends.
+_ZIP_DOWNLOAD = {200: {"description": "The archive, as a download.",
+                       "content": {"application/zip": {"schema": {"type": "string", "format": "binary"}}}}}
+
+
+def _zip_download(path: Path, filename: str, staging: str) -> FileResponse:
+    """Answer with a ZIP built in ``staging`` and remove ``staging`` once it is sent.
+
+    The removal is a background task, so it runs after the last byte has gone
+    rather than before the response has been read; a staging folder left behind
+    would be a copy of the user's data in the temporary folder nobody asked for.
+    """
+    from starlette.background import BackgroundTask
+    return FileResponse(
+        path, media_type="application/zip", filename=filename,
+        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+        background=BackgroundTask(shutil.rmtree, staging, ignore_errors=True),
+    )
+
+
+@app.get("/api/executions/{exec_id}/bundle", response_model=None, response_class=FileResponse, responses=_ZIP_DOWNLOAD)
+def download_execution_bundle(exec_id: int):
+    """One run's bundle as bytes: the archive ``POST /api/executions/export`` writes.
+
+    The report as HTML and Markdown, and as a PDF with its LaTeX where a LaTeX
+    engine could make them; the run's papers as BibTeX, RIS and CSV; the
+    search record and metadata; and the log, in folders a ``README.txt``
+    explains. Built by ``_delivery_bundle``, the one builder the export route
+    and the delivery queue share. The export route answers with a path on
+    disk; this one with the archive itself, so a renderer can hand it to the
+    save dialog.
+    """
+    conn = _get_db()
+    staging = tempfile.mkdtemp(prefix="resmon_bundle_")
+    try:
+        row = get_execution_by_id(conn, exec_id)
+        if not row:
+            raise HTTPException(404, "Execution not found")
+        out = _delivery_bundle(conn, row, Path(staging))
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    finally:
+        _close_db(conn)
+    return _zip_download(out, out.name, staging)
+
+
+@app.post("/api/executions/archive", response_model=None, response_class=FileResponse, responses=_ZIP_DOWNLOAD)
+def download_executions(body: ExecutionExport):
+    """The same archive ``POST /api/executions/export`` writes, as bytes.
+
+    Several runs' reports, logs, metadata and search records in one ZIP, built
+    by ``_build_execution_zip`` as the export route builds it. The export route
+    writes to a folder the engine chooses and answers with the path; this one
+    answers with the archive itself, so a renderer can hand it to the system's
+    save dialog. A run that no longer exists is left out, as the export route
+    leaves it out, and a choice with none left is a 404 rather than an empty
+    archive.
+    """
+    conn = _get_db()
+    staging = tempfile.mkdtemp(prefix="resmon_runs_")
+    try:
+        rows = [row for row in (get_execution_by_id(conn, eid) for eid in dict.fromkeys(body.ids)) if row]
+        if not rows:
+            raise HTTPException(404, "None of the chosen runs exists.")
+        out = _build_execution_zip(rows, Path(staging) / "runs.zip", **_bundle_inputs(conn, rows))
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    finally:
+        _close_db(conn)
+    stamp = datetime.now().strftime('%Y%m%dT%H%M%S')
+    return _zip_download(out, f"resmon_executions_{stamp}.zip", staging)
+
+
+def _bundle_inputs(conn: sqlite3.Connection, rows: list[dict]) -> dict:
+    """What a bundle reads from the database for each run, before the archive is built.
+
+    The search record, the run's papers for ``references/``, and what the
+    report's title is led by: the watch's name, or the kind of run.
+    """
+    companions: dict[int, dict] = {}
+    papers: dict[int, list[dict]] = {}
+    contexts: dict[int, dict] = {}
+    for row in rows:
+        eid = int(row["id"])
+        companions[eid] = search_record.build(conn, eid)
+        papers[eid] = get_execution_documents(conn, eid)
+        watch = None
+        if row.get("routine_id"):
+            watch = (get_routine_by_id(conn, int(row["routine_id"])) or {}).get("name")
+        contexts[eid] = {"kind": row.get("execution_type"), "watch": watch}
+    return {"companions": companions, "papers": papers, "contexts": contexts}
+
+
+def _stored_papers_for_export(documents: list[dict]) -> list[dict]:
+    """A run's stored papers, with titles, abstracts and author lists read as the engine reads them."""
+    from implementation_scripts.normalizer import clean_abstract, clean_author_list, clean_title
+    out = []
+    for doc in documents:
+        doc = dict(doc)
+        doc["title"] = clean_title(doc.get("title") or "") or doc.get("title")
+        doc["abstract"] = clean_abstract(doc.get("abstract"), doc.get("source_repository"))
+        doc["authors"] = clean_author_list(doc.get("authors"))
+        out.append(doc)
+    return out
+
+
+def _bundle_readme(row: dict, context: dict, present: dict, report: dict) -> str:
+    """``README.txt``: what each folder of one run's bundle holds, naming only what is there."""
+    from implementation_scripts.report_exporter import _RUN_KINDS, local_stamp
+    eid = row["id"]
+    kind = _RUN_KINDS.get(str(row.get("execution_type") or ""), "Run")
+    lead = context.get("watch") or kind
+    lines = [f"resmon run {eid}: {lead}", f"Bundled {local_stamp(utc_now_iso())}.", ""]
+
+    def folder(name: str, entries: list[tuple[str, str]]) -> None:
+        if not entries:
+            return
+        lines.append(f"{name}/")
+        for file_name, meaning in entries:
+            lines.append(f"  {file_name}")
+            lines.append(f"      {meaning}")
+        lines.append("")
+
+    files = present.get("report", [])
+    folder("report", [(f, meaning) for f, meaning in (
+        ("report.pdf", "The run's report, to read or print."),
+        ("report.html", "The same report as a web page. It opens offline in any browser and "
+                        "runs no scripts."),
+        ("report.md", "The report as resmon wrote it when the run ended, in Markdown."),
+        ("report-ai-summary.pdf", "The report with each paper's AI summary in place of its abstract."),
+        ("report-ai-summary.md", "The same, in Markdown."),
+    ) if f in files])
+    if not files:
+        lines.extend(["report/", "  This run has no report: it ended before writing one.", ""])
+    count = present.get("papers", 0)
+    folder("references", [(f, meaning) for f, meaning in (
+        ("references.bib", f"The run's {count} paper{'s' if count != 1 else ''} as BibTeX."),
+        ("references.ris", "The same papers as RIS, which most reference managers import."),
+        ("references.csv", "The same papers as CSV, for a spreadsheet."),
+    ) if f in present.get("references", [])])
+    folder("record", [(f, meaning) for f, meaning in (
+        ("search-record.json", "What the run asked each source and how each answered, read "
+                               "from what resmon saved."),
+        ("search-record.md", "The same record, to read."),
+        ("metadata.json", "The run as resmon stores it."),
+    ) if f in present.get("record", [])])
+    folder("log", [(f, "The run's log, written as it ran.") for f in present.get("log", [])])
+    folder("latex", [(f, f"The LaTeX source of {f[:-4]}.pdf. To make the PDF again, run "
+                         f"\"xelatex {f}\" (or lualatex) in this folder.")
+                     for f in present.get("latex", [])])
+    notes: list[str] = []
+    if report.get("pdf_problem"):
+        notes.append(report["pdf_problem"])
+    missing = report.get("pdf_missing_characters") or []
+    if missing:
+        notes.append(
+            f"The PDF could not show {len(missing)} character{'s' if len(missing) != 1 else ''}, "
+            "because no font on the computer that made it has "
+            f"{'them' if len(missing) != 1 else 'it'}: {', '.join(missing)}. The HTML and "
+            "Markdown reports hold every character.")
+    if notes:
+        lines.append("Notes")
+        lines.extend(f"- {note}" for note in notes)
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _build_execution_zip(rows: list[dict], out_path: Path, *,
+                         companions: dict[int, dict] | None = None,
+                         papers: dict[int, list[dict]] | None = None,
+                         contexts: dict[int, dict] | None = None) -> Path:
+    """Package each run's report, references, record, log and LaTeX into *out_path*.
+
+    ``manifest.json`` at the top lists the runs; each run is a folder::
+
+        execution_<id>/
+            README.txt   what each folder below holds
+            report/      report.pdf, report.html, report.md (as the run wrote
+                         it), and report-ai-summary.pdf and .md when the run
+                         made AI summaries
+            references/  references.bib, .ris and .csv of the run's papers
+            record/      search-record.json and .md, and metadata.json
+            log/         the run's log
+            latex/       the PDF's LaTeX source
+
+    ``companions``, ``papers`` and ``contexts`` come from :func:`_bundle_inputs`;
+    a run without them has no search record, no references, or a title led
+    by the report's own heading. The export route, the download routes and the
+    delivery queue all build bundles here.
+    """
+    from implementation_scripts.report_exporter import export_report_bundle
+    manifest: list[dict] = []
+    with tempfile.TemporaryDirectory(prefix="resmon_export_") as staging_root:
+        staging = Path(staging_root)
+        for row in rows:
+            eid = row["id"]
+            folder = f"execution_{eid}"
+            entry: dict = {
+                "id": eid,
+                "execution_type": row.get("execution_type"),
+                "query": row.get("query"),
+                "status": row.get("status"),
+                "start_time": row.get("start_time"),
+                "end_time": row.get("end_time"),
+                "total_results": row.get("total_results"),
+                "new_results": row.get("new_results"),
+            }
+            manifest.append(entry)
+            exec_stage = staging / folder
+            report_dir, references_dir = exec_stage / "report", exec_stage / "references"
+            record_dir, log_dir = exec_stage / "record", exec_stage / "log"
+            for d in (exec_stage, record_dir):
+                d.mkdir(parents=True, exist_ok=True)
+            context = (contexts or {}).get(int(eid)) or {"kind": row.get("execution_type")}
+
+            report: dict = {}
+            rpath = row.get("result_path")
+            if rpath and Path(rpath).exists():
+                report_dir.mkdir(exist_ok=True)
+                shutil.copy(rpath, report_dir / "report.md")
+                try:
+                    report = export_report_bundle(Path(rpath), exec_stage, stem="report", context=context)
+                except Exception as exc:  # pragma: no cover - defensive
+                    report = {"pdf_problem": f"No PDF or HTML: making them failed ({exc})."}
+                    logging.getLogger(__name__).warning(
+                        "Report bundle generation failed for execution %d: %s", eid, exc)
+
+            if papers is not None:
+                documents = _stored_papers_for_export(papers.get(int(eid), []))
+                references_dir.mkdir(exist_ok=True)
+                for name, render in (("references.bib", reference_export.to_bibtex),
+                                     ("references.ris", reference_export.to_ris),
+                                     ("references.csv", reference_export.to_csv)):
+                    (references_dir / name).write_text(render(documents), encoding="utf-8")
+                entry["references"] = {
+                    "papers": len(documents),
+                    **{fmt: f"{folder}/references/references.{fmt}" for fmt in ("bib", "ris", "csv")},
+                }
+
+            (record_dir / "metadata.json").write_text(
+                json.dumps({k: row.get(k) for k in row.keys()}, indent=2, default=str),
+                encoding="utf-8",
+            )
+            lpath = row.get("log_path")
+            if lpath and Path(lpath).exists():
+                log_dir.mkdir(exist_ok=True)
+                shutil.copy(lpath, log_dir / Path(lpath).name)
+
+            if companions is not None:
+                record = companions[int(eid)]
+                if record["search"]["execution_id"] != int(eid):
+                    raise ValueError("Search record execution identity mismatch")
+                (record_dir / "search-record.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
+                (record_dir / "search-record.md").write_text(search_record.to_markdown(record), encoding="utf-8")
+                entry["search_record"] = {
+                    "json": f"{folder}/record/search-record.json",
+                    "markdown": f"{folder}/record/search-record.md",
+                    "generated_at": record["generated_at"],
+                    "meaning": "Read-time coverage from saved facts; original report and PDF are unchanged."}
+
+            def names(d: Path) -> list[str]:
+                return sorted(p.name for p in d.iterdir() if p.is_file()) if d.is_dir() else []
+
+            present = {key: names(exec_stage / key) for key in ("report", "references", "record", "log", "latex")}
+            present["papers"] = len((papers or {}).get(int(eid), []))
+            entry["report"] = {
+                kind: (f"{folder}/report/report.{kind}" if f"report.{kind}" in present["report"] else None)
+                for kind in ("pdf", "html", "md")
+            }
+            entry["pdf_problem"] = report.get("pdf_problem")
+            entry["pdf_missing_characters"] = report.get("pdf_missing_characters") or []
+            (exec_stage / "README.txt").write_text(
+                _bundle_readme(row, context, present, report), encoding="utf-8")
+
+        (staging / "manifest.json").write_text(
+            json.dumps(manifest, indent=2), encoding="utf-8",
+        )
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for fpath in sorted(staging.rglob("*")):
+                if fpath.is_file():
+                    zf.write(fpath, arcname=str(fpath.relative_to(staging)))
+    return out_path
+
+
+def _delivery_bundle(conn: sqlite3.Connection, row: dict, out_dir: Path) -> Path:
+    """Build one execution's export bundle for the delivery queue.
+
+    The same builder ``POST /api/executions/export`` uses, with the search
+    record companions it has always included. The pre-21 email hook built the
+    bundle *without* them, so the .zip a routine mailed out was quietly poorer
+    than the one the same user got from the Results screen; one builder with
+    one set of arguments is what stops that drifting apart again.
+    """
+    eid = int(row["id"])
+    out_path = out_dir / f"resmon_execution_{eid}.zip"
+    return _build_execution_zip([row], out_path, **_bundle_inputs(conn, [row]))
+
+
+delivery.set_bundle_builder(_delivery_bundle)
+
+
+def _init_delivery_on_startup() -> None:
+    """Re-queue what the last process was mid-way through, then start the drain.
+
+    The re-queue runs first and on this thread: a row left ``delivering`` by a
+    backend that died has to be adopted before the drain starts looking, or the
+    drain would walk past it for ever -- ``delivering`` is not a state it
+    claims from.
+    """
+    conn = _get_db()
+    try:
+        adopted = delivery.requeue_orphaned(conn)
+        if adopted:
+            logging.getLogger(__name__).info(
+                "Re-queued %d delivery row(s) whose owner process is gone", adopted,
+            )
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "Delivery re-queue on startup failed; the drain starts anyway",
+        )
+    finally:
+        _close_db(conn)
+    instance = delivery.DeliveryQueue(_get_db, close=_close_db)
+    delivery.set_queue(instance)
+    instance.start()
+
+
+def _shutdown_delivery() -> None:
+    instance = delivery.queue
+    if instance is not None:
+        instance.stop()
+    delivery.set_queue(None)
+
+
+# The states a run can be started again from: the three that mean it stopped
+# without producing the run the user asked for. ``completed`` is excluded
+# because "run it again" there is a new search, not a restart, and ``running``
+# because the thing to do with a live run is cancel it.
+_RESTARTABLE_STATES = ("interrupted", "failed", "cancelled")
+
+# Every ``executions.status`` that means the run is over. The
+# ``executions.status`` CHECK minus ``running``.
+_TERMINAL_EXECUTION_STATES = ("completed", "failed", "cancelled", "interrupted")
+
+
+@app.post("/api/executions/{exec_id}/cancel", response_model=response_models.RunCancelRequested,
+          response_model_exclude_unset=True)
+def cancel_execution(exec_id: int):
+    """Request cooperative cancellation of a running execution.
+
+    A row that is not in the in-memory ``ProgressStore`` is not cancelable,
+    and saying only "Execution not running" would read, on an
+    interrupted row, as if resmon had lost track of something. The row's own
+    state belongs in the sentence.
+
+    ``detail`` stays a **string**. FastAPI will serialize a dict there happily,
+    and a renderer that renders ``detail`` directly -- which several of
+    resmon's do -- would then show ``[object Object]``. Anything that needs the
+    state structurally reads ``status`` off the row it already has.
+    """
+    if not progress_store.is_active(exec_id):
+        conn = _get_db()
+        try:
+            row = get_execution_by_id(conn, exec_id)
+        finally:
+            _close_db(conn)
+        # 409 even where there is no such row. That is what this endpoint has
+        # always answered for an id the progress store does not hold.
+        if not row:
+            raise HTTPException(409, f"resmon has no record of execution {exec_id}.")
+        state = row.get("status")
+        state_word = "canceled" if state == "cancelled" else state
+        raise HTTPException(409, (
+            f"Execution {exec_id} is {state_word}; only a running "
+            "execution can be canceled."))
+    if not progress_store.request_cancel(exec_id):
+        # Past the run's last cancellation check: it is recording its result.
+        raise HTTPException(409, (
+            f"Execution {exec_id} is finishing; it is too late to cancel it."))
+    return {"status": "cancellation_requested"}
+
+
+@app.post("/api/executions/{exec_id}/stop-sources", response_model=response_models.SourceStopRequested,
+          response_model_exclude_unset=True)
+def stop_execution_sources(exec_id: int, body: response_models.SourceStopRequest):
+    """Request source stops without canceling the run; the engine owns admission."""
+    if not progress_store.is_active(exec_id):
+        conn = _get_db()
+        try:
+            row = get_execution_by_id(conn, exec_id)
+        finally:
+            _close_db(conn)
+        if not row:
+            raise HTTPException(404, f"resmon has no record of execution {exec_id}.")
+    try:
+        accepted, sentence, sources = progress_store.request_source_stop(exec_id, body.sources)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if not accepted:
+        raise HTTPException(409, sentence)
+    return {"status": "source_stop_requested", "sources": sources, "detail": sentence}
+
+
+def _was_set_to_summarize(conn, exec_id: int) -> bool:
+    """Whether a run was set to summarize, as its ``ai_choice`` event recorded at its start.
+
+    Not whether it got as far as summarizing: ``execution_ai`` holds a row only
+    for a lane that was tried, so a run set to summarize that failed before
+    any paper was summarized has none, and a restart read from those rows came
+    back with summaries off (two watches' failed runs on November 4, 2026,
+    whose pages said "Summaries: On" and "Restart does not summarize"). A run
+    without the event (one from before it existed, or one interrupted before
+    its events were saved) is read from those rows, as it was.
+    """
+    for event in reversed(get_progress_events(conn, exec_id)):
+        if isinstance(event, dict) and event.get("type") == "ai_choice" and isinstance(event.get("enabled"), bool):
+            return bool(event["enabled"])
+    return bool(get_execution_ai(conn, exec_id))
+
+
+def _run_as_its_watch(routine_id: int, watch: dict, response: Response) -> dict:
+    """Restart or Run again on a watch's run: the watch's own Run now, answered as a restart answers.
+
+    Everything ``run_routine_now`` refuses (the watch already running, a full
+    queue, a window it cannot read) is refused here in its words.
+    """
+    ran = run_routine_now(routine_id, response)
+    # ``routine_id`` says the run is the watch's: queued, it is found again by its
+    # watch, since a watch's fire carries no request id its ``ticket`` could match.
+    answer: dict = {"execution_id": ran.get("execution_id"), "restarted_from": None,
+                    "ai_enabled": bool(watch.get("ai_enabled")), "routine_id": routine_id}
+    if ran.get("queued"):
+        ticket = next((w["ticket"] for w in admission.waiting()
+                       if w["kind"] == "watch" and w["routine_id"] == routine_id), None)
+        answer.update({"queued": True, "queue_position": ran.get("queue_position"), "ticket": ticket})
+    answer["detail"] = ran.get("detail")
+    response.status_code = 202
+    return answer
+
+
+@app.post("/api/executions/{exec_id}/restart", status_code=202,
+          response_model=response_models.RunRestarted, response_model_exclude_unset=True)
+def restart_execution(exec_id: int, response: Response, body: Optional[RestartRequest] = None):
+    """Start a fresh execution with the source's parameters, linked back to it.
+
+    Restart is not resume. ``progress_events`` is persisted once, at the end,
+    so an interrupted run has nothing to resume *from* -- there is no durable
+    record of which sources it had already asked. What resmon can honestly
+    offer is the same search again, and a link saying where it came from.
+
+    The source row is never touched. Its history is what happened, and a
+    restart is a second thing that happened, not a correction of the first.
+
+    ``again`` asks for a completed run's search once more (Run again, on the
+    Runs tab); without it only an interrupted, failed or canceled run is
+    restarted. At the run limit the new run waits in the queue
+    (``_start_or_queue``) and its row is written only when it starts: the
+    answer then carries no execution id, ``queued``, and its place.
+
+    **A watch's run is never run alongside its watch.** Restart or Run again
+    on a watch's run is that watch's Run now (``run_routine_now``): the
+    watch's claim, its queue, a paused watch run once, and delivery as it is
+    set, with the watch's current settings rather than the old run's copy,
+    and refused with the run that holds the watch when it is already running,
+    since two runs of one watch would both deliver and email. The new run is
+    the watch's, so it is not linked back (``restarted_from`` is null). A Deep
+    Dive's or Deep Sweep's run is copied, as below.
+    """
+    request_id = body.request_id if body is not None else None
+    again = bool(body.again) if body is not None else False
+    conn = _get_db()
+    try:
+        duplicate = _duplicate_execution_for(conn, request_id)
+        if duplicate is not None:
+            return {"execution_id": duplicate["id"],
+                    "restarted_from": duplicate.get("restarted_from"),
+                    "ai_enabled": bool(get_execution_ai(conn, duplicate["id"])),
+                    "duplicate": True}
+        row = get_execution_by_id(conn, exec_id)
+        if not row:
+            raise HTTPException(404, "Execution not found")
+        state = row.get("status")
+        if state not in _RESTARTABLE_STATES and not (again and state == "completed"):
+            # A string, for the same reason ``cancel_execution`` gives one.
+            raise HTTPException(409, (
+                f"Execution {exec_id} is {state}; only a run that has ended can be run again."
+                if again else
+                f"Execution {exec_id} is {state}; only an interrupted, failed "
+                "or canceled run can be restarted."))
+        # The watch this run belongs to, if it still exists: a deleted watch's
+        # runs keep their kind and lose their ``routine_id``.
+        watch_id = row.get("routine_id") if row["execution_type"] == "automated_sweep" else None
+        watch = get_routine_by_id(conn, int(watch_id)) if watch_id is not None else None
+        if watch is not None:
+            return _run_as_its_watch(int(watch_id), watch, response)
+        # The AI lane, reproduced as far as the record allows. ``parameters``
+        # holds the search, never the AI settings. A restart reproduces the
+        # *choice* -- AI on or off -- and runs it against whatever is configured
+        # today, which is the same thing a second click of Deep Sweep would do.
+        # Reconstructing the provider, model and credential of the day from a
+        # lane record would be a guess wearing the original run's clothes.
+        ai_enabled = _was_set_to_summarize(conn, exec_id)
+        try:
+            stored = json.loads(row["parameters"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            stored = {}
+        if not isinstance(stored, dict):
+            stored = {}
+        repositories = stored.get("repositories") if isinstance(stored.get("repositories"), list) else []
+        info = {**_search_info(row["execution_type"], [str(r) for r in repositories], stored),
+                "routine_id": row.get("routine_id"), "restarted_from": exec_id}
+
+        def launch(reservation: Optional[int], ticket: Optional[str]) -> int:
+            own = _get_db()
+            # ``parameters`` is copied verbatim and ``ai_enabled`` is deliberately
+            # **not** written into it. That JSON is the search the user asked for
+            # -- terms, databases, date window -- and the search record and the
+            # reference exports render it as such; an AI flag in there would be
+            # read as part of the query. The fact is durable anyway: the new run
+            # writes its own ``execution_ai`` rows, which is where this decision
+            # was read from in the first place.
+            try:
+                new_id = insert_execution(own, {
+                    "execution_type": row["execution_type"],
+                    "routine_id": row.get("routine_id"),
+                    "saved_configuration_id": row.get("saved_configuration_id"),
+                    "parameters": row["parameters"],
+                    "start_time": utc_now_iso(),
+                    "restarted_from": exec_id,
+                    "request_id": ticket,
+                })
+            except sqlite3.IntegrityError as error:
+                winner = _winner_of_request_id(own, ticket, error)
+                if reservation is not None:
+                    admission.note_finished(reservation)
+                return int(winner["id"])
+            # No ``prepare_execution``: the row exists, and ``run_prepared`` reads
+            # the repositories and query parameters back out of it. Passing them a
+            # second time would be a second copy to keep honest.
+            engine = SweepEngine(db_conn=own, config={"ai_enabled": ai_enabled, "ai_settings": None})
+            progress_store.register(new_id)
+            _launch_execution(engine, new_id, own, reservation=reservation)
+            return new_id
+
+        # The same door a manual Deep Dive or Deep Sweep comes through, so a
+        # restart cannot get resmon past its own concurrency cap.
+        started = _start_or_queue(request_id=request_id, what="run", info=info,
+                                  launch=launch, response=response)
+        response.status_code = 202
+        if started.get("execution_id") is not None:
+            return {"execution_id": started["execution_id"], "restarted_from": exec_id, "ai_enabled": ai_enabled}
+        answer = {"execution_id": None, "restarted_from": exec_id, "ai_enabled": ai_enabled}
+        if started.get("duplicate"):
+            answer["duplicate"] = True
+        answer.update({key: started[key] for key in ("queued", "queue_position", "ticket", "detail")})
+        return answer
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/executions/{exec_id}/progress/stream")
+async def stream_progress(exec_id: int, last_event_id: int = 0):
+    conn = _get_db()
+    row = get_execution_by_id(conn, exec_id)
+    if not row:
+        raise HTTPException(404, "Execution not found")
+
+    # Helper: yield persisted events from DB as a batch, skipping any
+    # events the client already received (via cursor / last_event_id).
+    async def _batch_from_db(cursor: int = 0):
+        persisted = get_progress_events(conn, exec_id)
+        for i, event in enumerate(persisted):
+            if i < cursor:
+                continue
+            yield f"id: {i}\nevent: progress\ndata: {json.dumps(event, default=str)}\n\n"
+
+    # If the execution is already complete and not in the live store,
+    # return persisted events as a batch and close.
+    if not progress_store.is_active(exec_id):
+        # Re-read status in case it was updated after the initial fetch
+        fresh = get_execution_by_id(conn, exec_id)
+        # ``interrupted`` belongs with the other three (schema 19). A run whose
+        # backend went away has no live store entry and never will, so without
+        # it here the request falls through to the live stream below and waits
+        # on events nothing is left to emit.
+        if fresh and fresh["status"] in _TERMINAL_EXECUTION_STATES:
+            return StreamingResponse(
+                _batch_from_db(last_event_id),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                },
+            )
+
+    # Live stream from progress_store
+    async def _event_generator():
+        cursor = last_event_id
+        while True:
+            events = progress_store.get_events(exec_id, since=cursor)
+            for i, event in enumerate(events):
+                event_id = cursor + i
+                yield f"id: {event_id}\nevent: progress\ndata: {json.dumps(event, default=str)}\n\n"
+            cursor += len(events)
+
+            if not progress_store.is_active(exec_id):
+                # Execution finished — deliver any persisted events that
+                # were missed (e.g. cleanup ran between polls).  Retry a
+                # few times in case save_progress_events hasn't committed.
+                persisted: list[dict] = []
+                for _attempt in range(5):
+                    persisted = get_progress_events(conn, exec_id)
+                    if persisted and len(persisted) >= cursor:
+                        break
+                    await asyncio.sleep(0.3)
+                for i, event in enumerate(persisted):
+                    if i < cursor:
+                        continue
+                    yield f"id: {i}\nevent: progress\ndata: {json.dumps(event, default=str)}\n\n"
+                break
+
+            # Heartbeat comment to flush output buffers
+            yield ": heartbeat\n\n"
+            await asyncio.sleep(0.3)
+
+    return StreamingResponse(
+        _event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.get("/api/executions/{exec_id}/progress/events")
+def get_execution_progress_events(
+    exec_id: int, response: Response, since: int = Query(0, ge=0),
+):
+    """The run's progress events, from the ``since``-th on (0, every one).
+
+    A running run's page reads only the events it has not seen: a sweep's
+    heartbeat adds one event every two seconds for each source still being
+    asked, and reading the whole list every second read it again and again.
+    The list only grows while the run runs, and once it has ended the
+    persisted list is the same list, so an index into one is an index into
+    the other.
+    """
+    conn = _get_db()
+    row = get_execution_by_id(conn, exec_id)
+    if not row:
+        raise HTTPException(404, "Execution not found")
+    # Never cache progress polls — responses change every ~second during
+    # an execution and Chromium's heuristic cache can otherwise serve
+    # stale data for the entire run.
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    # Prefer live events if execution is still in memory (covers the
+    # window between mark_complete and cleanup).  Fall back to persisted
+    # events after cleanup removes the live store entry.
+    if progress_store.is_registered(exec_id):
+        return progress_store.get_events(exec_id, since=since)
+    return get_progress_events(conn, exec_id)[since:]
+
+
+@app.get("/api/executions/{exec_id}/document-ids", response_model=response_models.RunDocumentIds,
+         response_model_exclude_unset=True)
+def get_execution_document_ids(exec_id: int, collection: Optional[str] = _COLLECTION_QUERY):
+    """Every stored id, with exact DOI copies grouped for the run's live map.
+
+    Sources name only the records this run linked in the shown collection.
+    Grouping changes the drawing, never the corpus or the run's saved counts.
+    """
+    from implementation_scripts.run_map import membership
+
+    conn = _get_db()
+    try:
+        execution = get_execution_by_id(conn, exec_id)
+        if execution is None:
+            raise HTTPException(404, "Execution not found")
+        chosen = _collection_id(conn, collection)
+        within, params = ("", ()) if paper_collections.holds_every_paper(conn, chosen) else (
+            f" AND {paper_collections.member_clause('ed.document_id')}", (chosen,))
+        rows = conn.execute(
+            "SELECT DISTINCT d.id, d.source_repository, d.doi FROM execution_documents ed "
+            f"JOIN documents d ON d.id = ed.document_id WHERE ed.execution_id = ?{within} "
+            "ORDER BY d.id", (exec_id, *params))
+        return membership([dict(row) for row in rows], execution.get("parameters"))
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/executions/{exec_id}/documents", response_model=response_models.RunPapersPage,
+         response_model_exclude_unset=True)
+def get_execution_papers(
+    exec_id: int,
+    limit: int = reading_queue.DEFAULT_PAGE_SIZE,
+    offset: int = 0,
+    only_new: bool = False,
+    q: str = "",
+):
+    """One page of the papers this run found, each with its stored id.
+
+    Results & Logs listed runs and rendered a Markdown report; the papers
+    inside a run were reachable only by reading that text or by exporting the
+    whole file. Neither gives a user something to click, and an execution id is
+    not a paper id -- so the Papers tab needed a route that hands back the
+    corpus-local document ids the rest of the app is keyed on (the same ids
+    ``include_ids`` carries into a JSON export).
+
+    Paged rather than whole: a sweep can return thousands, and a renderer that
+    holds all of them is a renderer that stops responding on the run that
+    matters most. ``queue_status`` rides along so the Save control can show the
+    state the database actually holds instead of guessing from what the user
+    last clicked.
+
+    ``q`` finds as the Library does, in a paper's title, authors, or source;
+    ``total`` is then how many match, and ``searched`` how many it looked
+    through.
+    """
+    if limit < 1 or limit > reading_queue.MAX_PAGE_SIZE:
+        raise HTTPException(
+            400, f"limit must be between 1 and {reading_queue.MAX_PAGE_SIZE}")
+    if offset < 0:
+        raise HTTPException(400, "offset must not be negative")
+    if len(q) > 200:
+        raise HTTPException(400, "q must be at most 200 characters")
+    conn = _get_db()
+    try:
+        if get_execution_by_id(conn, exec_id) is None:
+            raise HTTPException(404, "Execution not found")
+        papers, total, searched = get_execution_documents_page(
+            conn, exec_id, limit=limit, offset=offset, only_new=only_new, q=q,
+        )
+        saved = reading_queue.statuses_for(conn, [p["id"] for p in papers])
+        for paper in papers:
+            paper["queue_status"] = saved.get(paper["id"])
+        return {
+            "papers": papers,
+            "total": total,
+            "searched": searched,
+            "limit": limit,
+            "offset": offset,
+            "only_new": only_new,
+            "q": q.strip(),
+        }
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# Configurations
+# ---------------------------------------------------------------------------
+
+@app.get("/api/configurations",
+         response_model=list[response_models.SavedConfiguration],
+         response_model_exclude_unset=True)
+def list_configurations(config_type: Optional[str] = None):
+    conn = _get_db()
+    try:
+        rows = get_configurations(conn, config_type=config_type)
+        for r in rows:
+            if isinstance(r.get("parameters"), str):
+                try:
+                    r["parameters"] = json.loads(r["parameters"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        return rows
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/configurations", status_code=201,
+          response_model=response_models.ConfigurationCreated,
+          response_model_exclude_unset=True)
+def create_configuration(body: ConfigCreate):
+    conn = _get_db()
+    try:
+        cid = insert_configuration(conn, {
+            "name": body.name,
+            "config_type": body.config_type,
+            "parameters": json.dumps(body.parameters),
+        })
+        # When the SaveConfigButton creates a config from an existing manual
+        # execution, stamp the new config's id back onto that execution row so
+        # the UI can surface a "Saved as" indicator. "Last save wins" — a
+        # second save from the same execution simply overwrites the column.
+        if body.link_to_execution_id is not None:
+            try:
+                set_execution_saved_configuration(conn, body.link_to_execution_id, cid)
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "Failed to stamp saved_configuration_id=%s on execution %s",
+                    cid, body.link_to_execution_id,
+                )
+        return {"id": cid, "name": body.name, "config_type": body.config_type}
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/configurations/{config_id}",
+         response_model=response_models.ConfigurationUpdated,
+         response_model_exclude_unset=True)
+def update_configuration_endpoint(config_id: int, body: ConfigUpdate):
+    conn = _get_db()
+    try:
+        row = conn.execute(
+            "SELECT * FROM saved_configurations WHERE id = ?", (config_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Configuration not found")
+        updates = {}
+        if body.name is not None:
+            updates["name"] = body.name
+        if body.parameters is not None:
+            updates["parameters"] = json.dumps(body.parameters)
+        update_configuration(conn, config_id, updates)
+        return {"id": config_id, **updates}
+    finally:
+        _close_db(conn)
+
+
+@app.delete("/api/configurations/{config_id}",
+            response_model=response_models.ConfigurationDeleted,
+            response_model_exclude_unset=True)
+def delete_configuration_endpoint(config_id: int):
+    conn = _get_db()
+    try:
+        row = conn.execute(
+            "SELECT * FROM saved_configurations WHERE id = ?", (config_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Configuration not found")
+        row = dict(row)
+        # Cascade: deleting a routine config also deletes its linked routine
+        # so the two stay in lockstep (the UI surfaces a confirmation).
+        if row.get("config_type") == "routine":
+            raw = row.get("parameters") or "{}"
+            try:
+                payload = json.loads(raw) if isinstance(raw, str) else raw
+            except (json.JSONDecodeError, TypeError):
+                payload = {}
+            rid = payload.get("linked_routine_id") if isinstance(payload, dict) else None
+            if isinstance(rid, int) and get_routine_by_id(conn, rid):
+                delete_routine(conn, rid)
+        delete_configuration(conn, config_id)
+        return {"success": True}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/configurations/export", response_model=response_models.ConfigurationExport,
+          response_model_exclude_unset=True)
+def export_configurations(body: ConfigExport):
+    conn = _get_db()
+    try:
+        # If the user has configured an export directory in Storage settings,
+        # write the zip there with a timestamped filename; otherwise fall back
+        # to a temporary file.
+        export_dir = get_setting(conn, "export_directory") or ""
+        if export_dir:
+            out_dir = Path(export_dir).expanduser()
+            try:
+                out_dir.mkdir(parents=True, exist_ok=True)
+            except Exception as exc:
+                raise HTTPException(400, f"Invalid export_directory: {exc}")
+            fname = f"resmon_configs_{datetime.now().strftime('%Y%m%dT%H%M%S')}.zip"
+            out_path = out_dir / fname
+            export_configs(conn, body.ids, out_path)
+            return {"path": str(out_path)}
+        with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+            export_configs(conn, body.ids, Path(tmp.name))
+            return {"path": tmp.name}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/configurations/archive", response_model=None, response_class=FileResponse, responses=_ZIP_DOWNLOAD)
+def download_configurations(body: ConfigExport):
+    """The same archive ``POST /api/configurations/export`` writes, as bytes.
+
+    The export route writes to a folder the engine chooses and answers with
+    the path, which with no export folder chosen is the system's temporary
+    folder. This one answers with the archive itself, so a renderer can hand
+    it to the system's save dialog and the person chooses where it goes.
+    ``export_configs`` builds it, so the two can never be two formats. An id
+    that is no longer saved is left out, as the export route leaves it out, and
+    a choice with none still saved is a 404 rather than an empty archive.
+    """
+    conn = _get_db()
+    staging = tempfile.mkdtemp(prefix="resmon_configs_")
+    try:
+        found = [cid for cid in dict.fromkeys(body.ids) if conn.execute(
+            "SELECT 1 FROM saved_configurations WHERE id = ?", (cid,)).fetchone()]
+        if not found:
+            raise HTTPException(404, "None of the chosen configurations is saved.")
+        out = export_configs(conn, found, Path(staging) / "configurations.zip")
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    finally:
+        _close_db(conn)
+    stamp = datetime.now().strftime('%Y%m%dT%H%M%S')
+    return _zip_download(out, f"resmon_configs_{stamp}.zip", staging)
+
+
+@app.post("/api/configurations/import",
+          response_model=response_models.ConfigurationImportResult,
+          response_model_exclude_unset=True)
+async def import_configurations(files: list[UploadFile] = File(...)):
+    conn = _get_db()
+    try:
+        # The temporary file's suffix is deliberately neutral. ``.json`` would
+        # be a claim about content the upload has not made:
+        # the Configurations page's Export Selected writes a ZIP, and an
+        # import that decided what it had from this suffix read the archive as
+        # text and raised. ``import_configs`` sniffs the content instead, and
+        # is handed the names the user recognizes so a refusal can quote them
+        # rather than a path inside the temporary directory.
+        tmp_paths = []
+        upload_names = []
+        for f in files:
+            tmp = tempfile.NamedTemporaryFile(suffix=".upload", delete=False)
+            tmp.write(await f.read())
+            tmp.close()
+            tmp_paths.append(Path(tmp.name))
+            upload_names.append(Path(f.filename or tmp.name).name)
+        ids, import_errors = import_configs(conn, tmp_paths, upload_names)
+
+        # Configurations/Routines lockstep:
+        # Every imported routine-config must be mirrored as a real routine
+        # row so the Routines page lists it. The freshly-created routine
+        # is *deactivated by default* per the user requirement: bulk
+        # imports never auto-activate. We then rewrite the imported
+        # config row's parameters JSON so ``linked_routine_id`` points at
+        # the new routine, keeping the lockstep invariant the rest of
+        # the app already enforces (delete cascade, edit dispatch, etc.).
+        routines_created = 0
+        for cid in ids:
+            row = conn.execute(
+                "SELECT * FROM saved_configurations WHERE id = ?", (cid,)
+            ).fetchone()
+            if not row:
+                continue
+            row = dict(row)
+            if row.get("config_type") != "routine":
+                continue
+            raw = row.get("parameters") or "{}"
+            try:
+                payload = json.loads(raw) if isinstance(raw, str) else (raw or {})
+            except (json.JSONDecodeError, TypeError):
+                payload = {}
+            if not isinstance(payload, dict):
+                payload = {}
+            inner_params = payload.get("parameters") if isinstance(payload.get("parameters"), dict) else {}
+            ai_settings = payload.get("ai_settings")
+            routine_dict = {
+                "name": row.get("name") or "Imported watch",
+                "schedule_cron": payload.get("schedule_cron") or "0 8 * * *",
+                "parameters": json.dumps(inner_params),
+                "is_active": 0,  # deactivated by default on import
+                "email_enabled": int(bool(payload.get("email_enabled"))),
+                "email_ai_summary_enabled": int(bool(payload.get("email_ai_summary_enabled"))),
+                "ai_enabled": int(bool(payload.get("ai_enabled"))),
+                "ai_settings": json.dumps(ai_settings) if isinstance(ai_settings, dict) else None,
+                "storage_settings": None,
+                "notify_on_complete": int(bool(payload.get("notify_on_complete"))),
+                # An export taken before the cloud service was removed may
+                # still say "cloud"; such a routine has nowhere to run.
+                "execution_location": "local",
+            }
+            try:
+                rid = insert_routine(conn, routine_dict)
+            except Exception as exc:
+                logger.error("Failed to create routine for imported config %s: %s", cid, exc)
+                continue
+            # Rewrite the imported config row's parameters so it links to
+            # the new routine and reflects the deactivated state. We do
+            # NOT call ``_sync_routine_config`` here, because that helper
+            # would insert a *second* mirror row when none with the new
+            # ``linked_routine_id`` is found — instead, we update the
+            # already-imported row in place.
+            payload["linked_routine_id"] = rid
+            payload["is_active"] = False
+            update_configuration(conn, cid, {"parameters": json.dumps(payload)})
+            routines_created += 1
+
+        return {"imported": len(ids), "routines_created": routines_created,
+                "errors": import_errors}
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# Calendar
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Reference exports
+# ---------------------------------------------------------------------------
+#
+# resmon's existing outputs -- Markdown, PDF, LaTeX -- are for reading. None of
+# them import into Zotero, Mendeley, EndNote or Papers, which is where the
+# papers a sweep found actually need to end up.
+
+
+class ReferenceExportBody(BaseModel):
+    document_ids: list[int] = []
+    execution_ids: list[int] | None = None
+    format: str = "bibtex"
+
+
+# A streamed export is sent in pieces of about this many characters: large enough
+# that a file of 100,000 papers is a few thousand writes, small enough that a
+# piece is never more than a moment's memory.
+_EXPORT_PIECE = 64 * 1024
+
+
+def _reference_response(
+    documents: Iterable[dict], fmt: str, stem: str, count: int, *,
+    include_ids: bool = False, close: Optional[Callable[[], None]] = None,
+) -> StreamingResponse:
+    """A reference file, written and sent a piece at a time.
+
+    *count* is how many papers *documents* holds, said in a header before the
+    first piece is sent, which is why a caller reads it in the same transaction
+    as the papers. *close* runs once the last piece is sent, or when the reader
+    goes away first.
+    """
+    done: list[bool] = []
+    lock = threading.Lock()
+
+    def finish() -> None:
+        # Once, from whichever comes first: the last piece written, or the
+        # response ending because the reader went away. The server lets a piece
+        # being written finish before either, so nothing is reading the
+        # connection when it closes.
+        with lock:
+            if close is None or done:
+                return
+            done.append(True)
+        close()
+
+    try:
+        media_type, extension = reference_export.describe(fmt, include_ids=include_ids)
+    except ValueError as exc:
+        finish()
+        raise HTTPException(400, str(exc)) from None
+
+    def body() -> Iterator[bytes]:
+        try:
+            pending: list[str] = []
+            size = 0
+            for piece in reference_export.stream(documents, fmt, include_ids=include_ids):
+                pending.append(piece)
+                size += len(piece)
+                if size >= _EXPORT_PIECE:
+                    yield "".join(pending).encode("utf-8")
+                    pending, size = [], 0
+            if pending:
+                yield "".join(pending).encode("utf-8")
+        finally:
+            finish()
+
+    from starlette.background import BackgroundTask  # noqa: PLC0415
+    return StreamingResponse(
+        body(),
+        media_type=media_type,
+        background=BackgroundTask(finish),
+        headers={
+            "Content-Disposition": f'attachment; filename="{stem}.{extension}"',
+            "X-Resmon-Document-Count": str(count),
+            # Readable by the renderer, which is another origin: the count is how
+            # it says what a saved file holds, in the engine's number rather
+            # than one it worked out before asking.
+            "Access-Control-Expose-Headers": "Content-Disposition, X-Resmon-Document-Count",
+        },
+    )
+
+
+@app.get("/api/executions/{exec_id}/references")
+def export_execution_references(
+    exec_id: int, format: str = "bibtex", only_new: bool = False, include_ids: bool = False,
+):
+    """Export one run; JSON can explicitly include corpus IDs for follow-up reads."""
+    conn = _get_db()
+    try:
+        if get_execution_by_id(conn, exec_id) is None:
+            raise HTTPException(404, "Execution not found")
+        documents = get_execution_documents(conn, exec_id, only_new=only_new)
+        suffix = "-new" if only_new else ""
+        return _reference_response(documents, format, f"resmon-execution-{exec_id}{suffix}",
+                                   len(documents), include_ids=include_ids)
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/export/references")
+def export_selected_references(body: ReferenceExportBody):
+    """Render one selection, with one entry per stored document ID.
+
+    Execution selections are unioned before rendering. Publication date then ID
+    descending fixes order independently of selection order, so BibTeX keys are
+    allocated once for the complete file. This never merges corpus records.
+    """
+    conn = _get_db()
+    try:
+        ids = body.document_ids
+        if body.execution_ids is not None:
+            if ids:
+                raise HTTPException(400, "Choose document_ids or execution_ids, not both")
+            unique_ids: set[int] = set()
+            for exec_id in dict.fromkeys(body.execution_ids):
+                if get_execution_by_id(conn, exec_id) is None:
+                    raise HTTPException(404, f"Execution {exec_id} not found")
+                unique_ids.update(doc["id"] for doc in get_execution_documents(conn, exec_id))
+            ids = sorted(unique_ids)
+        documents = get_documents_by_ids(conn, ids)
+        return _reference_response(documents, body.format, "resmon-selection", len(documents))
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# The reading queue
+# ---------------------------------------------------------------------------
+#
+# Saving a paper is membership and nothing else: no copy of the metadata, no
+# second corpus, and no route here deletes a document. Removing an entry drops
+# the membership row; the paper, its authors, its provenance and every run that
+# found it are untouched, and re-saving it afterwards starts a new entry rather
+# than resurrecting the old one.
+#
+# The rules the surface has to keep are in
+# ``implementation_scripts/reading_queue.py``: saving is idempotent and never
+# resets a paper the user has already read, and a state request that changes
+# nothing writes nothing.
+
+
+class ReadingQueueSaveBody(BaseModel):
+    document_id: int
+
+
+class ReadingQueueStatusBody(BaseModel):
+    status: str
+
+
+def _reading_queue_status(value: Optional[str]) -> Optional[str]:
+    """Validate an optional ``?status=`` filter into ``None`` or a real state."""
+    if value is None or value == "" or value == "all":
+        return None
+    if value not in reading_queue.STATUSES:
+        raise HTTPException(
+            400,
+            f"Unknown reading status {value!r}. Expected one of: "
+            + ", ".join(reading_queue.STATUSES) + ", or all.",
+        )
+    return value
+
+
+def _map_order(conn, wanted: set[int], collection_id: Optional[int] = None) -> Optional[dict[int, tuple]]:
+    """A sort key per paper the collection's map has placed, keeping its neighbors together.
+
+    The map's own regions first, then a Hilbert curve through each region's
+    stretch of the plate, so papers next to each other on the map are next to
+    each other in the list. ``None`` when there is no fitted map to read; the
+    queue then says it is in saved order.
+    """
+    from implementation_scripts import collection_map  # noqa: PLC0415 - see the imports
+    fit = collection_map._current(collection_map.cache_path(conn, collection_id), collection_id)
+    if fit is None or not len(fit.ids):
+        return None
+    side = 1024
+    keep = [i for i, paper in enumerate(fit.ids.tolist()) if paper in wanted]
+    cells = ((fit.xy[keep] + 1.0) / 2.0 * (side - 1)).clip(0, side - 1).astype("int64")
+    order: dict[int, tuple] = {}
+    for paper, region, (x, y) in zip(fit.ids[keep].tolist(), fit.region[keep].tolist(), cells.tolist()):
+        d, s = 0, side // 2
+        while s > 0:
+            rx, ry = int((x & s) > 0), int((y & s) > 0)
+            d += s * s * ((3 * rx) ^ ry)
+            if ry == 0:
+                if rx == 1:
+                    x, y = side - 1 - x, side - 1 - y
+                x, y = y, x
+            s //= 2
+        order[int(paper)] = (int(region), d)
+    return order
+
+
+@app.get("/api/reading-queue", response_model=response_models.ReadingQueuePage,
+         response_model_exclude_unset=True)
+def list_reading_queue(
+    status: Optional[str] = None,
+    limit: int = reading_queue.DEFAULT_PAGE_SIZE,
+    offset: int = 0,
+    q: str = Query("", max_length=200),
+    sort: str = "saved",
+    collection: Optional[str] = _COLLECTION_QUERY,
+):
+    """One page of a collection's saved papers. ``status`` omitted (or ``all``) means both.
+
+    The queue is one list; each collection shows the saved papers it holds,
+    with their counts. ``q`` keeps the papers whose title, authors or source
+    contain it. ``sort`` is ``saved`` (newest save first), ``published``,
+    ``title``, ``source`` or ``map`` (the collection's map); the page's own
+    ``sort`` says which order it is in, which is ``saved`` when ``map`` was
+    asked for and no map is fitted yet.
+    """
+    conn = _get_db()
+    try:
+        chosen = _collection_id(conn, collection)
+        return reading_queue.list_entries(
+            conn, status=_reading_queue_status(status), limit=limit, offset=offset, q=q, sort=sort,
+            map_order=_map_order(conn, {r[0] for r in conn.execute("SELECT document_id FROM reading_queue")},
+                                 chosen)
+            if sort == "map" else None,
+            collection_id=chosen,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/reading-queue", status_code=201,
+          response_model=response_models.ReadingQueueEntry,
+          response_model_exclude_unset=True)
+def save_to_reading_queue(body: ReadingQueueSaveBody):
+    """Save a stored paper. Saving one already saved returns it unchanged.
+
+    201 either way: the request's outcome -- this paper is in the queue -- is
+    the same, and the body carries the entry, so a second click cannot be
+    mistaken for a state change. ``saved_at`` in that body is the original save
+    time, which is how a caller can tell the two apart if it needs to.
+    """
+    conn = _get_db()
+    try:
+        return reading_queue.save(conn, body.document_id)
+    except reading_queue.UnknownDocument as exc:
+        raise HTTPException(404, str(exc)) from None
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/reading-queue/{document_id}",
+         response_model=response_models.ReadingQueueEntry,
+         response_model_exclude_unset=True)
+def set_reading_queue_status(document_id: int, body: ReadingQueueStatusBody):
+    """Mark a saved paper read or unread."""
+    conn = _get_db()
+    try:
+        return reading_queue.set_status(conn, document_id, body.status)
+    except reading_queue.NotInQueue as exc:
+        raise HTTPException(404, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    finally:
+        _close_db(conn)
+
+
+@app.delete("/api/reading-queue/{document_id}",
+            response_model=response_models.ReadingQueueRemoval,
+            response_model_exclude_unset=True)
+def remove_from_reading_queue(document_id: int):
+    """Take a paper out of the queue. The paper itself is not touched.
+
+    404 when there was nothing to remove, because "it is gone" and "it was
+    never there" are different answers and the second one usually means the
+    interface is looking at a list somebody else already changed.
+    """
+    conn = _get_db()
+    try:
+        entry = reading_queue.remove(conn, document_id)
+        if entry is None:
+            raise HTTPException(
+                404, f"Document {document_id} is not in the reading queue")
+        # The entry as it was, for Undo: ``POST .../restore`` puts it back as it is here.
+        return {"removed": True, "document_id": document_id, "entry": entry}
+    finally:
+        _close_db(conn)
+
+
+class ReadingQueueRestoreBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    status: str
+    saved_at: str = Field(min_length=1, max_length=40)
+    updated_at: str = Field(min_length=1, max_length=40)
+    read_at: Optional[str] = Field(default=None, max_length=40)
+
+
+@app.post("/api/reading-queue/{document_id}/restore",
+          response_model=response_models.ReadingQueueRestored,
+          response_model_exclude_unset=True)
+def restore_to_reading_queue(document_id: int, body: ReadingQueueRestoreBody):
+    """Undo a removal: the entry back with the state and dates it had.
+
+    ``restored`` is false when the paper was saved again in the meantime; its
+    entry now is returned unchanged rather than overwritten.
+    """
+    conn = _get_db()
+    try:
+        entry, restored = reading_queue.restore(
+            conn, document_id, body.status, body.saved_at, body.updated_at, body.read_at)
+        return {"restored": restored, "entry": entry}
+    except reading_queue.UnknownDocument as exc:
+        raise HTTPException(404, str(exc)) from None
+    except (ValueError, sqlite3.IntegrityError) as exc:
+        raise HTTPException(400, str(exc)) from None
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# Owned Library: nine domain routes, no assistant tool or global auth change.
+# Guard before body parsing, even for simple cross-origin form requests.
+# ---------------------------------------------------------------------------
+
+class LibraryOriginGuard:
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        import re
+        path = scope.get("path", "")
+        if scope.get("type") == "http" and (re.fullmatch(r"/api/library/files/[^/]+/(?:text|pdf|picture)", path) or path.startswith("/api/evidence/")):
+            original_send = send
+
+            async def text_send(message):
+                if message["type"] == "http.response.start":
+                    message = {**message, "headers": [
+                        (k, v) for k, v in message.get("headers", [])
+                        if k.lower() != b"cache-control"
+                    ] + [(b"cache-control", b"no-store")]}
+                    if path.startswith("/api/evidence/"):
+                        message["headers"].append((b"access-control-expose-headers",
+                            b"Content-Disposition, Content-Length, X-Resmon-Evidence-Contract, X-Resmon-Vault, X-Resmon-Project, X-Resmon-File, X-Resmon-Version, X-Resmon-SHA256, X-Resmon-Revision, X-Resmon-Bundle"))
+                    elif not path.endswith("/text"):
+                        message["headers"].append((b"access-control-expose-headers",
+                            b"Content-Length, Content-Type, X-Resmon-Vault, X-Resmon-File, X-Resmon-Version, X-Resmon-SHA256"))
+                await original_send(message)
+
+            send = text_send
+        protected = scope.get("type") == "http" and scope.get("method") != "OPTIONS" and (
+            path == "/api/library" or path.startswith("/api/library/")
+            or path.startswith("/api/evidence/")
+        )
+        if protected:
+            headers = scope.get("headers", [])
+            origins = [v.decode("latin1") for k, v in headers if k.lower() == b"origin"]
+            custom = [v for k, v in headers if k.lower() == b"x-resmon-library"]
+            # Exactly this instance's renderer origin, not any canonical
+            # http://127.0.0.1:<port>, which every other local web server also
+            # has. ``LocalApiGuard`` refuses a foreign origin before this runs,
+            # and this stays as the Library's own second layer.
+            valid = len(origins) == 1 and custom == [b"1"] and api_auth.origin_allowed(origins[0])
+            if not valid:
+                from starlette.responses import JSONResponse
+                await JSONResponse({"detail": {"reason": "origin_refused", "message": "Library requires the renderer Origin and X-Resmon-Library header."}}, status_code=403)(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(LibraryOriginGuard)
+
+# Registered last so it is the outermost layer: Host, Origin and token are
+# checked before the Library guard, before CORS and before any body is read.
+# ``test_local_api_auth.py`` fails if anything is ever added outside it.
+app.add_middleware(api_auth.LocalApiGuard)
+
+
+class RendererOriginBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    origin: str = Field(min_length=1, max_length=64)
+
+
+@app.post("/api/auth/renderer-origin")
+def register_renderer_origin(body: RendererOriginBody, request: Request):
+    """Allow one more exact renderer origin on this backend.
+
+    Exists for the daemon. launchd starts it long before any window exists, so
+    unlike an Electron-spawned backend it cannot be told its renderer's origin
+    at spawn — and "any loopback origin" is not trusted, because every other local web
+    server has one. Electron's main process, which read the
+    token from the daemon's token file, registers its renderer's origin here
+    once it has bound the renderer server.
+
+    Refused from a browser: a request carrying an Origin is a page, and a page
+    must not be able to widen the set of pages the backend trusts, even the
+    renderer itself.
+    """
+    if request.headers.get("origin") is not None:
+        raise HTTPException(403, {"reason": "origin_refused",
+                                  "message": "Only the app itself can register a renderer origin."})
+    try:
+        origin = api_auth.register_renderer_origin(body.origin)
+    except ValueError as exc:
+        raise HTTPException(422, {"reason": "invalid_origin", "message": str(exc)})
+    return {"registered": origin}
+
+
+class LibraryVaultBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    parent_directory: str = Field(min_length=1, max_length=4096)
+
+
+class LibraryLinkBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    expected_vault_id: str
+    document_id: int = Field(gt=0)
+
+
+class LibraryOpenBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    expected_vault_id: str
+    expected_version_id: str
+
+
+def _library_query(request: Request, allowed: tuple[str, ...]) -> None:
+    keys = list(request.query_params.keys())
+    if any(k not in allowed or len(request.query_params.getlist(k)) != 1 for k in keys):
+        raise HTTPException(400, {"reason": "unknown_fields", "message": "Unknown or repeated Library fields."})
+
+
+@contextmanager
+def _library_connection():
+    # An import awaits streamed chunks. It must own a separate connection so
+    # another request on the event-loop thread cannot share its transaction.
+    initialized = _get_db()
+    db_path = initialized.execute("PRAGMA database_list").fetchone()[2]
+    conn = get_connection(db_path)
+    try:
+        yield conn
+    except library.LibraryError as exc:
+        raise HTTPException(exc.status, {"reason": exc.reason, "message": str(exc)}) from None
+    except (OSError, sqlite3.Error):
+        # Avoid leaking a private absolute root from an OS/SQLite exception.
+        raise HTTPException(409, {"reason": "storage_unavailable", "message": "Library storage is unavailable or blocked. No automatic recovery was attempted."}) from None
+    finally:
+        conn.close()
+
+
+@app.get("/api/library", response_model=response_models.LibraryStatus, response_model_exclude_unset=True)
+def library_status(request: Request):
+    _library_query(request, ())
+    with _library_connection() as conn:
+        return library.status(conn)
+
+
+@app.post("/api/library/vault", status_code=201, response_model=response_models.LibraryStatus,
+          response_model_exclude_unset=True)
+def library_create_vault(request: Request, body: LibraryVaultBody):
+    _library_query(request, ())
+    with _library_connection() as conn:
+        return library.create_vault(conn, body.parent_directory)
+
+
+@app.get("/api/library/files", response_model=response_models.LibraryFiles, response_model_exclude_unset=True)
+def library_list(request: Request, expected_vault_id: str, q: str = "",
+                 through_id: int | None = None, before_id: int | None = None, limit: int = 50,
+                 sort: str = "newest", offset: int = 0):
+    _library_query(request, ("expected_vault_id", "q", "through_id", "before_id", "limit", "sort", "offset"))
+    with _library_connection() as conn:
+        return library.list_files(conn, expected_vault_id, q, through_id, before_id, limit, sort, offset)
+
+
+@app.get("/api/library/papers/{document_id}/places", response_model=response_models.LibraryPaperPlaces,
+         response_model_exclude_unset=True)
+def library_paper_places(request: Request, document_id: int):
+    from implementation_scripts import library_places
+    _library_query(request, ())
+    with _library_connection() as conn:
+        conn.execute('BEGIN')
+        return library_places.places(conn, document_id)
+
+
+@app.post("/api/library/files", response_model=response_models.LibraryImported, response_model_exclude_unset=True)
+async def library_import(request: Request, response: Response, expected_vault_id: str,
+                         filename: str, document_id: int | None = None):
+    _library_query(request, ("expected_vault_id", "filename", "document_id"))
+    if request.headers.get("content-type", "").split(";")[0].strip() != "application/octet-stream":
+        raise HTTPException(415, {"reason": "invalid_body", "message": "Send selected raw file bytes, not a source path or multipart form."})
+    with _library_connection() as conn:
+        with library.Import(conn, expected_vault_id, filename, document_id) as upload:
+            async for chunk in request.stream():
+                upload.write(chunk)
+            result = upload.finish()
+        response.status_code = 201 if result["created"] else 200
+        return result
+
+
+@app.get("/api/library/files/{file_id}", response_model=response_models.LibraryFileDetail, response_model_exclude_unset=True)
+def library_detail(request: Request, file_id: str, expected_vault_id: str):
+    _library_query(request, ("expected_vault_id",))
+    with _library_connection() as conn:
+        return library.detail(conn, expected_vault_id, file_id)
+
+
+@app.post("/api/library/files/{file_id}/paper-links", response_model=response_models.LibraryLinked,
+          response_model_exclude_unset=True)
+def library_link(request: Request, file_id: str, body: LibraryLinkBody):
+    _library_query(request, ())
+    with _library_connection() as conn:
+        return library.add_link(conn, body.expected_vault_id, file_id, body.document_id)
+
+
+@app.post("/api/library/files/{file_id}/open", response_model=response_models.LibraryOpened,
+          response_model_exclude_unset=True)
+def library_open(request: Request, file_id: str, body: LibraryOpenBody):
+    _library_query(request, ())
+    with _library_connection() as conn:
+        return library.open_request(conn, body.expected_vault_id, file_id, body.expected_version_id)
+
+
+@app.get("/api/library/export", response_model=response_models.LibraryInventory, response_model_exclude_unset=True)
+def library_inventory(request: Request, expected_vault_id: str, format: str = "json"):
+    _library_query(request, ("expected_vault_id", "format"))
+    with _library_connection() as conn:
+        return library_export.export_inventory(conn, expected_vault_id, format)
+
+
+@app.get("/api/library/files/{file_id}/text", response_model=response_models.LibraryText, response_model_exclude_unset=True)
+def library_read_text(request: Request, response: Response, file_id: str,
+                      expected_vault_id: str, expected_version_id: str, lines: int | None = None):
+    _library_query(request, ("expected_vault_id", "expected_version_id", "lines"))
+    response.headers["Cache-Control"] = "no-store"
+    with _library_connection() as conn:
+        return library_text.read_text(conn, expected_vault_id, file_id, expected_version_id, lines)
+
+
+@app.get("/api/library/files/{file_id}/pdf", response_model=None)
+def library_read_pdf(request: Request, file_id: str, expected_vault_id: str, expected_version_id: str) -> Response:
+    """A kept PDF's bytes, for the reader outside Evidence: verified, up to the one read limit.
+
+    The identity headers name the vault, file, version and hash the bytes were
+    checked against, so the renderer can refuse an answer about another file.
+    """
+    _library_query(request, ("expected_vault_id", "expected_version_id"))
+    with _library_connection() as conn:
+        row, data = library.read_bytes(conn, expected_vault_id, file_id, expected_version_id)
+    return Response(data, media_type="application/octet-stream", headers={
+        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+        "X-Resmon-Vault": expected_vault_id, "X-Resmon-File": file_id,
+        "X-Resmon-Version": expected_version_id, "X-Resmon-SHA256": row["sha256"]})
+
+
+@app.get("/api/library/files/{file_id}/picture", response_model=None)
+def library_picture(request: Request, file_id: str, expected_vault_id: str, expected_version_id: str) -> Response:
+    """The first-page picture kept for this exact version, or 404 ``no_picture``."""
+    _library_query(request, ("expected_vault_id", "expected_version_id"))
+    with _library_connection() as conn:
+        media, data = library_thumbs.read(conn, expected_vault_id, file_id, expected_version_id)
+    return Response(data, media_type=media, headers={
+        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+        "X-Resmon-Vault": expected_vault_id, "X-Resmon-File": file_id, "X-Resmon-Version": expected_version_id})
+
+
+@app.put("/api/library/files/{file_id}/picture", response_model=response_models.LibraryPicture,
+         response_model_exclude_unset=True)
+async def library_keep_picture(request: Request, file_id: str, expected_vault_id: str,
+                               expected_version_id: str) -> dict:
+    """Keep the first-page picture the renderer drew of this version: WebP, PNG or JPEG, 512 KiB at most."""
+    _library_query(request, ("expected_vault_id", "expected_version_id"))
+    media = request.headers.get("content-type", "").split(";")[0].strip().lower()
+    raw = bytearray()
+    async for chunk in request.stream():
+        if len(raw) + len(chunk) > library_thumbs.MAX_PICTURE_BYTES:
+            raise HTTPException(413, {"reason": "picture_limit", "message": "A picture is limited to 512 KiB."})
+        raw.extend(chunk)
+    with _library_connection() as conn:
+        return library_thumbs.write(conn, expected_vault_id, file_id, expected_version_id, media, bytes(raw))
+
+
+class LibraryRemoveBody(LibraryOpenBody):
+    # True only after the person was shown what goes with the file (its
+    # projects and notes) and confirmed. Undo puts every one of them back.
+    cascade: bool = False
+
+
+class LibraryVaultIdBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    expected_vault_id: str
+
+
+class LibraryRelinkBody(LibraryVaultIdBody):
+    folder: str = Field(min_length=1, max_length=4096)
+
+
+class LibraryMoveBody(LibraryVaultIdBody):
+    parent_directory: str = Field(min_length=1, max_length=4096)
+
+
+@app.get("/api/library/files/{file_id}/removal", response_model=response_models.LibraryRemoval,
+         response_model_exclude_unset=True)
+def library_removal_summary(request: Request, file_id: str, expected_vault_id: str, expected_version_id: str):
+    """What would go with this file if it were removed: its paper links, and the projects
+    it is in or has notes in. ``needs_confirmation`` is true when there is a project."""
+    _library_query(request, ("expected_vault_id", "expected_version_id"))
+    with _library_connection() as conn:
+        return library_removal.summary(conn, expected_vault_id, file_id, expected_version_id)
+
+
+@app.delete("/api/library/files/{file_id}", response_model=response_models.LibraryRemoved,
+            response_model_exclude_unset=True)
+def library_remove(request: Request, file_id: str, body: LibraryRemoveBody):
+    """Take a file out of the Library. Its bytes are held in the Library folder's
+    ``removed/`` and its record kept, for Undo and Restore; nothing is deleted."""
+    _library_query(request, ())
+    with _library_connection() as conn:
+        return library_removal.remove(conn, body.expected_vault_id, file_id, body.expected_version_id, body.cascade)
+
+
+@app.get("/api/library/removed", response_model=response_models.LibraryRemovedList,
+         response_model_exclude_unset=True)
+def library_removed(request: Request, expected_vault_id: str):
+    """Every removed file still on record, newest first, and whether its bytes are still held."""
+    _library_query(request, ("expected_vault_id",))
+    with _library_connection() as conn:
+        return library_removal.list_removed(conn, expected_vault_id)
+
+
+@app.post("/api/library/removed/{file_id}/restore", response_model=response_models.LibraryFileDetail,
+          response_model_exclude_unset=True)
+def library_restore(request: Request, file_id: str, body: LibraryVaultIdBody):
+    """Undo a removal: the folder, the row and every row that went with it, as they were."""
+    _library_query(request, ())
+    with _library_connection() as conn:
+        return library_removal.restore(conn, body.expected_vault_id, file_id)
+
+
+@app.post("/api/library/removed/{file_id}/release", response_model=response_models.LibraryReleased,
+          response_model_exclude_unset=True)
+def library_release(request: Request, file_id: str, body: LibraryVaultIdBody):
+    """The held file's verified path, under the name it was imported as, for the desktop's Trash."""
+    _library_query(request, ())
+    with _library_connection() as conn:
+        return library_removal.release_request(conn, body.expected_vault_id, file_id)
+
+
+@app.delete("/api/library/removed/{file_id}", response_model=response_models.LibraryForgotten,
+            response_model_exclude_unset=True)
+def library_forget(request: Request, file_id: str, body: LibraryVaultIdBody):
+    """Drop a removed file's record once its bytes have left the Library folder; refused while they are held."""
+    _library_query(request, ())
+    with _library_connection() as conn:
+        return library_removal.forget(conn, body.expected_vault_id, file_id)
+
+
+@app.post("/api/library/vault/relink", response_model=response_models.LibraryStatus,
+          response_model_exclude_unset=True)
+def library_relink(request: Request, body: LibraryRelinkBody):
+    """Record where the Library folder is now, after checking it is this Library's own."""
+    _library_query(request, ())
+    with _library_connection() as conn:
+        return library_folder.relink(conn, body.expected_vault_id, body.folder)
+
+
+@app.post("/api/library/vault/move", response_model=response_models.LibraryMovedStatus,
+          response_model_exclude_unset=True)
+def library_move(request: Request, body: LibraryMoveBody):
+    """Move the Library folder into another folder, keeping its name. Across disks the
+    files are copied and checked, and the old folder is left where it was."""
+    _library_query(request, ())
+    with _library_connection() as conn:
+        return library_folder.move(conn, body.expected_vault_id, body.parent_directory)
+
+
+def _library_connection_factory():
+    """A connection of its own for a Library comparison's worker thread."""
+    initialized = _get_db()
+    db_path = initialized.execute("PRAGMA database_list").fetchone()[2]
+    return lambda: get_connection(db_path)
+
+
+@app.post("/api/library/files/{file_id}/shared-wording", response_model=response_models.SharedWordingLibrary,
+          response_model_exclude_unset=True)
+def library_shared_wording_start(request: Request, file_id: str, body: LibraryOpenBody):
+    """Compare this file, page by page, with the abstracts and the other Library files.
+
+    Runs in the background, one file at a time; the GET beside it reads the answer.
+    """
+    _library_query(request, ())
+    with _library_connection() as conn:
+        with library.checked_vault(conn, body.expected_vault_id):
+            library.file_row(conn, file_id, body.expected_version_id)
+    try:
+        from implementation_scripts import shared_wording  # noqa: PLC0415 - see the imports
+        return shared_wording.library_job.start(_library_connection_factory(), body.expected_vault_id,
+                                                file_id, body.expected_version_id)
+    except RuntimeError as exc:
+        raise HTTPException(409, {"reason": "busy", "message": str(exc)}) from None
+
+
+@app.get("/api/library/files/{file_id}/shared-wording", response_model=response_models.SharedWordingLibrary,
+         response_model_exclude_unset=True)
+def library_shared_wording(request: Request, response: Response, file_id: str,
+                           expected_vault_id: str, expected_version_id: str):
+    """The last comparison of this file since the engine started, or that there is none."""
+    _library_query(request, ("expected_vault_id", "expected_version_id"))
+    response.headers["Cache-Control"] = "no-store"
+    with _library_connection() as conn:
+        library.vault_row(conn, expected_vault_id)
+        library.file_row(conn, file_id, expected_version_id)
+    from implementation_scripts import shared_wording  # noqa: PLC0415 - see the imports
+    return shared_wording.library_job.status(file_id, expected_version_id)
+
+
+# Evidence's twelve additive operations reuse the Library Origin/header guard.
+# A request worker owns its connection and cancellation; no project data is
+# added to the assistant or MCP surface.
+class EvidenceVaultBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    expected_vault_id: str
+
+
+class EvidenceProjectBody(EvidenceVaultBody):
+    name: str  # The domain validates 1–120 codepoints after boundary trim.
+
+
+class EvidenceRevisionBody(EvidenceVaultBody):
+    expected_revision: int = Field(ge=1)
+
+
+class EvidenceRenameBody(EvidenceRevisionBody):
+    name: str  # The domain validates 1–120 codepoints after boundary trim.
+
+
+class EvidenceFileBody(EvidenceRevisionBody):
+    file_id: str
+    version_id: str
+
+
+class EvidenceRemoveBody(EvidenceRevisionBody):
+    version_id: str
+
+
+class EvidenceAnchor(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    page_number: int = Field(ge=1, le=200)
+    extraction_contract: str = Field(max_length=100)
+    page_text_sha256: str = Field(min_length=64, max_length=64)
+    start_codepoint: int = Field(ge=0)
+    end_codepoint: int = Field(ge=1)
+    quote: str = Field(min_length=1, max_length=20000)
+
+
+class EvidenceNoteBody(EvidenceFileBody):
+    kind: str
+    body: str = Field(max_length=20000)
+    anchor: EvidenceAnchor | None = None
+
+
+class EvidenceEditBody(EvidenceRevisionBody):
+    expected_note_revision: int = Field(ge=1)
+    body: str = Field(max_length=20000)
+
+
+class EvidenceSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    file_id: str
+    version_id: str
+
+
+class EvidenceBundleBody(EvidenceRevisionBody):
+    selected: list[EvidenceSelection] = Field(min_length=1, max_length=20)
+    include_files: bool
+
+
+def _evidence_query(request: Request, allowed: tuple[str, ...]) -> dict:
+    keys = list(request.query_params.keys())
+    if any(k not in allowed or len(request.query_params.getlist(k)) != 1 for k in keys):
+        raise HTTPException(422, {"reason": "unknown_fields", "message": "Unknown or repeated Evidence query fields."})
+    return dict(request.query_params)
+
+
+def _evidence_required(query: dict, key: str) -> str:
+    if key not in query:
+        raise HTTPException(422, {"reason": "missing_field", "message": "A required Evidence identity is missing."})
+    return query[key]
+
+
+def _evidence_page(query: dict) -> dict:
+    import re
+    result = {}
+    for key in ('after_id', 'through_id', 'limit', 'page'):
+        if key in query:
+            if not re.fullmatch(r'0|[1-9][0-9]{0,15}', query[key]):
+                raise HTTPException(422, {"reason": "invalid_integer", "message": "Use an exact nonnegative decimal integer."})
+            result[key] = int(query[key])
+    return result
+
+
+_EvidenceModel = TypeVar('_EvidenceModel', bound=BaseModel)
+_EvidenceResult = TypeVar('_EvidenceResult')
+
+
+async def _evidence_body(request: Request, model: type[_EvidenceModel]) -> _EvidenceModel:
+    from pydantic import ValidationError
+    from implementation_scripts.evidence_pdf import _unique_json
+    _evidence_query(request, ())
+    raw = bytearray()
+    async for chunk in request.stream():
+        if len(raw) + len(chunk) > 256 * 1024:
+            raise HTTPException(413, {"reason": "body_limit", "message": "Evidence requests are limited to 256 KiB."})
+        raw.extend(chunk)
+    try:
+        data = json.loads(raw.decode('utf-8'), object_pairs_hook=_unique_json)
+        return model.model_validate(data)
+    except (ValueError, UnicodeError, ValidationError, RecursionError):
+        raise HTTPException(422, {"reason": "invalid_body", "message": "Use the exact typed Evidence fields and stated text limits."}) from None
+
+
+async def _evidence_run(request: Request, operation: Callable[[sqlite3.Connection, threading.Event], _EvidenceResult]) -> _EvidenceResult:
+    # Resolve the configured DB on the request owner, then give the operation
+    # its own connection inside its thread. Never share a sqlite connection.
+    initialized = _get_db()
+    db_path = initialized.execute('PRAGMA database_list').fetchone()[2]
+    cancel = threading.Event()
+
+    def perform() -> _EvidenceResult:
+        conn = get_connection(db_path)
+        try:
+            return operation(conn, cancel)
+        except library.LibraryError as exc:
+            raise HTTPException(exc.status, {"reason": exc.reason, "message": str(exc)}) from None
+        except (OSError, sqlite3.Error):
+            raise HTTPException(409, {"reason": "storage_unavailable", "message": "Evidence storage is unavailable. Saved records were not repaired or removed."}) from None
+        finally:
+            conn.close()
+
+    task = asyncio.create_task(asyncio.to_thread(perform))
+    try:
+        while not task.done():
+            if await request.is_disconnected():
+                cancel.set()
+            await asyncio.sleep(0.025)
+        result = await task
+        if cancel.is_set():
+            if isinstance(result, evidence_export.Bundle):
+                result.close()
+            raise HTTPException(409, {"reason": "cancelled", "message": "The Evidence request was canceled."})
+        return result
+    except asyncio.CancelledError:
+        cancel.set()
+        # Shield the exact thread result so a completed export spool is not
+        # orphaned when the HTTP owner is canceled after bytes were built.
+        try:
+            result = await asyncio.shield(task)
+            if isinstance(result, evidence_export.Bundle):
+                result.close()
+        except Exception:
+            pass
+        raise
+
+
+# Selected-answer state is separate from ordinary Ask sessions and buses.
+_selected_lanes: dict[tuple[str, str], selected_evidence_runtime.Lane] = {}
+_selected_lane_lock = threading.RLock()
+
+
+def _selected_lane(conn: sqlite3.Connection) -> selected_evidence_runtime.Lane:
+    # The port this process serves, the service's included: an answer records
+    # it with the process, so a later start can tell its own answer from
+    # another engine's.
+    port = serving_port()
+    if type(port) is not int or not 1 <= port <= 65535:
+        evidence.refuse('invalid_port', 'Selected answers need the port this engine serves, and it is not known.', 409)
+    db_path = conn.execute('PRAGMA database_list').fetchone()[2]
+    owner = runtime_identity.current_runtime_id()
+    with _selected_lane_lock:
+        key = (db_path, owner)
+        if key not in _selected_lanes:
+            _selected_lanes[key] = selected_evidence_runtime.Lane(db_path, owner, port, _assistant_settings)
+        return _selected_lanes[key]
+
+
+def _selected_startup() -> None:
+    # Embedded tests without a serving identity do not start this optional lane.
+    port = serving_port()
+    if type(port) is int and 1 <= port <= 65535:
+        _selected_lane(_get_db())
+
+
+def _selected_shutdown() -> None:
+    with _selected_lane_lock:
+        lanes = list(_selected_lanes.values())
+        _selected_lanes.clear()
+    for lane in lanes:
+        lane.shutdown()
+
+
+class SelectedPreviewBody(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    expected_vault_id: str
+    expected_revision: int
+    expected_runtime_id: str
+    selections: list[dict]
+    notes: list[dict]
+    mode: str
+    instruction: str
+    choices: dict
+
+
+class SelectedSendBody(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    expected_vault_id: str
+    expected_runtime_id: str
+    preview_id: str
+    request_sha256: str
+    confirmed: bool
+
+
+class SelectedCancelBody(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    expected_vault_id: str
+    expected_runtime_id: str
+
+
+@app.post('/api/evidence/projects/{project_id}/answer-previews', response_model=response_models.SelectedPreview,
+          response_model_exclude_unset=True)
+async def selected_answer_preview(request: Request, project_id: str) -> dict:
+    body = await _evidence_body(request, SelectedPreviewBody)
+    return await _evidence_run(request, lambda c, cancel: _selected_lane(c).preview(c, project_id, body.model_dump(), cancel))
+
+
+@app.post('/api/evidence/projects/{project_id}/answers', status_code=202, response_model=response_models.SelectedAnswer,
+          response_model_exclude_unset=True)
+async def selected_answer_send(request: Request, project_id: str) -> dict:
+    body = await _evidence_body(request, SelectedSendBody)
+    return await _evidence_run(request, lambda c, cancel: _selected_lane(c).send(c, project_id, body.model_dump(), cancel))
+
+
+@app.get('/api/evidence/projects/{project_id}/answers', response_model=response_models.SelectedAnswers,
+         response_model_exclude_unset=True)
+async def selected_answer_history(request: Request, project_id: str) -> dict:
+    q = _evidence_query(request, ('expected_vault_id','after_id','through_id','limit'))
+    return await _evidence_run(request, lambda c, _: selected_evidence.history(c, _evidence_required(q,'expected_vault_id'),project_id,**_evidence_page(q)))
+
+
+@app.get('/api/evidence/projects/{project_id}/answers/{answer_id}', response_model=response_models.SelectedAnswer,
+         response_model_exclude_unset=True)
+async def selected_answer_detail(request: Request, project_id: str, answer_id: str) -> dict:
+    q = _evidence_query(request, ('expected_vault_id',))
+    return await _evidence_run(request, lambda c, _: selected_evidence.detail(c,_evidence_required(q,'expected_vault_id'),project_id,answer_id))
+
+
+@app.post('/api/evidence/projects/{project_id}/answers/{answer_id}/cancel', response_model=response_models.SelectedAnswer,
+          response_model_exclude_unset=True)
+async def selected_answer_cancel(request: Request, project_id: str, answer_id: str) -> dict:
+    body = await _evidence_body(request, SelectedCancelBody)
+    return await _evidence_run(request, lambda c, _: _selected_lane(c).cancel(answer_id,body.expected_vault_id,project_id,body.expected_runtime_id))
+
+
+@app.get('/api/evidence/projects/{project_id}/answers/{answer_id}/events', response_model=None)
+async def selected_answer_events(request: Request, project_id: str, answer_id: str) -> StreamingResponse:
+    q = _evidence_query(request, ('expected_vault_id','expected_runtime_id'))
+    vault_id, owner = _evidence_required(q,'expected_vault_id'), _evidence_required(q,'expected_runtime_id')
+    lane, job, saved = await _evidence_run(request, lambda c, _: (_selected_lane(c),_selected_lane(c).subscribe(answer_id,vault_id,project_id,owner),selected_evidence.detail(c,vault_id,project_id,answer_id)))
+    async def stream():
+        try:
+            initial = {'type':'initial','sequence':0,'answer_id':answer_id,'request_sha256':job.request_sha256,
+                       'project_id':project_id,'vault_id':vault_id,'owner_runtime_id':owner,'answer':saved}
+            yield 'data: '+selected_evidence.canonical(initial)+'\n\n'
+            while True:
+                if await request.is_disconnected():
+                    break
+                event = await asyncio.to_thread(lane.next_event,job)
+                if event is not None:
+                    yield 'data: '+selected_evidence.canonical(event)+'\n\n'
+                    if event['type']=='terminal':
+                        return
+                elif job.completed.is_set():
+                    return
+                else:
+                    yield ': selected answer waiting\n\n'
+        finally:
+            with job.lock:
+                job.subscriber = False
+            if not job.completed.is_set():
+                await asyncio.to_thread(lane.cancel,answer_id,vault_id,project_id,owner)
+    return StreamingResponse(stream(),media_type='text/event-stream',headers={'Cache-Control':'no-store','X-Accel-Buffering':'no'})
+
+
+@app.get('/api/evidence/projects/{project_id}/answers/{answer_id}/export', response_model=None)
+async def selected_answer_export(request: Request, project_id: str, answer_id: str) -> StreamingResponse:
+    q = _evidence_query(request, ('expected_vault_id','format'))
+    if q.get('format') not in ('zip', 'html'):
+        raise HTTPException(422, 'Select format=zip or format=html explicitly.')
+    is_html = q['format'] == 'html'
+    build = selected_evidence_export.build_html if is_html else selected_evidence_export.build
+    bundle = await _evidence_run(request, lambda c,cancel: build(c,_evidence_required(q,'expected_vault_id'),project_id,answer_id,cancel=cancel))
+    m = bundle.manifest
+    headers = {'Content-Disposition':'attachment; filename="selected-answer.zip"','Content-Length':str(bundle.size),
+               'X-Resmon-Evidence-Contract':'selected-answer/v1','X-Resmon-Vault':m['vault_id'],'X-Resmon-Project':project_id,
+               'X-Resmon-Bundle':answer_id,'X-Resmon-SHA256':m['sha256'],'X-Resmon-Version':m['request_sha256']}
+    if is_html:
+        headers.update({'Content-Disposition':'attachment; filename="selected-answer.html"',
+                        'X-Resmon-Evidence-Contract':selected_evidence_export.selected_evidence_html.CONTRACT,
+                        'Content-Security-Policy':selected_evidence_export.selected_evidence_html.CSP,
+                        'Cache-Control':'no-store', 'X-Content-Type-Options':'nosniff'})
+    from starlette.background import BackgroundTask
+    return StreamingResponse(bundle.chunks(),media_type='text/html' if is_html else 'application/zip',headers=headers,background=BackgroundTask(bundle.close))
+
+
+@app.get('/api/evidence/projects', response_model=response_models.EvidenceProjects, response_model_exclude_unset=True)
+async def evidence_projects(request: Request) -> dict:
+    q = _evidence_query(request, ('expected_vault_id', 'after_id', 'through_id', 'limit'))
+    return await _evidence_run(request, lambda c, _: evidence.list_projects(c, _evidence_required(q, 'expected_vault_id'), **_evidence_page(q)))
+
+
+@app.post('/api/evidence/projects', status_code=201, response_model=response_models.EvidenceProjectDetail,
+          response_model_exclude_unset=True)
+async def evidence_create_project(request: Request) -> dict:
+    b = await _evidence_body(request, EvidenceProjectBody)
+    return await _evidence_run(request, lambda c, _: evidence.create_project(c, b.expected_vault_id, b.name))
+
+
+@app.get('/api/evidence/projects/{project_id}', response_model=response_models.EvidenceProjectDetail,
+         response_model_exclude_unset=True)
+async def evidence_project_detail(request: Request, project_id: str) -> dict:
+    q = _evidence_query(request, ('expected_vault_id',))
+    return await _evidence_run(request, lambda c, _: evidence.detail(c, _evidence_required(q, 'expected_vault_id'), project_id))
+
+
+@app.patch('/api/evidence/projects/{project_id}', response_model=response_models.EvidenceProjectDetail,
+           response_model_exclude_unset=True)
+async def evidence_rename_project(request: Request, project_id: str) -> dict:
+    b = await _evidence_body(request, EvidenceRenameBody)
+    return await _evidence_run(request, lambda c, _: evidence.rename_project(c, b.expected_vault_id, project_id, b.expected_revision, b.name))
+
+
+@app.get('/api/evidence/projects/{project_id}/files', response_model=response_models.EvidenceMembers,
+         response_model_exclude_unset=True)
+async def evidence_files(request: Request, project_id: str) -> dict:
+    q = _evidence_query(request, ('expected_vault_id', 'after_id', 'through_id', 'limit'))
+    return await _evidence_run(request, lambda c, _: evidence.list_files(c, _evidence_required(q, 'expected_vault_id'), project_id, **_evidence_page(q)))
+
+
+@app.post('/api/evidence/projects/{project_id}/files', response_model=response_models.EvidenceMemberAdded,
+          response_model_exclude_unset=True)
+async def evidence_add_file(request: Request, project_id: str) -> dict:
+    b = await _evidence_body(request, EvidenceFileBody)
+    return await _evidence_run(request, lambda c, _: evidence.add_file(c, b.expected_vault_id, project_id, b.expected_revision, b.file_id, b.version_id))
+
+
+@app.delete('/api/evidence/projects/{project_id}/files/{file_id}',
+            response_model=response_models.EvidenceMemberRemoved, response_model_exclude_unset=True)
+async def evidence_remove_file(request: Request, project_id: str, file_id: str) -> dict:
+    b = await _evidence_body(request, EvidenceRemoveBody)
+    return await _evidence_run(request, lambda c, _: evidence.remove_file(c, b.expected_vault_id, project_id, b.expected_revision, file_id, b.version_id))
+
+
+@app.get('/api/evidence/projects/{project_id}/notes', response_model=response_models.EvidenceNotes,
+         response_model_exclude_unset=True)
+async def evidence_notes(request: Request, project_id: str) -> dict:
+    q = _evidence_query(request, ('expected_vault_id', 'file_id', 'version_id', 'after_id', 'through_id', 'limit'))
+    return await _evidence_run(request, lambda c, _: evidence.list_notes(c, _evidence_required(q, 'expected_vault_id'), project_id, q.get('file_id'), q.get('version_id'), **_evidence_page(q)))
+
+
+@app.post('/api/evidence/projects/{project_id}/notes', status_code=201,
+          response_model=response_models.EvidenceNoteSaved, response_model_exclude_unset=True)
+async def evidence_create_note(request: Request, project_id: str) -> dict:
+    b = await _evidence_body(request, EvidenceNoteBody)
+    return await _evidence_run(request, lambda c, cancel: evidence.create_note(c, b.expected_vault_id, project_id, b.expected_revision, b.file_id, b.version_id, b.kind, b.body, b.anchor.model_dump() if b.anchor else None, cancel=cancel))
+
+
+@app.patch('/api/evidence/projects/{project_id}/notes/{note_id}', response_model=response_models.EvidenceNoteSaved,
+           response_model_exclude_unset=True)
+async def evidence_edit_note(request: Request, project_id: str, note_id: str) -> dict:
+    b = await _evidence_body(request, EvidenceEditBody)
+    return await _evidence_run(request, lambda c, _: evidence.edit_note(c, b.expected_vault_id, project_id, b.expected_revision, note_id, b.expected_note_revision, b.body))
+
+
+@app.get('/api/evidence/projects/{project_id}/reader/{file_id}',
+         response_model=response_models.EvidencePageText, response_model_exclude_unset=True)
+async def evidence_read(request: Request, project_id: str, file_id: str) -> dict | Response:
+    q = _evidence_query(request, ('expected_vault_id', 'version_id', 'page', 'representation'))
+    expected, version = _evidence_required(q, 'expected_vault_id'), _evidence_required(q, 'version_id')
+    page = _evidence_page(q).get('page', 1)
+    if not 1 <= page <= 200:
+        raise HTTPException(422, {"reason": "invalid_page", "message": "Choose a page from 1 to 200."})
+    representation = q.get('representation', 'text')
+    if representation == 'text':
+        return await _evidence_run(request, lambda c, cancel: evidence_reader.read_text(c, expected, project_id, file_id, version, page, cancel=cancel))
+    if representation != 'pdf':
+        raise HTTPException(422, {"reason": "invalid_representation", "message": "Choose text or pdf."})
+    file, data = await _evidence_run(request, lambda c, _: evidence_reader.pdf_bytes(c, expected, project_id, file_id, version))
+    return Response(data, media_type='application/octet-stream', headers={
+        'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+        'X-Resmon-Evidence-Contract': '1', 'X-Resmon-Vault': expected, 'X-Resmon-Project': project_id,
+        'X-Resmon-File': file_id, 'X-Resmon-Version': version, 'X-Resmon-SHA256': file['sha256']})
+
+
+@app.post('/api/evidence/projects/{project_id}/bundle', response_model=None)
+async def evidence_bundle(request: Request, project_id: str) -> StreamingResponse:
+    from starlette.background import BackgroundTask
+    b = await _evidence_body(request, EvidenceBundleBody)
+    bundle = await _evidence_run(request, lambda c, cancel: evidence_export.build(c, b.expected_vault_id, project_id, b.expected_revision, [x.model_dump() for x in b.selected], b.include_files, cancel=cancel))
+    return StreamingResponse(bundle.chunks(), media_type='application/zip', background=BackgroundTask(bundle.close), headers={
+        'Content-Disposition': 'attachment; filename="selected-evidence.zip"', 'Content-Length': str(bundle.size),
+        'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Resmon-Evidence-Contract': '1',
+        'X-Resmon-Vault': b.expected_vault_id, 'X-Resmon-Project': project_id,
+        'X-Resmon-Revision': str(b.expected_revision), 'X-Resmon-Bundle': bundle.manifest['bundle_id']})
+
+
+# ---------------------------------------------------------------------------
+# Explorer
+# ---------------------------------------------------------------------------
+
+
+class ExplorerFilters(BaseModel):
+    query: Optional[str] = None
+    sources: list[str] = []
+    authors: list[str] = []
+    categories: list[str] = []
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    # The collection searched, by its id or its name. Absent, the default
+    # collection, which is every paper a client from before collections knew.
+    collection: CollectionRef = None
+
+
+class ExplorerSearchBody(ExplorerFilters):
+    cursor: Optional[str] = None
+    limit: int = explorer.DEFAULT_PAGE_SIZE
+    # "newest" or "similarity". Not an enum, because an unknown value is
+    # answered with the default rather than a 422: a renderer from a newer build
+    # talking to an older backend should get papers, not a validation error.
+    sort: str = "newest"
+    # The newest sort's jump: with no cursor, start at the newest match published
+    # on or before this day (YYYY, YYYY-MM or YYYY-MM-DD). Not a filter: the
+    # count is still every match, and ``newer_count`` says how many come first.
+    start_date: Optional[str] = None
+    # What else to answer for this page's papers, in the same reply: their
+    # near-duplicate links, the people they matched, and their lifecycle
+    # notices, each as its own ``/for-documents`` route answers it. Nothing
+    # unless asked, so a caller that does not ask gets the page it always got.
+    include: list[Literal["links", "matches", "lifecycle"]] = Field(default_factory=list, max_length=3)
+
+
+class ExplorerExportBody(ExplorerFilters):
+    format: str = "bibtex"
+
+
+def _filter_kwargs(body: ExplorerFilters, conn) -> dict:
+    return {
+        "query": body.query,
+        "sources": body.sources or None,
+        "authors": body.authors or None,
+        "categories": body.categories or None,
+        "date_from": body.date_from,
+        "date_to": body.date_to,
+        "collection_id": _collection_id(conn, body.collection),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Collections
+# ---------------------------------------------------------------------------
+#
+# Several collections inside the one database: a paper is stored once and is in
+# one or more of them (``paper_collections``). Every read of "the collection"
+# takes ``collection`` (an id or a name) and an absent one is the default
+# collection, so a client from before collections reads what it always read.
+
+
+class CollectionNameBody(BaseModel):
+    name: str = Field(..., max_length=200)
+
+
+class CollectionCurrentBody(BaseModel):
+    collection: Union[int, str]
+
+
+class CollectionPapersBody(BaseModel):
+    """Move or copy papers into the collection in the path.
+
+    The papers are named by id (``document_ids``) or by a search of the
+    collection they come from (``matching``: the Explorer's filters, whose own
+    ``collection`` is that collection), never both. A search's papers leave
+    out ``except_ids``, and ``at_most`` is how many the person was told would
+    move or copy: a search that matches more by the time it is read is
+    refused, so a filter lost on the way can never move a whole collection. A
+    move takes them out of ``from_collection``, which is the search's
+    collection where ``matching`` is given and the default collection where
+    neither names one.
+    """
+
+    mode: Literal["move", "copy"]
+    document_ids: list[int] = Field(default_factory=list, max_length=paper_collections.IDS_MAX)
+    from_collection: CollectionRef = None
+    matching: Optional[ExplorerFilters] = None
+    except_ids: list[int] = Field(default_factory=list, max_length=paper_collections.IDS_MAX)
+    at_most: Optional[int] = Field(default=None, ge=1)
+
+
+class CollectionMembershipBody(BaseModel):
+    document_id: int
+    added_at: str = Field(..., max_length=40)
+    added_by: str = Field(..., max_length=20)
+    execution_id: Optional[int] = None
+
+
+class CollectionPapersUndoBody(BaseModel):
+    """What a move or a copy answered, sent back to undo it."""
+
+    added: list[int] = Field(default_factory=list, max_length=paper_collections.IDS_MAX)
+    from_collection: CollectionRef = None
+    removed: list[CollectionMembershipBody] = Field(default_factory=list, max_length=paper_collections.IDS_MAX)
+
+
+def _collections_call(compute: Callable[[], dict]) -> dict:
+    """Run a collections change, answering its refusal in the module's own words."""
+    try:
+        return compute()
+    except paper_collections.CollectionError as exc:
+        raise _collection_refusal(exc) from None
+
+
+@app.get("/api/collections", response_model=response_models.CollectionList,
+         response_model_exclude_unset=True)
+def list_collections():
+    """Every collection, the one the app shows, and the default one."""
+    conn = _get_db()
+    try:
+        return {"collections": paper_collections.summaries(conn),
+                "current_id": paper_collections.current(conn),
+                "default_id": paper_collections.DEFAULT_COLLECTION_ID}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/collections", status_code=201, response_model=response_models.CollectionSummary,
+          response_model_exclude_unset=True)
+def create_collection(body: CollectionNameBody):
+    """Make an empty collection. Names are unique without regard to case."""
+    conn = _get_db()
+    try:
+        return _collections_call(lambda: paper_collections.create(conn, body.name))
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/collections/current", response_model=response_models.CollectionCurrent,
+         response_model_exclude_unset=True)
+def set_current_collection(body: CollectionCurrentBody):
+    """Remember the collection the app shows, by its id or its name."""
+    conn = _get_db()
+    try:
+        chosen = _collection_id(conn, body.collection)
+        return {"current_id": _collections_call(lambda: {"id": paper_collections.set_current(conn, chosen)})["id"]}
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/collections/{collection_id}", response_model=response_models.CollectionDetail,
+         response_model_exclude_unset=True)
+def get_collection(collection_id: int):
+    """One collection, and what deleting it would do to its papers and watches."""
+    conn = _get_db()
+    try:
+        return _collections_call(lambda: paper_collections.detail(conn, collection_id))
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/collections/{collection_id}", response_model=response_models.CollectionSummary,
+         response_model_exclude_unset=True)
+def rename_collection(collection_id: int, body: CollectionNameBody):
+    conn = _get_db()
+    try:
+        return _collections_call(lambda: paper_collections.rename(conn, collection_id, body.name))
+    finally:
+        _close_db(conn)
+
+
+@app.delete("/api/collections/{collection_id}", response_model=response_models.CollectionDeleted,
+            response_model_exclude_unset=True)
+def delete_collection(collection_id: int):
+    """Delete a collection, never its papers.
+
+    A paper only it held is kept in the default collection; one in another
+    collection stays there. Its watches put their papers in the default
+    collection from then on. Its map goes with it, since the map holds words
+    from its papers. The default collection is refused (409).
+    """
+    conn = _get_db()
+    try:
+        deleted = _collections_call(lambda: paper_collections.delete(conn, collection_id))
+        from implementation_scripts import collection_map  # noqa: PLC0415 - see the imports
+        collection_map.forget(conn, collection_id)
+        from implementation_scripts import related_terms
+        related_terms.forget(conn, collection_id)
+        return deleted
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/collections/{collection_id}/papers", response_model=response_models.CollectionPapersChanged,
+          response_model_exclude_unset=True)
+def change_collection_papers(collection_id: int, body: CollectionPapersBody):
+    """Move or copy papers into this collection. No paper leaves the database.
+
+    A copy adds them and every collection they were in keeps them. A move adds
+    them here and then takes them out of the collection they came from, so a
+    paper is never in none. The answer is what an undo sends back.
+    """
+    conn = _get_db()
+    try:
+        if body.matching is not None and body.document_ids:
+            raise HTTPException(400, "Name the papers by id or by a search, not both.")
+        source = None
+        if body.matching is not None:
+            filters = _filter_kwargs(body.matching, conn)
+            source = filters["collection_id"]
+            if body.mode == "move" and body.from_collection is not None \
+                    and _collection_id(conn, body.from_collection) != source:
+                raise HTTPException(400, "A move by a search takes papers out of the collection searched.")
+            skip = set(body.except_ids)
+            ids = [i for i in explorer.matching_ids(conn, **filters) if i not in skip]
+            if len(ids) > paper_collections.IDS_MAX:
+                raise HTTPException(400, f"A search moves or copies at most {paper_collections.IDS_MAX:,} "
+                                         f"papers at once, and this one matches {len(ids):,}.")
+            if body.at_most is not None and len(ids) > body.at_most:
+                raise HTTPException(409, f"This search matches {len(ids):,} papers now, more than the "
+                                         f"{body.at_most:,} you were asked about. Nothing was moved or copied.")
+        else:
+            ids = body.document_ids
+        if body.mode == "copy":
+            return _collections_call(lambda: paper_collections.copy(conn, collection_id, ids))
+        if source is None:
+            source = _collection_id(conn, body.from_collection)
+        return _collections_call(lambda: paper_collections.move(conn, source, collection_id, ids))
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/collections/{collection_id}/papers/undo", response_model=response_models.CollectionPapersUndone,
+          response_model_exclude_unset=True)
+def undo_collection_papers(collection_id: int, body: CollectionPapersUndoBody):
+    """Undo a move or a copy into this collection, from what it answered."""
+    conn = _get_db()
+    try:
+        source = _collection_id(conn, body.from_collection) if body.from_collection is not None else None
+        return _collections_call(lambda: paper_collections.undo(
+            conn, collection_id, body.added, source, [row.model_dump() for row in body.removed]))
+    finally:
+        _close_db(conn)
+
+
+def _embed_query(conn, text: str) -> tuple[Optional[bytes], Optional[str], Optional[str]]:
+    """Embed a search phrase with the configured lane. ``(vector, model, reason)``.
+
+    The reason is what the interface shows when a similarity sort could not
+    rank, and it is never a bare failure: "no lane configured", "the model
+    refused" and "the extension will not load" send a user to three different
+    places.
+    """
+    lane = _current_embedding_lane(conn)
+    if lane is None:
+        return None, None, (
+            "No embedding model is configured, so resmon cannot rank by meaning. "
+            "Set one up in Settings → AI → Embeddings."
+        )
+    if not (text or "").strip():
+        return None, None, "Ranking by meaning needs a search phrase."
+    key = (str(_db_path or ""), _db_generation, lane, text)
+    with _phrase_vectors_lock:
+        known = _phrase_vectors.get(key)
+        if known is not None:
+            _phrase_vectors.move_to_end(key)
+            return known, lane.model, None
+    try:
+        vectors = embeddings.embed_texts(lane, [text])
+    except embeddings.EmbeddingUnavailable as exc:
+        return None, None, exc.reason
+    except Exception as exc:
+        message = getattr(exc, "message", None) or str(exc)
+        return None, None, f"The embedding call failed: {message}"
+    if not vectors:
+        return None, None, "The embedding model returned nothing for that phrase."
+    packed = vector_index.pack_vector(vectors[0])
+    with _phrase_vectors_lock:
+        _phrase_vectors[key] = packed
+        while len(_phrase_vectors) > _PHRASE_VECTORS_MAX:
+            _phrase_vectors.popitem(last=False)
+    return packed, lane.model, None
+
+
+# Phrases already embedded, by lane and phrase: each page of a search ranked by
+# meaning asks for the same phrase, and the model's answer for it does not change,
+# so "Show more" asks the model once rather than once a page. A lane names its
+# provider, model, and endpoint, so a changed setting is a different key; the
+# database and its generation are in the key too, so a database swapped in (a
+# restore, a test's fresh one) starts with none.
+_PHRASE_VECTORS_MAX = 32
+_phrase_vectors: "OrderedDict[tuple, bytes]" = OrderedDict()
+_phrase_vectors_lock = threading.Lock()
+
+
+@app.post("/api/explorer/search", response_model=response_models.ExplorerPage,
+          response_model_exclude_unset=True)
+def explorer_search(body: ExplorerSearchBody):
+    """Search the whole corpus. POST because the filter set is a structure.
+
+    ``sort="similarity"`` embeds the search phrase and re-orders the same
+    filtered set by distance from it. The filters still decide *which* papers;
+    the sort decides only their order, so switching sorts cannot change what a
+    user is looking at.
+    """
+    conn = _get_db()
+    try:
+        vector = model = reason = None
+        if body.sort == "similarity":
+            vector, model, reason = _embed_query(conn, body.query or "")
+        result = explorer.search(
+            conn, cursor=body.cursor, limit=body.limit, sort=body.sort,
+            query_vector=vector, model=model, start_date=body.start_date, **_filter_kwargs(body, conn),
+        )
+        if reason:
+            # The request asked for a ranking and did not get one. Saying so is
+            # the difference between a list a user can trust and a control that
+            # appears to do nothing.
+            result["similarity_unavailable"] = reason
+        # The page's marks with the page, so a screen draws them without a
+        # second round trip that waits on the first.
+        ids = [int(paper["id"]) for paper in result.get("results", [])]
+        if "links" in body.include:
+            result["links"] = _links_for(conn, ids)
+        if "matches" in body.include:
+            result["matches"] = _profile_matches_for(conn, ids)
+        if "lifecycle" in body.include:
+            result["lifecycle"] = _lifecycle_for(conn, ids)
+        return result
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/documents/{document_id}/similar")
+def document_similar(document_id: int, k: int = 10):
+    """The papers nearest this one, with distances and their sources.
+
+    Costs one index query and nothing at the provider: the document's vector is
+    already stored, so "more like this" never calls an embedding model.
+    """
+    conn = _get_db()
+    try:
+        lane = _current_embedding_lane(conn)
+        index_model = vector_index.index_state(conn)["model"]
+        model = index_model or (lane.model if lane else None)
+        if not model:
+            return {
+                "document_id": document_id,
+                "model": None,
+                "neighbours": [],
+                "reason": (
+                    "Nothing is embedded yet, so resmon has nothing to compare this "
+                    "paper against. Set up an embedding model in Settings → AI."
+                ),
+            }
+        return explorer.similar_to(conn, document_id, model, k=max(1, min(int(k), 50)))
+    finally:
+        _close_db(conn)
+
+
+def _coverage_for_routine(conn, routine_id: int) -> dict:
+    """Shared by the HTTP route and the MCP surface, so they cannot diverge."""
+    routine = get_routine_by_id(conn, routine_id)
+    if routine is None:
+        raise HTTPException(404, f"No watch with id {routine_id}.")
+    audit = _coverage_payload(conn, routine_id, routine)
+    # A watch whose window moves never asked for an older paper, so the
+    # "never returned" list can hold papers it missed by date, not by terms.
+    raw = routine.get("parameters")
+    try:
+        params = json.loads(raw) if isinstance(raw, str) else raw
+    except (json.JSONDecodeError, TypeError):
+        params = None
+    note = date_window.coverage_note(conn, routine_id, params)
+    if note:
+        audit["window_note"] = note
+    return audit
+
+
+def _coverage_payload(conn, routine_id: int, routine: dict) -> dict:
+    """The audit itself, or the sentence saying why there is nothing to audit."""
+    intent_text, intent_source = coverage_audit.intent_for(routine)
+    if not intent_text:
+        return {
+            "routine_id": routine_id,
+            "routine_name": routine.get("name"),
+            "intent": "", "intent_source": intent_source,
+            "model": None, "cannot_see": coverage_audit.CANNOT_SEE,
+            "results": 0, "results_embedded": 0,
+            "off_target": [], "off_target_total": 0,
+            "missed_in_corpus": [], "missed_in_corpus_total": 0,
+            "missed_in_corpus_total_is_lower_bound": False,
+            "distribution": None,
+            "reason": (
+                "This watch has no intent and no keywords, so there is nothing to "
+                "compare its results against. Add a sentence describing what it is "
+                "for in the watch's settings."
+            ),
+        }
+
+    model = vector_index.index_state(conn)["model"]
+    lane = _current_embedding_lane(conn)
+    model = model or (lane.model if lane else None)
+    if not model:
+        return {
+            "routine_id": routine_id,
+            "routine_name": routine.get("name"),
+            "intent": intent_text, "intent_source": intent_source,
+            "model": None, "cannot_see": coverage_audit.CANNOT_SEE,
+            "results": 0, "results_embedded": 0,
+            "off_target": [], "off_target_total": 0,
+            "missed_in_corpus": [], "missed_in_corpus_total": 0,
+            "missed_in_corpus_total_is_lower_bound": False,
+            "distribution": None,
+            "reason": (
+                "Nothing is embedded yet, so resmon cannot compare this watch's "
+                "results against its intent. Set up an embedding model in "
+                "Settings → AI → Embeddings."
+            ),
+        }
+
+    vector, embedded_model, reason = _embed_query(conn, intent_text)
+    if vector is None:
+        return {
+            "routine_id": routine_id,
+            "routine_name": routine.get("name"),
+            "intent": intent_text, "intent_source": intent_source,
+            "model": model, "cannot_see": coverage_audit.CANNOT_SEE,
+            "results": 0, "results_embedded": 0,
+            "off_target": [], "off_target_total": 0,
+            "missed_in_corpus": [], "missed_in_corpus_total": 0,
+            "missed_in_corpus_total_is_lower_bound": False,
+            "distribution": None,
+            "reason": reason,
+        }
+    audit = coverage_audit.audit_routine(
+        conn, routine, embedded_model or model, vector
+    )
+    # Composed once, here, so the Routines page, the report and the MCP surface
+    # all say the same sentence rather than three near-identical ones.
+    audit["summary"] = coverage_audit.summary_line(audit)
+    return audit
+
+
+@app.get("/api/routines/{routine_id}/coverage", response_model=response_models.RoutineCoverage,
+         response_model_exclude_unset=True)
+def routine_coverage(routine_id: int):
+    """Is this routine finding what its owner meant, and what is it missing?
+
+    Two lists, both scoped to the corpus resmon already holds — which is the one
+    claim this endpoint is entitled to make, and it returns the sentence saying
+    so rather than leaving the interface to remember it.
+    """
+    conn = _get_db()
+    try:
+        return _coverage_for_routine(conn, routine_id)
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/documents/{document_id}/links")
+def document_links(document_id: int):
+    """What else in the corpus looks like the same work as this paper.
+
+    A link is an assertion laid beside two records, never a merge: both rows stay,
+    both provenances stay, and nothing is hidden. Each link names the ``method``
+    that produced it, because "these two share a DOI" and "these two have
+    near-identical titles and nearby vectors" are different strengths of claim.
+    """
+    conn = _get_db()
+    try:
+        return near_duplicates.links_for(conn, document_id)
+    finally:
+        _close_db(conn)
+
+
+class DocumentIdsBody(BaseModel):
+    document_ids: list[int] = []
+
+
+@app.post("/api/links/for-documents", response_model=response_models.PaperLinks,
+          response_model_exclude_unset=True)
+def links_for_documents(body: DocumentIdsBody):
+    """Links for a page of results in one round trip.
+
+    The same shape as ``/api/lifecycle/for-documents`` and for the same reason:
+    the Explorer renders fifty rows, and fifty requests to badge them is the
+    thing that endpoint exists to avoid.
+    """
+    conn = _get_db()
+    try:
+        return _links_for(conn, body.document_ids)
+    finally:
+        _close_db(conn)
+
+
+def _links_for(conn, document_ids) -> dict:
+    """``/api/links/for-documents``'s answer, for the search page that carries it too."""
+    ids = [int(i) for i in document_ids][:500]
+    return {"links": near_duplicates.links_map(conn, ids)}
+
+
+@app.post("/api/links/collapse-preview", response_model=response_models.CollapsePreview,
+          response_model_exclude_unset=True)
+def links_collapse_preview(body: DocumentIdsBody):
+    """Which of these ids a collapse *would* fold, without folding anything.
+
+    The interface asks for this only when the reader has switched collapse on.
+    It returns a grouping; the rows themselves are untouched and the totals a
+    page reports are computed without it.
+    """
+    conn = _get_db()
+    try:
+        ids = [int(i) for i in body.document_ids][:500]
+        return near_duplicates.collapse_groups(conn, ids)
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/links/status")
+def links_status():
+    """How many links are stored, by method, and the scan's state."""
+    conn = _get_db()
+    try:
+        payload = near_duplicates.links_job.status(conn)
+        payload["capability"] = _embedding_capability(conn)
+        return payload
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/links/scan")
+def links_scan():
+    """Find near-duplicates across the corpus. Returns immediately.
+
+    Refused before it starts when there is nothing to compare, rather than
+    running and reporting zero — "no near-duplicates" and "nothing is embedded"
+    are different answers and only one of them is about the corpus.
+    """
+    conn = _get_db()
+    try:
+        lane = _current_embedding_lane(conn)
+        model = vector_index.index_state(conn)["model"] or (lane.model if lane else None)
+        if not model:
+            raise HTTPException(
+                400,
+                "Nothing is embedded yet, so there are no vectors to compare. Set up "
+                "an embedding model in Settings → AI → Embeddings and run the backfill.",
+            )
+        try:
+            started = near_duplicates.links_job.start(_open_connection, model)
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc)) from None
+        return {"status": "started", "run": started}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/links/scan/cancel")
+def links_scan_cancel():
+    """Stop after the document in flight. Links already written are kept."""
+    return near_duplicates.links_job.cancel()
+
+
+# ---------------------------------------------------------------------------
+# Shared wording: abstracts that share passages word for word
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/shared-wording", response_model=response_models.SharedWording,
+         response_model_exclude_unset=True)
+def shared_wording_overview():
+    """The last scan, the scan in progress, and the pairs it found by group.
+
+    See ``shared_wording`` for what each number means, which pairs are shown,
+    and what the method cannot see.
+    """
+    conn = _get_db()
+    try:
+        from implementation_scripts import shared_wording  # noqa: PLC0415 - see the imports
+        return shared_wording.overview(conn)
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/shared-wording/scan", response_model=response_models.SharedWordingJob,
+          response_model_exclude_unset=True)
+def shared_wording_scan():
+    """Compare every abstract with every other, in the background. Returns at once."""
+    try:
+        from implementation_scripts import shared_wording  # noqa: PLC0415 - see the imports
+        return shared_wording.scan_job.start(_get_db, "full")
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from None
+
+
+@app.post("/api/shared-wording/scan/cancel", response_model=response_models.SharedWordingCancel,
+          response_model_exclude_unset=True)
+def shared_wording_scan_cancel():
+    """Stop the scan in progress. The answer stored before it is kept."""
+    from implementation_scripts import shared_wording  # noqa: PLC0415 - see the imports
+    return shared_wording.scan_job.cancel()
+
+
+@app.get("/api/shared-wording/pairs/{a}/{b}", response_model=response_models.SharedWordingPair,
+         response_model_exclude_unset=True)
+def shared_wording_pair(a: int, b: int):
+    """Two abstracts side by side, the passages they share, and the numbers."""
+    conn = _get_db()
+    try:
+        from implementation_scripts import shared_wording  # noqa: PLC0415 - see the imports
+        return shared_wording.pair_view(conn, a, b)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from None
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/shared-wording/papers/{document_id}", response_model=response_models.SharedWordingForPaper,
+         response_model_exclude_unset=True)
+def shared_wording_for_paper(document_id: int):
+    """The pairs one paper is in, for its page."""
+    conn = _get_db()
+    try:
+        from implementation_scripts import shared_wording  # noqa: PLC0415 - see the imports
+        return shared_wording.pairs_for(conn, document_id)
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/explorer/facets")
+def explorer_facets(body: ExplorerFilters):
+    """Available filter values and their counts, for the current filters."""
+    conn = _get_db()
+    try:
+        return explorer.facets(conn, **_filter_kwargs(body, conn))
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/explorer/export")
+def explorer_export(body: ExplorerExportBody):
+    """Export everything matching the current filters, not just the page shown.
+
+    Every match, however many: the papers are read from the database a batch at
+    a time and the file is sent as it is written, so the engine never holds the
+    whole of it (measured: `python -m perf scale`). The count in
+    ``X-Resmon-Document-Count`` and the papers are read in one transaction on a
+    connection of the export's own, so the header is exactly what the file holds
+    even while a run is storing papers. Reuses the same renderers as the
+    per-execution export; only the way the documents are selected differs.
+    """
+    try:
+        reference_export.describe(body.format)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    _close_db(_get_db())  # the database is initialized before a second connection opens it
+    # Its own connection, because the pieces are written on whichever worker
+    # thread the server hands each one to, and a thread's connection belongs to it.
+    conn = sqlite3.connect(_db_file_path(), check_same_thread=False, timeout=30)
+    conn.row_factory = sqlite3.Row
+
+    def close() -> None:
+        try:
+            conn.rollback()
+        finally:
+            conn.close()
+
+    try:
+        conn.execute("PRAGMA busy_timeout=5000;")
+        conn.execute("BEGIN")
+        filters = _filter_kwargs(body, conn)
+        total = explorer.count_matching(conn, **filters)
+        documents = explorer.iter_matching(conn, **filters)
+    except BaseException:
+        close()
+        raise
+    return _reference_response(documents, body.format, "resmon-explorer", total, close=close)
+
+
+# ---------------------------------------------------------------------------
+# The reading queue, many papers at once
+# ---------------------------------------------------------------------------
+#
+# Beside the search routes because a save of every match takes the search's own
+# filters. The rules are the single save's (``reading_queue.save_many``): a paper
+# already in the queue stays exactly as it is and is counted as such, and every
+# entry one save adds carries that save's moment, which is what its Undo names.
+
+
+class ReadingQueueBatchBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    document_ids: list[int] = Field(min_length=1, max_length=reading_queue.BATCH_MOST)
+
+
+class ReadingQueueAllBody(BaseModel):
+    """Every paper of a set the engine reads itself, so a save of 12,000 lists none of them.
+
+    ``scope`` says which set: ``search``, the papers ``search`` matches (the
+    filters as Search › Collection sends them, the words left out where it
+    ranked by meaning, since there they order the list and do not narrow it);
+    ``run``, the papers run ``execution_id`` stored, or with ``only_new`` the ones
+    it found first; ``today``, Today's new papers in ``collection`` (the default
+    one where none is named). ``except_ids`` are left out.
+    ``at_most`` is how many the person was told would be saved: a set that holds
+    more by the time it is read is refused, so a filter lost on the way can never
+    save the whole collection.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    scope: Literal["search", "run", "today"]
+    search: Optional[ExplorerFilters] = None
+    execution_id: Optional[int] = None
+    collection: CollectionRef = None
+    only_new: bool = False
+    except_ids: list[int] = Field(default_factory=list, max_length=reading_queue.BATCH_MOST)
+    at_most: int = Field(ge=1)
+
+
+class ReadingQueueUndoBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    document_ids: list[int] = Field(min_length=1, max_length=reading_queue.BATCH_MOST)
+    saved_at: str = Field(min_length=1, max_length=40)
+
+
+@app.post("/api/reading-queue/batch", response_model=response_models.ReadingQueueBatchSaved,
+          response_model_exclude_unset=True)
+def save_many_to_reading_queue(body: ReadingQueueBatchBody):
+    """Save many papers at once: each one not in the queue is added, each one in it is left as it is.
+
+    The answer counts both, and the ids it does not hold (``missing``), and
+    lists the ids it added with the moment they carry, for Undo
+    (``POST /api/reading-queue/batch/undo``).
+    """
+    conn = _get_db()
+    try:
+        return reading_queue.save_many(conn, body.document_ids)
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/reading-queue/batch/all", response_model=response_models.ReadingQueueBatchSaved,
+          response_model_exclude_unset=True)
+def save_all_to_reading_queue(body: ReadingQueueAllBody):
+    """Save every paper of a search, a run, or Today, read by the engine rather than listed.
+
+    At most ``reading_queue.BATCH_MOST`` papers; a larger set is refused with
+    how many it holds. 409 when the set holds more than ``at_most``, the number
+    the person was asked about. Otherwise the answer of ``/batch``.
+    """
+    conn = _get_db()
+    try:
+        most = reading_queue.BATCH_MOST
+        skip = set(body.except_ids)
+        # One more than the limit is read, past the papers left out, so a set too large is known without reading it all.
+        reach = most + len(skip) + 1
+        if body.scope == "search":
+            if body.search is None:
+                raise HTTPException(400, "A save of a search's matches needs the search's filters.")
+            ids = explorer.matching_ids(conn, **_filter_kwargs(body.search, conn), limit=reach)
+            what = "this search matches"
+        elif body.scope == "run":
+            if body.execution_id is None:
+                raise HTTPException(400, "A save of a run's papers needs the run's id.")
+            if get_execution_by_id(conn, body.execution_id) is None:
+                raise HTTPException(404, "Execution not found")
+            ids = reading_queue.run_paper_ids(conn, body.execution_id, only_new=body.only_new, limit=reach)
+            what = f"run {body.execution_id} {'found first' if body.only_new else 'stored'}"
+        else:
+            # Today's new papers in the collection the window shows, as Today reads them.
+            cid = _collection_id(conn, body.collection)
+            floor = today.new_window(conn, None, cid)["floor"]
+            ids = [int(r[0]) for r in conn.execute(
+                f"SELECT d.id FROM {today.NEW_PAPERS_FROM} WHERE {today.NEW_PAPERS_WHERE} "
+                "ORDER BY m.added_at DESC, d.id DESC LIMIT ?", (cid, floor, reach))]
+            what = "Today lists"
+        chosen = [i for i in ids if i not in skip]
+        if len(chosen) > most:
+            raise HTTPException(400, (
+                f"A save takes at most {most:,} papers at once, and {what} more than that. Nothing was saved. "
+                "Narrow it with a filter, or save part of it."))
+        if len(chosen) > body.at_most:
+            raise HTTPException(409, (
+                f"{what[0].upper()}{what[1:]} {len(chosen):,} papers now, more than the {body.at_most:,} you were "
+                "asked about. Nothing was saved."))
+        return reading_queue.save_many(conn, chosen)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/reading-queue/batch/undo", response_model=response_models.ReadingQueueBatchUndone,
+          response_model_exclude_unset=True)
+def undo_save_to_reading_queue(body: ReadingQueueUndoBody):
+    """Undo a save of many: the entries it added go, unless they changed since.
+
+    ``document_ids`` and ``saved_at`` are the save's own answer. An entry marked
+    read since, or removed and saved again, stays, and is counted as ``kept``.
+    """
+    conn = _get_db()
+    try:
+        return reading_queue.unsave_many(conn, body.document_ids, body.saved_at)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# Analytics
+# ---------------------------------------------------------------------------
+#
+# Every endpoint here reads data already in the database -- the corpus, the
+# per-execution join table, and the routines. No external calls.
+#
+# Payloads always carry ``sample_size``, and any derived statistic carries
+# ``sufficient``. See implementation_scripts/analytics.py for the thin-corpus
+# policy: counts are always reported, medians and rates only once they mean
+# something. The interface uses those flags to say "not enough data yet" rather
+# than drawing a chart from three points.
+#
+# Cached: recomputing five GROUP-BY passes on every page load was
+# fine at a few hundred papers and is not fine at a hundred thousand. Results
+# are cached against a cheap fingerprint of the tables analytics reads:
+# MAX(id) and COUNT(*) catch inserts and deletions, MAX(end_time) catches an
+# execution completing, routines.updated_at catches renames and toggles. The
+# db path + generation in the key keep separate databases (including the test
+# suite's fresh per-test databases) from ever sharing an entry.
+
+_ANALYTICS_CACHE_MAX = 32
+_analytics_cache: "OrderedDict[tuple, tuple[tuple, object]]" = OrderedDict()
+_analytics_cache_lock = threading.Lock()
+
+
+def _analytics_fingerprint(conn) -> tuple:
+    """A tuple that changes whenever any input to the analytics queries can."""
+    row = conn.execute(
+        "SELECT"
+        " (SELECT COUNT(*) FROM documents),"
+        " (SELECT IFNULL(MAX(id), 0) FROM documents),"
+        " (SELECT COUNT(*) FROM executions),"
+        " (SELECT IFNULL(MAX(id), 0) FROM executions),"
+        " (SELECT IFNULL(MAX(end_time), '') FROM executions),"
+        " (SELECT COUNT(*) FROM execution_documents),"
+        " (SELECT COUNT(*) FROM routines),"
+        " (SELECT IFNULL(MAX(updated_at), '') FROM routines),"
+        # The watchdog rides the same cache, so its inputs belong in the same
+        # fingerprint. Without these two a source that started erroring, or a
+        # finding the user just muted, would keep serving the previous answer.
+        " (SELECT COUNT(*) FROM execution_sources),"
+        " (SELECT IFNULL(MAX(recorded_at), '') FROM execution_sources),"
+        " (SELECT COUNT(*) FROM watchdog_mutes),"
+        " (SELECT IFNULL(MAX(muted_at), '') FROM watchdog_mutes),"
+        # A move or a copy changes which papers a collection holds and nothing
+        # above; each collection's revision counts those changes.
+        " (SELECT IFNULL(SUM(revision), 0) || ':' || COUNT(*) FROM collections)"
+    ).fetchone()
+    return tuple(row)
+
+
+def _cached_analytics(name: str, params: tuple, conn, compute):
+    key = (str(_db_path or ""), _db_generation, name, params)
+    fingerprint = _analytics_fingerprint(conn)
+    with _analytics_cache_lock:
+        hit = _analytics_cache.get(key)
+        if hit is not None and hit[0] == fingerprint:
+            _analytics_cache.move_to_end(key)
+            return hit[1]
+    result = compute()
+    with _analytics_cache_lock:
+        _analytics_cache[key] = (fingerprint, result)
+        _analytics_cache.move_to_end(key)
+        while len(_analytics_cache) > _ANALYTICS_CACHE_MAX:
+            _analytics_cache.popitem(last=False)
+    return result
+
+
+@app.get("/api/analytics/overview", response_model=response_models.AnalyticsOverview,
+         response_model_exclude_unset=True)
+def analytics_overview(collection: Optional[str] = _COLLECTION_QUERY):
+    """Everything the Analytics page needs about one collection, in one round trip."""
+    conn = _get_db()
+    try:
+        chosen = _collection_id(conn, collection)
+        return _cached_analytics("overview", (chosen,), conn, lambda: analytics.overview(conn, chosen))
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/analytics/summary", response_model=response_models.CorpusSummary,
+         response_model_exclude_unset=True)
+def analytics_summary(collection: Optional[str] = _COLLECTION_QUERY):
+    conn = _get_db()
+    try:
+        chosen = _collection_id(conn, collection)
+        return _cached_analytics(
+            "summary", (chosen,), conn, lambda: analytics.corpus_summary(conn, chosen))
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/analytics/source-contribution", response_model=response_models.SourceContribution,
+         response_model_exclude_unset=True)
+def analytics_source_contribution(collection: Optional[str] = _COLLECTION_QUERY):
+    """Per source: papers delivered, and how many nothing else found."""
+    conn = _get_db()
+    try:
+        chosen = _collection_id(conn, collection)
+        return _cached_analytics(
+            "source_contribution", (chosen,), conn,
+            lambda: analytics.source_contribution(conn, chosen))
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/analytics/discovery-lag", response_model=response_models.DiscoveryLag,
+         response_model_exclude_unset=True)
+def analytics_discovery_lag(collection: Optional[str] = _COLLECTION_QUERY):
+    """Median days between publication and resmon first seeing each paper."""
+    conn = _get_db()
+    try:
+        chosen = _collection_id(conn, collection)
+        return _cached_analytics(
+            "discovery_lag", (chosen,), conn, lambda: analytics.discovery_lag(conn, chosen))
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/analytics/routine-health", response_model=response_models.RoutineHealth,
+         response_model_exclude_unset=True)
+def analytics_routine_health(collection: Optional[str] = _COLLECTION_QUERY):
+    """Per routine whose papers land in the collection: new results per run, and whether it has gone quiet."""
+    conn = _get_db()
+    try:
+        chosen = _collection_id(conn, collection)
+        return _cached_analytics(
+            "routine_health", (chosen,), conn, lambda: analytics.routine_health(conn, chosen))
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/analytics/publication-volume", response_model=response_models.PublicationVolume,
+         response_model_exclude_unset=True)
+def analytics_publication_volume(group_by: str = "source", months: int = 12,
+                                 collection: Optional[str] = _COLLECTION_QUERY):
+    """Papers per publication month, split by source or subject category."""
+    if group_by not in ("source", "category"):
+        raise HTTPException(400, "group_by must be 'source' or 'category'")
+    conn = _get_db()
+    try:
+        chosen = _collection_id(conn, collection)
+        return _cached_analytics(
+            "publication_volume", (group_by, int(months), chosen), conn,
+            lambda: analytics.publication_volume(conn, group_by=group_by, months=months,
+                                                 collection_id=chosen))
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# The reproducible search record (PRISMA-shaped export)
+#
+# Every systematic review's methods section needs the same account, and it is
+# assembled by hand in spreadsheets essentially everywhere. resmon already
+# records all of it. See implementation_scripts/search_record.py for why the
+# figures are labeled with the PRISMA box they belong in — and, where there is
+# no honest match, labeled as having none.
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/executions/{exec_id}/search-record")
+def execution_search_record(exec_id: int, format: str = "json"):
+    """The complete, dated account of one search.
+
+    ``?format=markdown`` returns a methods-section-shaped document as
+    ``text/markdown`` rather than JSON.
+    """
+    if format not in ("json", "markdown"):
+        raise HTTPException(400, "format must be 'json' or 'markdown'")
+    conn = _get_db()
+    try:
+        record = search_record.build(conn, exec_id)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+    finally:
+        _close_db(conn)
+
+    if format == "markdown":
+        return Response(
+            content=search_record.to_markdown(record),
+            media_type="text/markdown; charset=utf-8",
+            headers={
+                "Content-Disposition":
+                    f'attachment; filename="resmon-search-record-{exec_id}.md"',
+            },
+        )
+    return record
+
+
+# ---------------------------------------------------------------------------
+# Corpus lifecycle (papers change after you find them)
+#
+# The only feature here that talks to the network, which is why the check is
+# explicit rather than automatic: quietly asking a third party about every paper
+# a user has ever collected is not something to do on their behalf unasked.
+#
+# It runs on a background thread because it is bounded by outbound requests, not
+# by CPU, and a corpus of a few thousand papers would hold a request open for
+# minutes. One run at a time; the page polls GET /api/lifecycle for progress.
+# ---------------------------------------------------------------------------
+
+_lifecycle_lock = threading.Lock()
+_lifecycle_run: dict = {"running": False, "started_at": None, "last": None,
+                        "error": None, "stop_requested": False}
+
+
+class LifecycleCheckRequest(BaseModel):
+    limit: int = Field(default=lifecycle.DEFAULT_LIMIT, ge=1, le=5000)
+    # Repeat the bounded slice until the corpus is covered. At the old default a
+    # 15,000-paper corpus needed seventy-nine presses of the button; this is the
+    # option that makes "check everything" a single action.
+    run_until_done: bool = False
+
+
+def _lifecycle_should_stop() -> bool:
+    with _lifecycle_lock:
+        return bool(_lifecycle_run.get("stop_requested"))
+
+
+def _run_lifecycle_check(limit: int, run_until_done: bool) -> None:
+    """Body of the background check. Owns its own connection."""
+    conn = _get_db()
+    try:
+        summary = lifecycle.check_corpus(
+            conn, limit=limit, run_until_done=run_until_done,
+            should_stop=_lifecycle_should_stop,
+        )
+        with _lifecycle_lock:
+            # What a reader needs to tell a quiet result from a broken one:
+            # which services did not answer and how many papers that left
+            # unchecked, and whether the run was stopped before it asked
+            # about everything it selected.
+            _lifecycle_run["last"] = {
+                "checked_now": summary["checked_now"],
+                "outcomes": summary["outcomes"],
+                "remaining": summary["remaining"],
+                "errors": summary["errors"],
+                "unanswered": summary["unanswered"],
+                "stopped": summary["stopped"],
+                "not_asked": summary["not_asked"],
+                "checked_at": summary["checked_at"],
+            }
+            _lifecycle_run["error"] = None
+    except Exception as exc:
+        logging.getLogger(__name__).exception("Lifecycle check failed")
+        with _lifecycle_lock:
+            _lifecycle_run["error"] = str(exc)
+    finally:
+        with _lifecycle_lock:
+            _lifecycle_run["running"] = False
+        _close_db(conn)
+
+
+@app.post("/api/lifecycle/check", response_model=response_models.LifecycleCheckStarted,
+          response_model_exclude_unset=True)
+def lifecycle_check(request: LifecycleCheckRequest):
+    """Start a bounded lifecycle check over the least recently checked papers.
+
+    Returns immediately. Poll ``GET /api/lifecycle`` for progress and results.
+    """
+    with _lifecycle_lock:
+        if _lifecycle_run["running"]:
+            raise HTTPException(
+                409, "A lifecycle check is already running.",
+            )
+        _lifecycle_run["running"] = True
+        _lifecycle_run["started_at"] = datetime.now(timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ")
+        _lifecycle_run["error"] = None
+        _lifecycle_run["stop_requested"] = False
+        # ``last`` is the account of the most recent run to finish, and from
+        # here that is this one. Left in place, a run that then failed outright
+        # would have shown the previous run's result beside its own error.
+        _lifecycle_run["last"] = None
+
+    thread = threading.Thread(
+        target=_run_lifecycle_check,
+        args=(request.limit, request.run_until_done),
+        daemon=True, name="lifecycle-check",
+    )
+    thread.start()
+    return {
+        "status": "started",
+        "limit": request.limit,
+        "run_until_done": request.run_until_done,
+    }
+
+
+@app.post("/api/lifecycle/stop", response_model=response_models.LifecycleStopAnswer,
+          response_model_exclude_unset=True)
+def lifecycle_stop():
+    """Ask a running check to stop before its next request.
+
+    Cooperative rather than abrupt: a request already in flight is answered,
+    the papers whose answers are in keep their results, and the rest stay
+    unchecked rather than being recorded as clean.
+    """
+    with _lifecycle_lock:
+        if not _lifecycle_run["running"]:
+            return {"status": "idle"}
+        _lifecycle_run["stop_requested"] = True
+    return {"status": "stopping"}
+
+
+@app.get("/api/lifecycle", response_model=response_models.LifecycleReport,
+         response_model_exclude_unset=True)
+def lifecycle_report():
+    """Recorded lifecycle events, and how much of the corpus they cover."""
+    conn = _get_db()
+    try:
+        payload = lifecycle.report(conn)
+        with _lifecycle_lock:
+            payload["run"] = dict(_lifecycle_run)
+        return payload
+    finally:
+        _close_db(conn)
+
+
+class LifecycleForDocumentsRequest(BaseModel):
+    document_ids: list[int] = Field(default_factory=list, max_length=500)
+
+
+@app.post("/api/lifecycle/for-documents", response_model=response_models.LifecycleForDocuments,
+          response_model_exclude_unset=True)
+def lifecycle_for_documents(request: LifecycleForDocumentsRequest):
+    """Lifecycle events for a page of results, in one round trip.
+
+    The Explorer renders fifty papers at a time and needs to badge each one.
+    Asking per row would be fifty requests to paint one screen; this is one.
+    Ids with no events are simply absent from the map.
+    """
+    conn = _get_db()
+    try:
+        return _lifecycle_for(conn, request.document_ids)
+    finally:
+        _close_db(conn)
+
+
+def _lifecycle_for(conn, document_ids) -> dict:
+    """``/api/lifecycle/for-documents``'s answer, for the search page that carries it too."""
+    ids = [int(i) for i in document_ids][:500]
+    if not ids:
+        return {"events": {}, "checked": {}}
+
+    placeholders = ",".join("?" for _ in ids)
+    rows = conn.execute(
+        f"""
+        SELECT * FROM document_lifecycle
+        WHERE document_id IN ({placeholders})
+        ORDER BY CASE severity
+                     WHEN 'critical' THEN 0
+                     WHEN 'caution' THEN 1
+                     ELSE 2
+                 END,
+                 notice_date DESC
+        """,
+        ids,
+    ).fetchall()
+    events: dict[str, list] = {}
+    for row in rows:
+        events.setdefault(str(row["document_id"]), []).append(dict(row))
+
+    # Whether each paper has been looked at travels with the events, so the
+    # interface can tell "nothing has happened to this paper" apart from
+    # "nobody has checked this paper" — which look identical otherwise.
+    checked_rows = conn.execute(
+        f"""
+        SELECT document_id, checked_at, status
+        FROM document_lifecycle_checks
+        WHERE document_id IN ({placeholders})
+        """,
+        ids,
+    ).fetchall()
+    checked = {
+        str(r["document_id"]): {"checked_at": r["checked_at"],
+                                "status": r["status"]}
+        for r in checked_rows
+    }
+    return {"events": events, "checked": checked}
+
+
+@app.get("/api/documents/{doc_id}/lifecycle")
+def document_lifecycle(doc_id: int):
+    """Lifecycle events recorded against one paper."""
+    conn = _get_db()
+    try:
+        row = conn.execute(
+            "SELECT id FROM documents WHERE id = ?", (int(doc_id),)
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, f"No document with id {doc_id}")
+        checked = conn.execute(
+            "SELECT checked_at, status FROM document_lifecycle_checks "
+            "WHERE document_id = ?", (int(doc_id),),
+        ).fetchone()
+        return {
+            "document_id": int(doc_id),
+            "events": get_lifecycle_for_document(conn, doc_id),
+            # Without this an empty list is ambiguous: it could mean nothing has
+            # happened to the paper, or that nobody has ever looked.
+            "checked_at": checked["checked_at"] if checked else None,
+            "check_status": checked["status"] if checked else None,
+        }
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# Why am I seeing this? (match transparency)
+#
+# Two directions on the same question. Per paper: which keywords are locally
+# verifiable in it, and — stated every time — what resmon cannot see. Per
+# keyword: how many papers it brought in that no other keyword did.
+#
+# The load-bearing constraint is in implementation_scripts/match_explain.py:
+# resmon does not know why a relevance-ranked source returned something, and
+# never claims to.
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/documents/{doc_id}", response_model=response_models.Paper,
+         response_model_exclude_unset=True)
+def get_document(doc_id: int):
+    """One paper as stored, and where it stands in the reading queue.
+
+    The record exactly as resmon holds it: what the source gave (title,
+    authors, abstract, identifiers, date) and when resmon first saw it. It adds
+    nothing the corpus does not hold -- no summary, no score -- so a screen
+    that shows a paper from this shows only what was collected.
+    """
+    conn = _get_db()
+    try:
+        row = conn.execute("SELECT documents.* FROM documents WHERE id = ?", (doc_id,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "Document not found")
+        paper = dict(row)
+        paper["queue_status"] = reading_queue.statuses_for(conn, [doc_id]).get(doc_id)
+        paper["collections"] = paper_collections.of_document(conn, doc_id)
+        return paper
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/documents/{doc_id}/why", response_model=response_models.PaperWhy,
+         response_model_exclude_unset=True)
+def document_why(doc_id: int, execution_id: Optional[int] = None):
+    """What is locally verifiable about why this paper is in the corpus."""
+    conn = _get_db()
+    try:
+        return match_explain.explain_document(
+            conn, doc_id, execution_id=execution_id,
+        )
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/analytics/keyword-contribution", response_model=response_models.KeywordContribution,
+         response_model_exclude_unset=True)
+def analytics_keyword_contribution(execution_id: Optional[int] = None,
+                                   collection: Optional[str] = _COLLECTION_QUERY):
+    """Per keyword: papers it found that no other keyword did.
+
+    Scoped to one execution with ``?execution_id=``, otherwise to every keyword
+    of the runs that put papers in the collection, against its papers. Cached
+    like the other analytics — it reads every candidate document once, which
+    is not free on a large corpus.
+    """
+    conn = _get_db()
+    try:
+        chosen = _collection_id(conn, collection)
+        return _cached_analytics(
+            "keyword_contribution", (execution_id, chosen), conn,
+            lambda: match_explain.keyword_contribution(
+                conn, execution_id=execution_id, collection_id=chosen,
+            ),
+        )
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# Watchdog ("it tells you the truth")
+#
+# Silence from a literature monitor is ambiguous: it means either "nothing was
+# published" or "this stopped working", and the user cannot tell which. These
+# endpoints serve the difference. See implementation_scripts/watchdog.py for
+# the rules and the reasoning behind each threshold.
+# ---------------------------------------------------------------------------
+
+
+# The watchdog's report, served again while nothing it reads has changed and
+# for at most ``watchdog.KEEP_SECONDS``: Health and Today ask for it on every
+# visit, and computing it scans every run. The report prunes the mutes whose
+# condition has cleared, so a kept answer skips that prune; it is served only
+# while its findings are the ones the last prune was made against, which is
+# what the fingerprint and the time limit hold it to. The database's path and
+# generation are in the key, so a restore or another database never shares it.
+_watchdog_kept: dict | None = None
+_watchdog_kept_lock = threading.Lock()
+_watchdog_clock = time.monotonic  # a test moves it forward rather than waiting a minute
+
+
+def _forget_watchdog_report() -> None:
+    global _watchdog_kept
+    with _watchdog_kept_lock:
+        _watchdog_kept = None
+
+
+def _kept_watchdog_report(conn) -> dict:
+    global _watchdog_kept
+    key = (str(_db_path or ""), _db_generation, watchdog.what_it_reads(conn))
+    now = _watchdog_clock()
+    with _watchdog_kept_lock:
+        kept = _watchdog_kept
+    if kept and kept["key"] == key and now - kept["at"] < watchdog.KEEP_SECONDS:
+        return copy.deepcopy(kept["report"])
+    fresh = watchdog.report(conn)
+    # The prune may have written, so what it read is read again for the key.
+    key = (str(_db_path or ""), _db_generation, watchdog.what_it_reads(conn))
+    with _watchdog_kept_lock:
+        _watchdog_kept = {"key": key, "at": now, "report": copy.deepcopy(fresh)}
+    return fresh
+
+
+class WatchdogMuteRequest(BaseModel):
+    finding_key: str = Field(min_length=1, max_length=200)
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+@app.get("/api/watchdog", response_model=response_models.WatchdogReport,
+         response_model_exclude_unset=True)
+def watchdog_report():
+    """Findings, what could not be judged yet, and the thresholds used."""
+    conn = _get_db()
+    try:
+        return _kept_watchdog_report(conn)
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/watchdog/mute", response_model=response_models.WatchdogMuteAck,
+          response_model_exclude_unset=True)
+def watchdog_mute(request: WatchdogMuteRequest):
+    """Acknowledge one finding so it stops counting toward the alarm total.
+
+    Muting is per finding, never per source or per routine: the mute is dropped
+    automatically once the condition clears, so the same source failing again
+    later is reported again.
+    """
+    conn = _get_db()
+    try:
+        watchdog.mute(conn, request.finding_key, request.note)
+        _forget_watchdog_report()
+        return {"status": "muted", "finding_key": request.finding_key}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/watchdog/unmute", response_model=response_models.WatchdogMuteAck,
+          response_model_exclude_unset=True)
+def watchdog_unmute(request: WatchdogMuteRequest):
+    """Un-acknowledge a finding, returning it to the alarm total."""
+    conn = _get_db()
+    try:
+        watchdog.unmute(conn, request.finding_key)
+        _forget_watchdog_report()
+        return {"status": "unmuted", "finding_key": request.finding_key}
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/calendar/events", response_model=list[response_models.CalendarEvent],
+         response_model_exclude_unset=True)
+def calendar_events(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+):
+    conn = _get_db()
+    try:
+        execs = get_executions(conn, limit=500)
+        events = []
+        # Status → dot color. ``cancelled`` now uses the same red as the
+        # Dashboard/Results badge-canceled palette (was amber/orange); the
+        # orange slot is reclaimed by the new ``scheduled`` status for
+        # upcoming routine fires.
+        status_color = {
+            "completed": "#22c55e",  # green
+            "running":   "#3b82f6",  # blue
+            "failed":    "#ef4444",  # red
+            "cancelled": "#ef4444",  # red (matches badge-canceled)
+            "scheduled": "#f59e0b",  # orange
+        }
+        for ex in execs:
+            _enrich_execution_row(ex)
+            status = ex.get("status") or "unknown"
+            query = ex.get("query")
+            type_label = ex.get("execution_type", "execution")
+            title_suffix = f": {query}" if query else ""
+            # Compute a non-zero-duration end so FullCalendar never falls
+            # back to its ``defaultTimedEventDuration`` (1 h) for an event
+            # whose persisted end equals start (e.g. an in-flight or
+            # null-end-time row); a 1-h default starting at, say, 11:30 PM
+            # would spill into the next calendar cell and render as a
+            # multi-day bar in dayGrid views (see Bug 2).
+            start_iso = ex["start_time"]
+            end_iso = ex.get("end_time") or start_iso
+            if end_iso == start_iso:
+                try:
+                    _start_dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+                    end_iso = (_start_dt + timedelta(minutes=1)).isoformat()
+                except (ValueError, AttributeError):
+                    pass
+            events.append({
+                "id": ex["id"],
+                "title": f"{type_label} #{ex['id']}{title_suffix}",
+                "start": start_iso,
+                "end": end_iso,
+                "allDay": False,
+                "color": status_color.get(status, "#6b7280"),
+                "execution_id": ex["id"],
+                "routine_id": ex.get("routine_id"),
+                "saved_configuration_id": ex.get("saved_configuration_id"),
+                "saved_configuration_name": ex.get("saved_configuration_name"),
+                "type": type_label,
+                "status": status,
+                "query": query,
+                "total_results": ex.get("total_results"),
+                "new_results": ex.get("new_results"),
+            })
+
+        # Future (scheduled) routine fires — expand each active routine's
+        # cron expression into upcoming events so the user can see when
+        # the next runs will happen. We use APScheduler's CronTrigger,
+        # which we already depend on (ADQ-3).
+        try:
+            from apscheduler.triggers.cron import CronTrigger  # type: ignore
+            try:
+                from tzlocal import get_localzone  # type: ignore
+                _local_tz = get_localzone()
+            except Exception:
+                _local_tz = None  # fall through to APScheduler default
+
+            # Window: caller-supplied ``start``/``end`` (FullCalendar sends
+            # ISO-8601 strings), otherwise today → +12 months. The 12-month
+            # ceiling matches the user-facing horizon notice rendered on
+            # the Calendar page when the user navigates past it.
+            now = datetime.now(timezone.utc)
+            CALENDAR_HORIZON_DAYS = 366
+            try:
+                window_start = datetime.fromisoformat(start.replace("Z", "+00:00")) if start else now
+            except (ValueError, AttributeError):
+                window_start = now
+            try:
+                window_end = datetime.fromisoformat(end.replace("Z", "+00:00")) if end else now + timedelta(days=CALENDAR_HORIZON_DAYS)
+            except (ValueError, AttributeError):
+                window_end = now + timedelta(days=CALENDAR_HORIZON_DAYS)
+            # Never expand past fires; real executions already cover history.
+            if window_start < now:
+                window_start = now
+            # Clamp the upper end to the 12-month horizon regardless of
+            # what FullCalendar requests, so a year-view query cannot
+            # explode the per-routine fire count for high-frequency cadences.
+            _hard_horizon = now + timedelta(days=CALENDAR_HORIZON_DAYS)
+            if window_end > _hard_horizon:
+                window_end = _hard_horizon
+
+            # Hard cap per-routine so a pathological cron (e.g. ``* * * * *``)
+            # can't produce tens of thousands of events per request. Raised
+            # alongside the 90-day → 12-month window extension so that
+            # daily / weekly / monthly cadences fully populate the year and
+            # sub-hourly cadences still render a meaningful prefix.
+            MAX_PER_ROUTINE = 2000
+
+            from implementation_scripts.scheduler import _build_trigger as _sched_build_trigger  # type: ignore
+            for r in get_routines(conn):
+                if not r.get("is_active"):
+                    continue
+                params = r.get("parameters")
+                if isinstance(params, str):
+                    try:
+                        params = json.loads(params)
+                    except (json.JSONDecodeError, TypeError):
+                        params = {}
+                elif not isinstance(params, dict):
+                    params = {}
+                # Build the same trigger the live scheduler would use:
+                # structured ``_schedule`` block (IntervalTrigger or the
+                # custom monthly/yearly trigger) when present, otherwise
+                # the legacy 5-field cron string.
+                cron_expr = (r.get("schedule_cron") or "").strip()
+                if not cron_expr and not (isinstance(params, dict) and params.get("_schedule")):
+                    continue
+                try:
+                    trigger, _desc = _sched_build_trigger({
+                        "id": r["id"],
+                        "schedule_cron": cron_expr or "0 0 * * *",
+                        "parameters": params,
+                    })
+                except (ValueError, TypeError):
+                    continue
+                kw_list = params.get("keywords") if isinstance(params, dict) else None
+                query_hint = ", ".join(kw_list) if isinstance(kw_list, list) and kw_list else ""
+
+                # CronTrigger.get_next_fire_time takes a ``previous_fire_time``
+                # and a ``now``; iterate by feeding each fire time back in.
+                prev = None
+                cursor = window_start
+                for _ in range(MAX_PER_ROUTINE):
+                    nxt = trigger.get_next_fire_time(prev, cursor)
+                    if nxt is None or nxt > window_end:
+                        break
+                    # Emit a tiny non-zero duration so FullCalendar never
+                    # falls back to ``defaultTimedEventDuration`` (1 h) for
+                    # late-night fires that would otherwise spill into the
+                    # next day's cell as a multi-day bar (see Bug 2).
+                    nxt_end = nxt + timedelta(minutes=1)
+                    events.append({
+                        "id": f"routine-{r['id']}-{nxt.isoformat()}",
+                        "title": f"routine #{r['id']}: {r.get('name') or ''}".strip(),
+                        "start": nxt.isoformat(),
+                        "end": nxt_end.isoformat(),
+                        "allDay": False,
+                        "color": status_color["scheduled"],
+                        "execution_id": None,
+                        "routine_id": r["id"],
+                        "type": "routine",
+                        "status": "scheduled",
+                        "query": query_hint,
+                        "total_results": None,
+                        "new_results": None,
+                    })
+                    prev = nxt
+                    cursor = nxt
+        except ImportError:
+            # APScheduler not installed in this environment — skip the
+            # scheduled expansion but still return historical executions.
+            pass
+
+        return events
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# Settings (email, ai, storage)
+# ---------------------------------------------------------------------------
+
+# The assistant's own settings. ``ai_cli_path`` is deliberately *not* here: the
+# assistant reuses the summary lane's discovered CLI path rather than keeping a
+# second one, so a user who has told resmon where `claude` lives has told it
+# once.
+_ASSISTANT_SETTING_KEYS: tuple[str, ...] = (
+    "assistant_runtime",
+    # Which BYOK provider the API-key runtime drives. Empty means "the one
+    # the summary lane already uses" -- ``assistant_runtime.assistant_provider``
+    # falls back to ``ai_provider``, and ``/api/assistant/status`` reports which
+    # of the two it read, so the fallback is visible rather than magic.
+    "assistant_provider",
+    "assistant_model",
+    "assistant_effort",
+)
+
+
+_SETTINGS_GROUPS = {
+    "email": ["smtp_server", "smtp_port", "smtp_username", "smtp_from", "smtp_to"],
+    "ai": [
+        "ai_provider",
+        "ai_model",
+        "ai_local_model",
+        "ai_summary_length",
+        "ai_tone",
+        "ai_extraction_goals",
+        "ai_temperature",
+        "ai_show_audit_prefix",
+        "ai_custom_base_url",
+        "ai_custom_header_prefix",
+        # Per-provider default-model map, stored as a JSON-encoded
+        # ``{provider: model_id}`` dict so the AI tab can restore the user's
+        # previously chosen model when they switch providers without
+        # re-loading the model list.
+        "ai_default_models",
+        # The fallback chain, a JSON list of lane objects. When present
+        # it is the whole chain; ai_provider / ai_model are kept in step with
+        # lane 0 by the Settings tab so the single-provider reads (and the
+        # report's audit label) still find what they expect.
+        "ai_chain",
+        "ai_local_endpoint",
+        # See the note on ``_AI_SETTING_KEYS``. Without these three the
+        # PUT silently discarded them and ``get_ai_cli_status``'s read of
+        # ``ai_cli_path`` could never return anything but "".
+        "ai_cli_path",
+        "ai_subscription_doc_cap",
+        "ai_effort",
+    ],
+    # The embedding lane. Its key list is owned by
+    # ``embeddings.EMBEDDING_SETTING_KEYS`` rather than written out here, and the
+    # same tuple is spliced into the engine loader's read list below. A setting
+    # that appeared in one of those two places and not the other would be
+    # stored by the PUT and never read by any run. One tuple, two uses, and
+    # ``test_embeddings_settings.py`` asserts both against it.
+    "embeddings": list(embeddings.EMBEDDING_SETTING_KEYS),
+    # The assistant. These three ride ``_ASSISTANT_SETTING_KEYS`` as well:
+    # if ``ai_cli_path`` appeared in one of the two lists and not the other,
+    # the PUT would store nothing and the read could never return anything.
+    # One tuple, spliced into both.
+    "assistant": list(_ASSISTANT_SETTING_KEYS),
+    "storage": ["pdf_policy", "txt_policy", "archive_after_days", "export_directory"],
+    "notifications": ["notify_manual", "notify_automatic_mode"],
+}
+
+
+def _get_settings_group(conn, group: str) -> dict:
+    keys = _SETTINGS_GROUPS.get(group, [])
+    result = {}
+    for k in keys:
+        val = get_setting(conn, k)
+        result[k] = val if val is not None else ""
+    return result
+
+
+def _set_settings_group(conn, group: str, data: dict) -> None:
+    keys = _SETTINGS_GROUPS.get(group, [])
+    for k, v in data.items():
+        if k in keys:
+            set_setting(conn, k, str(v))
+
+
+@app.get("/api/settings/email", response_model=response_models.EmailSettings,
+         response_model_exclude_unset=True)
+def get_email_settings():
+    conn = _get_db()
+    try:
+        return _get_settings_group(conn, "email")
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/settings/email", response_model=response_models.SettingsSaved,
+         response_model_exclude_unset=True)
+def update_email_settings(body: SettingsBody):
+    conn = _get_db()
+    try:
+        _set_settings_group(conn, "email", body.settings)
+        return {"success": True}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/settings/email/test", response_model=response_models.TestEmailSent,
+          response_model_exclude_unset=True)
+def send_test_email_endpoint():
+    """Send a test email using the currently-stored SMTP settings.
+
+    Loads the SMTP config via the same helper used for routine
+    completion emails (settings table + keychain for the password) and
+    invokes :func:`email_notifier.send_test_email`. Returns HTTP 400
+    with a human-readable reason when configuration is incomplete or
+    the SMTP handshake fails.
+    """
+    from implementation_scripts import email_notifier
+    from implementation_scripts.email_sender import _load_smtp_config
+
+    conn = _get_db()
+    try:
+        smtp_config = _load_smtp_config(conn)
+    finally:
+        _close_db(conn)
+
+    if smtp_config is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "SMTP not fully configured. Fill in SMTP server, username, "
+                "recipient, and store the SMTP password in the keychain."
+            ),
+        )
+
+    # The recipient field accepts comma-separated addresses; for the
+    # test message we deliver to the first address only.
+    recipient_raw = smtp_config.get("recipient", "") or ""
+    first_recipient = recipient_raw.split(",")[0].strip()
+    if not first_recipient:
+        raise HTTPException(
+            status_code=400,
+            detail="No recipient email is configured.",
+        )
+    smtp_config["recipient"] = first_recipient
+
+    # The reason is the one ``send_email`` gives, with the server's own reply
+    # where it gave one and no password or address in it: a test that says
+    # only "check everything" leaves the person to guess which part is wrong.
+    try:
+        email_notifier.send_test_email(smtp_config)
+    except email_notifier.EmailSendError as exc:
+        raise HTTPException(status_code=400, detail=f"The test email was not sent. {exc}") from None
+    except Exception as exc:  # anything else is reported scrubbed, the same way
+        reason = email_notifier.failure_reason(exc, smtp_config)
+        raise HTTPException(status_code=400, detail=f"The test email was not sent. {reason}") from None
+    return {"success": True, "recipient": first_recipient}
+
+
+@app.get("/api/settings/ai", response_model=response_models.AiSettings,
+         response_model_exclude_unset=True)
+def get_ai_settings():
+    conn = _get_db()
+    try:
+        return _get_settings_group(conn, "ai")
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/settings/ai", response_model=response_models.SettingsSaved,
+         response_model_exclude_unset=True)
+def update_ai_settings(body: SettingsBody):
+    conn = _get_db()
+    try:
+        _set_settings_group(conn, "ai", body.settings)
+        return {"success": True}
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/settings/ai/cli-status", response_model=response_models.AiCliStatus,
+         response_model_exclude_unset=True)
+def get_ai_cli_status():
+    """Report whether each subscription-lane CLI can be found, and where.
+
+    Detection only — this never runs the binary, so it cannot say whether
+    anyone is logged in. That distinction is deliberate and is carried in the
+    response: a CLI that is present but logged out fails on first use with
+    ``CLI_AUTH``, and claiming "ready" here would be a promise this endpoint
+    has not checked.
+
+    ``tried`` is returned because "not found" on its own is unhelpful. A
+    packaged app launched from the Finder searches a far smaller PATH than a
+    terminal does, so showing the candidate paths is what lets someone see that
+    resmon looked in the wrong place rather than that their CLI is broken.
+    """
+    from implementation_scripts.ai_cli import SUPPORTED_CLI_PROVIDERS, discover_cli
+
+    conn = _get_db()
+    try:
+        settings = _get_settings_group(conn, "ai")
+    finally:
+        _close_db(conn)
+
+    configured = str(settings.get("ai_cli_path") or "").strip() or None
+    providers = []
+    for provider in SUPPORTED_CLI_PROVIDERS:
+        # The configured path is a single setting, so it is only meaningful for
+        # the provider it was set for. Applying it to both would report Codex
+        # as "found" at the path of the Claude binary.
+        explicit = configured if settings.get("ai_provider") == provider else None
+        entry = discover_cli(provider, explicit).to_dict()
+        entry["login_checked"] = False
+        providers.append(entry)
+
+    return {"providers": providers}
+
+
+class AiCliSignInBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    provider: str
+    # ``summaries`` finds the command the way a run's lane does; ``ask`` the way
+    # the assistant does. They read the same setting by different rules.
+    purpose: str = "summaries"
+    # A fallback lane's own path, when it has one. A path to a binary, never a
+    # credential.
+    binary_path: Optional[str] = None
+
+
+def _sign_in_binary(provider: str, purpose: str, binary_path: Optional[str]) -> tuple[Optional[str], str]:
+    """The command a lane for *purpose* would run, and discovery's sentence when there is none."""
+    from implementation_scripts.ai_cli import discover_cli
+
+    if provider not in ("claude_code", "codex"):
+        raise HTTPException(400, "Sign-in is checked for Claude Code and Codex only.")
+    if purpose not in ("summaries", "ask"):
+        raise HTTPException(400, "Purpose is summaries or ask.")
+    conn = _get_db()
+    try:
+        settings = _get_settings_group(conn, "ai")
+    finally:
+        _close_db(conn)
+    configured = str(settings.get("ai_cli_path") or "").strip() or None
+    if purpose == "ask" and provider == "codex":
+        # Ask's Codex connection finds its command by its own rule
+        # (``assistant_runtime.codex_cli_path``), and the check asks that one.
+        explicit = assistant_runtime.codex_cli_path(settings) or None
+    elif purpose == "ask":
+        # Ask's Claude Code connection reads ``ai_cli_path`` unless it names
+        # Codex (``assistant_runtime.claude_cli_path``), so the check does the same.
+        explicit = assistant_runtime.claude_cli_path(settings) or None
+    elif binary_path and binary_path.strip():
+        explicit = binary_path.strip()
+    else:
+        explicit = configured if settings.get("ai_provider") == provider else None
+    found = discover_cli(provider, explicit)
+    return found.path, found.describe()
+
+
+@app.get("/api/ai/cli/sign-in", response_model=response_models.AiCliSignIn,
+         response_model_exclude_unset=True)
+def check_ai_cli_sign_in(provider: str = Query(..., max_length=32),
+                         purpose: str = Query("summaries", max_length=32),
+                         binary_path: Optional[str] = Query(None, max_length=4096)):
+    """Ask the command itself whether it is signed in. No model call, no cost.
+
+    Runs ``claude auth status --json`` or ``codex login status`` in the
+    environment the lanes use, and answers with what is safe to show. Nothing
+    is stored: the next check runs the command again. Called when Settings ›
+    AI is opened and on Check again, never on a timer.
+    """
+    from implementation_scripts import ai_signin
+
+    binary, not_found = _sign_in_binary(provider, purpose, binary_path)
+    return ai_signin.check_sign_in(provider, binary, not_found=not_found)
+
+
+@app.post("/api/ai/cli/sign-in", response_model=response_models.AiCliSignInOpened,
+          response_model_exclude_unset=True)
+def open_ai_cli_sign_in(body: AiCliSignInBody):
+    """Start the command's own login in a terminal, or say the command to run.
+
+    The sign-in happens between the person and the provider, in the command's
+    own login; resmon does not see or keep it. On macOS a ``.command`` script in
+    resmon's state directory is opened with ``open`` (``RESMON_SIGN_IN_OPENER``
+    names another opener, for a test that must not open Terminal); elsewhere
+    the command is returned to be copied.
+    """
+    import subprocess as _subprocess
+
+    from implementation_scripts import ai_signin
+    from implementation_scripts.child_process import hidden_window_kwargs
+
+    binary, not_found = _sign_in_binary(body.provider, body.purpose, body.binary_path)
+    opener_name = os.environ.get("RESMON_SIGN_IN_OPENER", "").strip() or "open"
+
+    def opener(argv, **kwargs):
+        return _subprocess.run([opener_name, *argv[1:]], **kwargs, **hidden_window_kwargs())
+
+    return ai_signin.open_sign_in(
+        body.provider, binary, api_auth.state_dir(), not_found=not_found, opener=opener,
+    )
+
+
+@app.get("/api/ai/last-answered", response_model=response_models.AiLastAnswered,
+         response_model_exclude_unset=True)
+def get_ai_last_answered():
+    """Which model last answered each requested alias, from answers already kept.
+
+    An alias resolves to the CLI's newest model when it runs, so the version is
+    known only once an answer reports it. The pickers say "Haiku 5.5 when it
+    last answered" from this, and only the alias where nothing has answered yet.
+    """
+    conn = _get_db()
+    try:
+        from implementation_scripts.database import get_last_answered_models
+
+        return {"entries": get_last_answered_models(conn)}
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# Embeddings
+# ---------------------------------------------------------------------------
+
+
+def _load_embedding_settings(conn) -> dict:
+    """Read the persisted ``embedding_*`` settings.
+
+    Reads the **same tuple** ``_SETTINGS_GROUPS["embeddings"]`` is built from, so
+    a key cannot be storable and unreadable. A test that monkeypatches the read
+    path would not catch that gap, so ``test_embeddings_settings.py`` goes
+    through the real endpoints instead.
+    """
+    out: dict = {}
+    for key in embeddings.EMBEDDING_SETTING_KEYS:
+        try:
+            value = get_setting(conn, key)
+        except Exception:
+            value = None
+        if value is not None:
+            out[key] = value
+    return out
+
+
+def _current_embedding_lane(conn):
+    """The configured lane, or ``None``. ``None`` means the feature is off."""
+    return embeddings.build_lane(_load_embedding_settings(conn))
+
+
+@app.get("/api/collection/related-terms", response_model=response_models.RelatedTerms,
+         response_model_exclude_unset=True)
+def get_related_terms(term: str = Query("", max_length=200),
+                      collection: Optional[str] = _COLLECTION_QUERY):
+    """Distinctive terms in this collection's titles and abstracts that use a literal term.
+
+    With no term, nothing is looked up: the collection's counts are prepared,
+    so the first lookup is quick.
+    """
+    from implementation_scripts import related_terms
+    conn = _get_db()
+    try:
+        return related_terms.suggest(conn, term, _collection_id(conn, collection))
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/map", response_model=response_models.CollectionMap,
+         response_model_exclude_unset=True)
+def get_collection_map(collection: Optional[str] = _COLLECTION_QUERY):
+    """Where every paper of a collection sits on the Atlas plate, and on what basis.
+
+    The first call on a collection starts a fit in the background and answers
+    ``fitting``; later calls answer from the fit, placing papers that arrived
+    since. Each collection has its own map, fitted over its papers alone. See
+    ``collection_map`` for what a position does and does not say.
+    """
+    conn = _get_db()
+    try:
+        chosen = _collection_id(conn, collection)
+        lane = _current_embedding_lane(conn)
+        from implementation_scripts import collection_map  # noqa: PLC0415 - see the imports
+        return collection_map.snapshot(conn, lane.model if lane else None, open_connection=_get_db,
+                                       collection_id=chosen)
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/map/facets", response_model=response_models.MapFacets,
+         response_model_exclude_unset=True)
+def get_map_facets(collection: Optional[str] = _COLLECTION_QUERY):
+    """What the map's filters and colors read about every paper of a collection:
+    its source, its dates, its place in the reading queue, whether it is new on
+    Today, and the watches that found it. See ``map_facets`` for what each says."""
+    conn = _get_db()
+    try:
+        return map_facets.facets(conn, collection_id=_collection_id(conn, collection))
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/map/find", response_model=response_models.MapFind,
+         response_model_exclude_unset=True)
+def find_on_map(q: str = Query("", max_length=200), collection: Optional[str] = _COLLECTION_QUERY):
+    """The papers of a collection whose title or authors contain ``q``, newest
+    first, for lighting them on a map. Fewer than two characters find nothing."""
+    conn = _get_db()
+    try:
+        return {"query": q, "ids": map_facets.find(conn, q, collection_id=_collection_id(conn, collection))}
+    finally:
+        _close_db(conn)
+
+
+class MapViewBody(BaseModel):
+    """A map's whole view, every time: a PUT replaces it."""
+
+    color: Literal["region", "watch", "source", "age"]
+    watches: list[int] = Field(default_factory=list, max_length=500)
+    sources: list[str] = Field(default_factory=list, max_length=200)
+    dates: Literal["found", "published"] = "found"
+    date_from: Optional[str] = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    date_to: Optional[str] = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    state: Literal["any", "saved", "to_read", "read", "new"] = "any"
+    # How the list beside the map is grouped. Only Today's map has a list; a
+    # run's map keeps the default.
+    list_by: Literal["watch", "region"] = "watch"
+
+
+def _map_view_name(name: str) -> str:
+    if name not in map_facets.VIEW_NAMES:
+        raise HTTPException(404, f"There is no map named {name!r}; the maps are {', '.join(map_facets.VIEW_NAMES)}.")
+    return name
+
+
+@app.get("/api/map/views/{name}", response_model=response_models.MapView,
+         response_model_exclude_unset=True)
+def get_map_view(name: str):
+    """The filters and colors a map was last left with, and how the list
+    beside it was grouped: Today's (``today``), or every run's map (``run``)."""
+    conn = _get_db()
+    try:
+        return map_facets.read_view(conn, _map_view_name(name))
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/map/views/{name}", response_model=response_models.MapView,
+         response_model_exclude_unset=True)
+def put_map_view(name: str, body: MapViewBody):
+    conn = _get_db()
+    try:
+        return map_facets.write_view(conn, _map_view_name(name), body.model_dump())
+    finally:
+        _close_db(conn)
+
+
+def _embedding_capability(conn) -> dict:
+    """Whether this backend can rank at all, and what by.
+
+    ``available`` is the single answer the renderer gates on: it needs both a
+    loadable extension **and** vectors in the index. Either missing means the
+    sort option and the similar panel are absent rather than present and empty.
+    """
+    extension = vector_index.extension_status(conn)
+    lane = _current_embedding_lane(conn)
+    index = vector_index.index_state(conn)
+    reason = extension["reason"]
+    if extension["extension"] and index["rows"] == 0:
+        reason = (
+            "The vector extension is loaded, but nothing is embedded yet. "
+            "Configure an embedding model in Settings → AI and run the backfill."
+        )
+    return {
+        "available": bool(extension["extension"]) and index["rows"] > 0,
+        "extension": extension["extension"],
+        "reason": reason,
+        "model": index["model"] or (lane.model if lane else None),
+        "indexed": index["rows"],
+    }
+
+
+@app.get("/api/settings/embeddings", response_model=response_models.EmbeddingSettingsPage,
+         response_model_exclude_unset=True)
+def get_embedding_settings():
+    """The stored settings, plus everything the tab needs to render honestly.
+
+    ``providers`` carries a *can embed* answer for every provider resmon lists,
+    including the ones that cannot, so the interface states the limitation rather
+    than quietly omitting the option. The evidence string travels with it: a user
+    reading "Anthropic does not offer an embeddings API" can see what that rests
+    on.
+    """
+    conn = _get_db()
+    try:
+        stored = _get_settings_group(conn, "embeddings")
+        lane = _current_embedding_lane(conn)
+        providers = [
+            {
+                "provider": name,
+                "state": answer.state,
+                "reason": answer.reason,
+                "evidence": answer.evidence,
+                "offered": answer.offered,
+                "default_model": answer.default_model,
+                "suggested_models": embeddings.suggested_models(name),
+            }
+            for name, answer in sorted(embeddings.PROVIDER_EMBEDDING.items())
+        ]
+        return {
+            "settings": stored,
+            "providers": providers,
+            "lane": lane.to_dict() if lane else None,
+            "capability": _embedding_capability(conn),
+            "status": embedding_job.backfill_job.status(
+                conn, lane.model if lane else None
+            ),
+        }
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/settings/embeddings", response_model=response_models.EmbeddingSettingsSaved,
+         response_model_exclude_unset=True)
+def update_embedding_settings(body: SettingsBody):
+    """Store the settings, refusing a provider that cannot embed.
+
+    The refusal is **here**, at configuration, and not at backfill. A user
+    who picks Anthropic learns it when they pick it, with the reason, rather than
+    after waiting for a run that was never going to produce anything.
+    """
+    provider = str(body.settings.get("embedding_provider") or "").strip().lower()
+    if provider:
+        answer = embeddings.can_embed(provider)
+        if answer.state == "no":
+            raise HTTPException(400, answer.reason)
+    conn = _get_db()
+    try:
+        previous = _current_embedding_lane(conn)
+        _set_settings_group(conn, "embeddings", body.settings)
+        current = _current_embedding_lane(conn)
+        # A model change invalidates the index, not the vectors. Rebuilding here
+        # rather than at the next query means the Settings page can say what the
+        # index now holds, and a user who switches back to a model they already
+        # embedded gets their ranking back without re-embedding anything.
+        if current and (previous is None or previous.model != current.model):
+            vector_index.rebuild(conn, current.model)
+        return {"success": True, "capability": _embedding_capability(conn)}
+    finally:
+        _close_db(conn)
+
+
+class EmbeddingProbeBody(BaseModel):
+    """An unsaved lane to probe, so a user can test before committing to it."""
+
+    settings: Optional[dict] = None
+
+
+@app.post("/api/embeddings/probe")
+def probe_embedding_lane(body: EmbeddingProbeBody | None = None):
+    """Ask the configured (or supplied) lane to embed one short string.
+
+    This is what turns a claim about a provider into a fact about this machine.
+    ``PROVIDER_EMBEDDING`` says what a vendor serves; only a probe says whether
+    this endpoint, this key and this model answer — and for a local server that
+    lists models and still refuses to embed, the probe is the entire difference
+    between a usable lane and a corpus with nothing to rank.
+    """
+    conn = _get_db()
+    try:
+        if body is not None and body.settings:
+            merged = {**_load_embedding_settings(conn), **body.settings}
+            lane = embeddings.build_lane(merged)
+            if lane is None:
+                provider = str(merged.get("embedding_provider") or "").strip().lower()
+                answer = embeddings.can_embed(provider) if provider else None
+                return {
+                    "ok": False,
+                    "dims": None,
+                    "model": merged.get("embedding_model"),
+                    "reason": answer.reason if answer and answer.state == "no" else (
+                        "That is not a complete embedding lane: it needs to be enabled, "
+                        "with a provider and a model."
+                    ),
+                }
+        else:
+            lane = _current_embedding_lane(conn)
+        result = embeddings.probe_lane(lane)
+        # A successful probe is the only place resmon learns the width, so it is
+        # persisted: the interface can then say "768-dimensional" before a
+        # backfill rather than after.
+        if result["ok"] and lane is not None and result["dims"]:
+            set_setting(conn, "embedding_dims", str(result["dims"]))
+        return result
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/embeddings/status", response_model=response_models.EmbeddingStatus,
+         response_model_exclude_unset=True)
+def embedding_status(collection: Optional[str] = _COLLECTION_QUERY):
+    """N of M embedded with model X, the run, the index, and the extension.
+
+    ``coverage`` counts every paper, as a backfill does; with ``collection``,
+    ``collection_coverage`` counts that collection's papers too.
+    """
+    conn = _get_db()
+    try:
+        chosen = _collection_id(conn, collection) if collection is not None else None
+        lane = _current_embedding_lane(conn)
+        payload = embedding_job.backfill_job.status(conn, lane.model if lane else None)
+        payload["lane"] = lane.to_dict() if lane else None
+        payload["capability"] = _embedding_capability(conn)
+        if chosen is not None:
+            payload["collection_coverage"] = embedding_job.collection_coverage(
+                conn, lane.model if lane else None, chosen)
+        return payload
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/embeddings/estimate")
+def embedding_estimate():
+    """What a backfill would cost, before it starts.
+
+    Built from the real pending set and the real text builder, not from an
+    average: the number a user is shown is computed from the documents that will
+    actually be sent.
+    """
+    conn = _get_db()
+    try:
+        lane = _current_embedding_lane(conn)
+        if lane is None:
+            raise HTTPException(400, "No embedding lane is configured.")
+        todo = embedding_job.pending_ids(conn, lane.model)
+        texts: list[str] = []
+        for start in range(0, len(todo), 500):
+            chunk = todo[start:start + 500]
+            rows = conn.execute(
+                f"SELECT title, abstract FROM documents WHERE id IN "
+                f"({','.join('?' for _ in chunk)})",
+                chunk,
+            ).fetchall()
+            for row in rows:
+                text, _fields = embeddings.build_text(
+                    row["title"], row["abstract"], lane.input_limit
+                )
+                if text.strip():
+                    texts.append(text)
+        return embeddings.estimate_cost(lane, texts)
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/embeddings/backfill")
+def start_embedding_backfill():
+    """Embed every document lacking a vector for the active model.
+
+    Returns immediately; poll ``GET /api/embeddings/status``. Resumable by
+    construction — the work remaining is a query, not a stored cursor — so a
+    canceled run restarts where the corpus is, not where the last run thought
+    it was.
+    """
+    conn = _get_db()
+    try:
+        lane = _current_embedding_lane(conn)
+        if lane is None:
+            raise HTTPException(
+                400,
+                "No embedding lane is configured. Choose a provider and model in "
+                "Settings → AI → Embeddings first.",
+            )
+        probe = embeddings.probe_lane(lane)
+        if not probe["ok"]:
+            # Refused before the run rather than during it. A thousand documents
+            # against a model that cannot embed is a thousand identical
+            # refusals, and on a metered provider it is a thousand charges.
+            raise HTTPException(400, probe["reason"])
+        try:
+            started = embedding_job.backfill_job.start(_open_connection, lane)
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc)) from None
+        return {"status": "started", "run": started}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/embeddings/backfill/cancel")
+def cancel_embedding_backfill():
+    """Stop after the batch in flight. Vectors already written are kept."""
+    return embedding_job.backfill_job.cancel()
+
+
+@app.post("/api/embeddings/rebuild")
+def rebuild_embedding_index():
+    """Rebuild the vector index from the canonical table.
+
+    Exposed because the index is derived and the table is not: a database copied
+    from a machine that could not load the extension arrives with every vector
+    and no index, and this is the one action that fixes it.
+    """
+    conn = _get_db()
+    try:
+        lane = _current_embedding_lane(conn)
+        if lane is None:
+            raise HTTPException(400, "No embedding lane is configured.")
+        return vector_index.rebuild(conn, lane.model)
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/settings/storage", response_model=response_models.StorageSettings,
+         response_model_exclude_unset=True)
+def get_storage_settings():
+    conn = _get_db()
+    try:
+        return _get_settings_group(conn, "storage")
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/settings/storage", response_model=response_models.SettingsSaved,
+         response_model_exclude_unset=True)
+def update_storage_settings(body: SettingsBody):
+    conn = _get_db()
+    try:
+        _set_settings_group(conn, "storage", body.settings)
+        return {"success": True}
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/settings/notifications", response_model=response_models.NotificationSettings,
+         response_model_exclude_unset=True)
+def get_notification_settings():
+    conn = _get_db()
+    try:
+        raw = _get_settings_group(conn, "notifications")
+        manual_raw = str(raw.get("notify_manual", "")).strip().lower()
+        notify_manual = manual_raw in ("1", "true", "yes", "on")
+        mode = str(raw.get("notify_automatic_mode", "")).strip().lower()
+        if mode not in ("all", "selected", "none"):
+            mode = "none"
+        # Default notify_manual to True on first load when unset
+        if raw.get("notify_manual", "") == "":
+            notify_manual = True
+        return {"notify_manual": notify_manual, "notify_automatic_mode": mode}
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/settings/notifications", response_model=response_models.SettingsSaved,
+         response_model_exclude_unset=True)
+def update_notification_settings(body: SettingsBody):
+    data = body.settings or {}
+    cleaned: dict = {}
+    if "notify_manual" in data:
+        cleaned["notify_manual"] = "1" if bool(data["notify_manual"]) else "0"
+    if "notify_automatic_mode" in data:
+        mode = str(data["notify_automatic_mode"]).strip().lower()
+        if mode not in ("all", "selected", "none"):
+            raise HTTPException(400, "notify_automatic_mode must be 'all', 'selected', or 'none'")
+        cleaned["notify_automatic_mode"] = mode
+    conn = _get_db()
+    try:
+        _set_settings_group(conn, "notifications", cleaned)
+        return {"success": True}
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# Appearance: the theme and the accent color
+# ---------------------------------------------------------------------------
+#
+# Kept in the engine rather than in the renderer's localStorage because the
+# renderer is served from a new loopback port on every launch, and localStorage
+# belongs to the origin, port included: a choice saved there is gone at the next
+# start. Here it lives in ``app_settings``, so a backup carries it and Reset
+# settings clears it with everything else.
+#
+# **Deliberately not a settings group**, for the reason the first-run dismissal
+# is not one: ``update_settings`` reaches groups, and how the window looks is the
+# person's to change in Settings rather than something the assistant is asked to
+# do. Outside ``_SETTINGS_GROUPS`` there is no path to it, rather than a rule
+# saying not to.
+#
+# The engine stores no default accent. ``accent`` is null until the person picks
+# one, and the interface then draws its own default, so that default is one
+# value in one place.
+
+_APPEARANCE_THEME_KEY = "ui_theme"
+_APPEARANCE_ACCENT_KEY = "ui_accent"
+# Whether the top bar shows the run monitor: "0" hides it, anything else (and
+# nothing stored) shows it.
+_APPEARANCE_RUN_MONITOR_KEY = "ui_run_monitor"
+_APPEARANCE_THEMES = ("system", "light", "dark")
+_ACCENT_PATTERN = r"^#[0-9a-fA-F]{6}$"
+
+
+class AppearanceBody(BaseModel):
+    """The whole appearance, every time: a PUT replaces the theme and the accent.
+
+    ``run_monitor`` (Settings › Top bar, "Show the run monitor in the top
+    bar") is stored when it is sent and left as it is when it is not, so a
+    caller that knows only the theme and the accent changes only those.
+    """
+
+    theme: Literal["system", "light", "dark"]
+    accent: Optional[str] = Field(..., pattern=_ACCENT_PATTERN)
+    run_monitor: Optional[bool] = None
+
+
+def _read_appearance(conn) -> dict:
+    # A stored value that is not one of ours (an older build, a hand edit) reads
+    # as unset rather than reaching the interface as something it must parse.
+    theme = str(get_setting(conn, _APPEARANCE_THEME_KEY) or "")
+    accent = str(get_setting(conn, _APPEARANCE_ACCENT_KEY) or "").lower()
+    return {
+        "theme": theme if theme in _APPEARANCE_THEMES else "system",
+        "accent": accent if re.fullmatch(_ACCENT_PATTERN, accent) else None,
+        "run_monitor": str(get_setting(conn, _APPEARANCE_RUN_MONITOR_KEY) or "1") != "0",
+    }
+
+
+@app.get("/api/appearance", response_model=response_models.Appearance,
+         response_model_exclude_unset=True)
+def get_appearance():
+    conn = _get_db()
+    try:
+        return _read_appearance(conn)
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/appearance", response_model=response_models.Appearance,
+         response_model_exclude_unset=True)
+def update_appearance(body: AppearanceBody):
+    conn = _get_db()
+    try:
+        set_setting(conn, _APPEARANCE_THEME_KEY, body.theme)
+        set_setting(conn, _APPEARANCE_ACCENT_KEY, (body.accent or "").lower())
+        if body.run_monitor is not None:
+            set_setting(conn, _APPEARANCE_RUN_MONITOR_KEY, "1" if body.run_monitor else "0")
+        return _read_appearance(conn)
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# The top bar: its sections' order, the ones it hides, and where a window opens
+# ---------------------------------------------------------------------------
+#
+# In the engine for the appearance's reason, and outside ``_SETTINGS_GROUPS`` for
+# the same one: how the window is arranged is the person's to change in Settings,
+# so ``update_settings`` has no path to it.
+#
+# Hiding a section takes it out of the bar and nothing more: its address, its
+# shortcut, and the command palette still open it, and Settings is not a section
+# here, so it cannot be hidden.
+#
+# An order is kept whole. One a build stored before a section existed gets that
+# section back after the section it follows by default, shown, so a section a
+# newer build adds is never lost to an arrangement an older one saved. A name the
+# engine does not know (from a newer build, or a hand edit) is dropped on reading
+# rather than handed to an interface that has no screen for it.
+
+_TOP_BAR_SECTIONS: tuple[str, ...] = get_args(response_models.TopBarSection)
+_TOP_BAR_PAGES: tuple[str, ...] = get_args(response_models.TopBarPage)
+_TOP_BAR_ORDER_KEY = "ui_top_bar_order"
+_TOP_BAR_HIDDEN_KEY = "ui_top_bar_hidden"
+_TOP_BAR_START_KEY = "ui_start_page"
+_TOP_BAR_LOCKUP_KEY = "ui_lockup_page"
+_TOP_BAR_DEFAULT_START = "/today"
+
+
+def _top_bar_order(names: Iterable[str]) -> list[str]:
+    """The sections in ``names``' order, the unknown and repeated dropped, every missing one put back.
+
+    A missing section goes after the section that comes before it in the default
+    order, or first if none does; the missing ones are placed in default order,
+    so two that were added together keep their order too.
+    """
+    order: list[str] = []
+    for name in names:
+        if name in _TOP_BAR_SECTIONS and name not in order:
+            order.append(name)
+    for index, name in enumerate(_TOP_BAR_SECTIONS):
+        if name in order:
+            continue
+        before = next((p for p in reversed(_TOP_BAR_SECTIONS[:index]) if p in order), None)
+        order.insert(order.index(before) + 1 if before else 0, name)
+    return order
+
+
+def _stored_names(conn, key: str) -> list[str]:
+    """A stored JSON list of names; anything else, and nothing stored, reads as an empty list."""
+    try:
+        value = json.loads(str(get_setting(conn, key) or "[]"))
+    except (TypeError, ValueError):
+        return []
+    return [str(v) for v in value if isinstance(v, str)] if isinstance(value, list) else []
+
+
+def _read_top_bar(conn) -> dict:
+    order = _top_bar_order(_stored_names(conn, _TOP_BAR_ORDER_KEY))
+    hidden = set(_stored_names(conn, _TOP_BAR_HIDDEN_KEY))
+    start = str(get_setting(conn, _TOP_BAR_START_KEY) or "")
+    lockup = str(get_setting(conn, _TOP_BAR_LOCKUP_KEY) or "")
+    return {
+        "order": order,
+        "hidden": [name for name in order if name in hidden],
+        "start": start if start in _TOP_BAR_PAGES else _TOP_BAR_DEFAULT_START,
+        "lockup": lockup if lockup in _TOP_BAR_PAGES else None,
+    }
+
+
+class TopBarBody(BaseModel):
+    """The whole arrangement, every time: a PUT replaces all four.
+
+    ``order`` may leave sections out, and they are put back where they go by
+    default; it may not name one twice, and neither may ``hidden``. A section
+    or a page the engine does not know is refused.
+    """
+
+    order: list[response_models.TopBarSection]
+    hidden: list[response_models.TopBarSection]
+    start: response_models.TopBarPage
+    lockup: Optional[response_models.TopBarPage] = Field(...)
+
+    @field_validator("order", "hidden")
+    @classmethod
+    def _each_once(cls, names: list[str]) -> list[str]:
+        repeated = sorted({name for name in names if names.count(name) > 1})
+        if repeated:
+            raise ValueError(f"names {', '.join(repeated)} more than once")
+        return names
+
+
+@app.get("/api/top-bar", response_model=response_models.TopBar,
+         response_model_exclude_unset=True)
+def get_top_bar():
+    """The top bar's sections in order, the hidden ones, the start page, and where the resmon name goes."""
+    conn = _get_db()
+    try:
+        return _read_top_bar(conn)
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/top-bar", response_model=response_models.TopBar,
+         response_model_exclude_unset=True)
+def update_top_bar(body: TopBarBody):
+    """Store the whole arrangement, and answer it as it was stored."""
+    conn = _get_db()
+    try:
+        set_setting(conn, _TOP_BAR_ORDER_KEY, json.dumps(_top_bar_order(body.order)))
+        set_setting(conn, _TOP_BAR_HIDDEN_KEY, json.dumps(list(body.hidden)))
+        set_setting(conn, _TOP_BAR_START_KEY, body.start)
+        set_setting(conn, _TOP_BAR_LOCKUP_KEY, body.lockup or "")
+        return _read_top_bar(conn)
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# Web links: where one opens, and what the link window's address field
+# searches with
+# ---------------------------------------------------------------------------
+#
+# In the engine for the appearance's reason, and outside ``_SETTINGS_GROUPS``
+# for the same one. The renderer hands the answer to the main process, which
+# opens the links; nothing here opens one. A stored value the engine did not
+# write reads as the default. (``/api/links/...`` is a paper's links, J10.)
+
+_WEB_LINKS_OPEN_IN_KEY = "ui_links_open_in"
+_WEB_LINKS_NEW_KEY = "ui_links_new"
+_WEB_LINKS_SEARCH_KEY = "ui_links_search"
+_WEB_LINKS_SEARCHES: tuple[str, ...] = get_args(response_models.WebLinkSearch)
+
+
+class WebLinksBody(BaseModel):
+    """The whole choice, every time: a PUT replaces all three."""
+
+    open_in: Literal["resmon", "browser"]
+    new: Literal["window", "tab"]
+    search: response_models.WebLinkSearch
+
+
+def _read_web_links(conn) -> dict:
+    open_in = str(get_setting(conn, _WEB_LINKS_OPEN_IN_KEY) or "")
+    new = str(get_setting(conn, _WEB_LINKS_NEW_KEY) or "")
+    search = str(get_setting(conn, _WEB_LINKS_SEARCH_KEY) or "")
+    return {
+        "open_in": open_in if open_in in ("resmon", "browser") else "resmon",
+        "new": new if new in ("window", "tab") else "window",
+        "search": search if search in _WEB_LINKS_SEARCHES else _WEB_LINKS_SEARCHES[0],
+    }
+
+
+@app.get("/api/web-links", response_model=response_models.WebLinkSettings,
+         response_model_exclude_unset=True)
+def get_web_links():
+    """Where a web link opens, how resmon's browser opens it, and the address field's search."""
+    conn = _get_db()
+    try:
+        return _read_web_links(conn)
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/web-links", response_model=response_models.WebLinkSettings,
+         response_model_exclude_unset=True)
+def update_web_links(body: WebLinksBody):
+    """Store all three, and answer them as they were stored."""
+    conn = _get_db()
+    try:
+        set_setting(conn, _WEB_LINKS_OPEN_IN_KEY, body.open_in)
+        set_setting(conn, _WEB_LINKS_NEW_KEY, body.new)
+        set_setting(conn, _WEB_LINKS_SEARCH_KEY, body.search)
+        return _read_web_links(conn)
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# Execution admission settings
+# ---------------------------------------------------------------------------
+
+_EXEC_SETTINGS_DEFAULTS = {
+    "max_concurrent_executions": "3",
+    "routine_fire_queue_limit": "16",
+}
+
+
+def _load_execution_settings_from_db(conn) -> tuple[int, int]:
+    """Read admission settings from app_settings, writing defaults if absent."""
+    raw_max = get_setting(conn, "max_concurrent_executions")
+    if raw_max is None:
+        raw_max = _EXEC_SETTINGS_DEFAULTS["max_concurrent_executions"]
+        set_setting(conn, "max_concurrent_executions", raw_max)
+    raw_qlimit = get_setting(conn, "routine_fire_queue_limit")
+    if raw_qlimit is None:
+        raw_qlimit = _EXEC_SETTINGS_DEFAULTS["routine_fire_queue_limit"]
+        set_setting(conn, "routine_fire_queue_limit", raw_qlimit)
+    try:
+        max_concurrent = int(raw_max)
+    except (TypeError, ValueError):
+        max_concurrent = int(_EXEC_SETTINGS_DEFAULTS["max_concurrent_executions"])
+    try:
+        queue_limit = int(raw_qlimit)
+    except (TypeError, ValueError):
+        queue_limit = int(_EXEC_SETTINGS_DEFAULTS["routine_fire_queue_limit"])
+    return max_concurrent, queue_limit
+
+
+def _hydrate_admission_from_db() -> None:
+    """Apply persisted execution settings to the admission singleton."""
+    conn = _get_db()
+    try:
+        max_concurrent, queue_limit = _load_execution_settings_from_db(conn)
+    finally:
+        _close_db(conn)
+    admission.set_max(max_concurrent)
+    admission.set_queue_limit(queue_limit)
+
+
+def _init_admission_on_startup() -> None:
+    _hydrate_admission_from_db()
+    # Every process, not only the scheduler's: Run now queues a fire in
+    # whichever engine the window is talking to. Without a dispatcher the
+    # queue was never drained, and a queued fire never ran.
+    admission.set_dispatcher(_dispatch_queued_fire)
+
+
+def _migrate_legacy_ai_key_on_startup() -> None:
+    """One-shot transparent migration of any
+    legacy global ``ai_api_key`` keyring slot into the per-provider
+    ``{provider}_api_key`` slot. Idempotent — calling it on every
+    startup is safe and a no-op when no legacy slot exists.
+    """
+    try:
+        conn = _get_db()
+        try:
+            provider = get_setting(conn, "ai_provider")
+        finally:
+            _close_db(conn)
+        migrate_legacy_global_ai_key(provider)
+    except Exception:  # pragma: no cover - defensive
+        logger.exception("Legacy AI-key migration failed")
+
+
+# ---------------------------------------------------------------------------
+# Scheduler lifecycle
+#
+# A single module-level ``ResmonScheduler`` is instantiated at FastAPI
+# startup. The dispatcher is installed via ``set_dispatcher`` so the
+# scheduler module stays decoupled from FastAPI and the SweepEngine.
+# ---------------------------------------------------------------------------
+
+scheduler: ResmonScheduler | None = None
+
+
+def _dispatch_routine_fire(
+    routine_id: int,
+    parameters: str,
+    *,
+    allow_inactive: bool = False,
+    raise_on_conflict: bool = False,
+    run_now: bool = False,
+    queued_at: Optional[str] = None,
+) -> int | None:
+    """Fire a routine: claim, prepare execution, admit, launch, stamp.
+
+    Follows the pseudocode in ``resmon_routines.md`` Appendix A.1. Returns the
+    new execution id, or ``None`` if the routine row is missing or inactive, or
+    if the admission controller enqueues / drops the fire. Admission slot
+    release happens inside ``_launch_execution``'s ``finally`` via
+    ``admission.note_finished``.
+
+    ``allow_inactive`` exists for ``POST /api/routines/{id}/run``. Skipping an
+    inactive routine is right for a *scheduled* fire -- deactivating is how a
+    user stops one running on its own. A manual run is an explicit instruction,
+    so ``is_active`` governs scheduling rather than permission, and the endpoint
+    says in its response that the routine was inactive rather than running it
+    silently. The scheduler never passes this, so its behavior is unchanged.
+
+    The return value is new. The scheduler ignores it, which is why widening it
+    is safe; the endpoint needs it, because "which execution did you just
+    start" is the only useful thing to answer with.
+
+    ``raise_on_conflict`` decides how a routine that is *already running* is
+    reported. All three doors into this function -- the scheduler callback, the
+    ``run`` endpoint and the admission queue's drain -- take the same claim and
+    all three refuse, but they have different audiences. A person who clicked
+    Run now needs to be told, with the id of the run that already exists, so
+    the endpoint asks for the exception. The scheduler and the drain get
+    ``None`` and an info line: a fire arriving while the previous one is still
+    going is expected behavior of a routine that runs longer than its period,
+    not a fault, and raising into APScheduler's worker would log it as one.
+    A *scheduled* fire refused that way is still written down, as a missed
+    fire ``skipped`` because the previous run was still going: the scheduler's
+    job returns as soon as the run's thread starts, so this claim, not
+    APScheduler's ``max_instances``, is what refuses an overlapping fire, and
+    until it recorded one the refusal reached only the engine log.
+
+    ``run_now`` marks a fire a person asked for (Run now). It runs a paused
+    routine as ``allow_inactive`` does, and when no slot is free it is queued
+    as asked for, so the drain runs it paused or not. With
+    ``raise_on_conflict`` a fire that was not started now raises
+    ``RoutineFireWaiting`` saying whether it was queued or dropped, because
+    the person is owed the difference. ``queued_at`` is when a fire drained
+    from the queue joined it, which for a scheduled one is when it came due.
+    """
+    dispatch_logger = logging.getLogger(__name__)
+    allow_inactive = allow_inactive or run_now
+    conn = _get_db()
+    try:
+        row = get_routine_by_id(conn, routine_id)
+        if not row:
+            dispatch_logger.info(
+                "Routine fire skipped: routine_id=%s missing", routine_id,
+            )
+            return None
+        if not row.get("is_active") and not allow_inactive:
+            dispatch_logger.info(
+                "Routine fire skipped: routine_id=%s inactive", routine_id,
+            )
+            return None
+
+        # The claim, taken before anything slow and before any thread exists.
+        # Ordering is the entire guard: a check made after ``prepare_execution``
+        # would already have lost the race it is here to win. Every path out of
+        # the block below either hands the claim to a worker thread -- which
+        # releases it in ``_launch_execution``'s ``finally`` -- or gives it back
+        # here.
+        if not routine_claims.try_claim(routine_id):
+            holder = routine_claims.holder(routine_id)
+            dispatch_logger.info(
+                "Routine fire refused: routine_id=%s is already running as "
+                "execution %s", routine_id, holder,
+            )
+            if raise_on_conflict:
+                raise RoutineAlreadyRunning(routine_id, holder)
+            if not allow_inactive:
+                _record_overlap_skipped_fire(routine_id, _fire_time(queued_at))
+            return None
+
+        launched = False
+        try:
+            try:
+                params = json.loads(parameters or "{}")
+            except (json.JSONDecodeError, TypeError):
+                dispatch_logger.exception(
+                    "Routine fire parameters unparseable: routine_id=%s", routine_id,
+                )
+                return None
+            if not isinstance(params, dict):
+                params = {}
+            repositories = list(params.get("repositories") or [])
+
+            # A watch routine's profile is resolved **here**, once, and travels
+            # inside the execution's stored parameters. Two reasons it is not looked
+            # up later: ``run_prepared`` recovers its parameters from the execution
+            # row when the preparing instance is gone, so anything the run needs has
+            # to be in that row; and the profile a run used is then a recorded fact
+            # rather than whatever the table says afterwards. A profile edited or
+            # deleted mid-run cannot silently change what the run was watching.
+            entity = params.get("entity")
+            if isinstance(entity, dict):
+                profile = None
+                try:
+                    profile = watch_profiles.get_profile(
+                        conn, int(entity.get("profile_id")))
+                except (TypeError, ValueError):
+                    profile = None
+                params["entity_mode"] = str(entity.get("mode") or "")
+                params["entity_profile_id"] = entity.get("profile_id")
+                params["entity_profile"] = profile
+                # `retractions` searches none of the routine's sources: it puts the
+                # papers already matched through the lifecycle check (Crossref,
+                # arXiv, bioRxiv). Leaving the routine's repository list in place
+                # would make the Monitor announce sources it never touches.
+                if params["entity_mode"] == "retractions":
+                    repositories = []
+                    params["repositories"] = []
+
+            # A window that moves becomes real dates here, at the fire, for the
+            # reason the profile is resolved here: the run's parameters are
+            # what it runs from and what every account of it reads. A watch
+            # with fixed dates or none is left exactly as stored. `retractions`
+            # searches no source for papers (it checks the ones already
+            # matched), so it has no dates to ask.
+            # Where this fire's papers land, resolved here for the same reason:
+            # the run carries its collection, so a watch pointed elsewhere
+            # afterwards does not move papers a run already filed.
+            params["collection_id"] = paper_collections.watch_target(conn, row)
+
+            if params.get("entity_mode") != "retractions":
+                try:
+                    date_window.apply(conn, routine_id, params)
+                except date_window.WindowError:
+                    dispatch_logger.exception(
+                        "Routine fire refused: routine_id=%s has a date_window "
+                        "resmon cannot read", routine_id,
+                    )
+                    return None
+
+            decision = admission.admit_routine(routine_id, parameters, run_now=run_now)
+            if decision != "admitted":
+                if raise_on_conflict:
+                    raise RoutineFireWaiting(routine_id, decision)
+                return None
+
+            ai_settings_raw = row.get("ai_settings")
+            try:
+                ai_settings = json.loads(ai_settings_raw) if ai_settings_raw else None
+            except (json.JSONDecodeError, TypeError):
+                ai_settings = None
+
+            engine = SweepEngine(
+                db_conn=conn,
+                config={
+                    "ai_enabled": bool(row.get("ai_enabled")),
+                    "ai_settings": ai_settings,
+                    # A scheduled fire has nobody waiting on it; a Run now does.
+                    "unattended": not run_now,
+                },
+            )
+            # The watch goes in with the run's own INSERT: no reader sees a watch
+            # run that belongs to no watch, and none is left that way.
+            exec_id = engine.prepare_execution(
+                "automated_sweep", repositories, params, routine_id=int(routine_id),
+            )
+
+            # Bind before the thread starts, so a second fire arriving in the
+            # window between the claim and the launch is told *which* run holds
+            # the routine rather than only that something does.
+            routine_claims.bind(routine_id, exec_id)
+            progress_store.register(exec_id)
+            _launch_execution(
+                engine, exec_id, conn, ephemeral_credentials=None,
+                claimed_routine_id=routine_id,
+            )
+            # From here the claim belongs to the execution thread's ``finally``.
+            launched = True
+
+            try:
+                conn.execute(
+                    "UPDATE routines SET last_executed_at = datetime('now') WHERE id = ?",
+                    (int(routine_id),),
+                )
+                conn.commit()
+            except Exception:
+                dispatch_logger.exception(
+                    "Failed to stamp last_executed_at: routine_id=%s", routine_id,
+                )
+            return int(exec_id)
+        finally:
+            if not launched:
+                routine_claims.release(routine_id)
+    finally:
+        _close_db(conn)
+
+
+def _fire_time(queued_at: Optional[str]) -> datetime:
+    """When a refused fire came due: when it joined the queue, or now."""
+    if queued_at:
+        try:
+            return datetime.fromisoformat(queued_at)
+        except ValueError:
+            pass
+    return datetime.now(timezone.utc).replace(microsecond=0)
+
+
+def _dispatch_queued_fire(
+    routine_id: int, parameters: str, *, run_now: bool = False,
+    queued_at: Optional[str] = None,
+) -> None:
+    """The admission queue's door into ``_dispatch_routine_fire``.
+
+    A Run now that waited in the queue is answered here as the run endpoint
+    answers one that started at once: the fires resmon recorded as missed
+    before it are marked ``ran_late``.
+    """
+    exec_id = _dispatch_routine_fire(
+        routine_id, parameters, run_now=run_now, queued_at=queued_at)
+    if exec_id is not None and run_now:
+        conn = _get_db()
+        try:
+            mark_missed_fires_ran_late(conn, routine_id)
+        finally:
+            _close_db(conn)
+
+
+def _record_missed_fires(sched: ResmonScheduler) -> int:
+    """Record every scheduled fire whose time had passed while resmon was shut.
+
+    Until now a fire that came due while the app was closed was not skipped
+    loudly -- it was skipped silently. The scheduler re-adds every active
+    routine on startup with ``replace_existing=True``, which recomputes
+    ``next_run_time`` from the present moment, so the overdue time was
+    overwritten before anything could notice it, and the routine simply looked
+    as though it had never been due. A user whose laptop was shut over a
+    weekend saw a routine that claimed to be healthy and a Monday with no run
+    in it.
+
+    What this records is exactly what it observed: the jobstore's persisted
+    next fire for this routine was in the past when resmon started. It is
+    deliberately **not** a claim that the run did not happen. APScheduler's
+    one-hour misfire grace means a fire found a few minutes in the past may
+    still run once the scheduler starts, and the two events are recorded
+    separately -- the execution row says a run happened, this row says a fire
+    was overdue. ``disposition`` is where a later policy would reconcile them.
+
+    Nothing is run to catch up. Whether resmon should quietly perform a
+    weekend's worth of sweeps the moment a laptop is opened is the user's
+    decision, not a default a migration chose; see ``docs/routines.md``.
+
+    Returns the number of rows written, which is the number of *new* misses:
+    ``record_missed_fire`` is idempotent on (routine, due time), so starting
+    twice in a row without the routine firing counts the miss once.
+    """
+    logger_ = logging.getLogger(__name__)
+    try:
+        persisted = sched.persisted_next_run_times()
+    except Exception:
+        logger_.exception("Could not read persisted fire times; missed fires "
+                          "not accounted for this start")
+        return 0
+    if not persisted:
+        return 0
+
+    observed = utc_now_iso()
+    now = datetime.now(timezone.utc)
+    written = 0
+    conn = _get_db()
+    try:
+        active = {str(r["id"]) for r in get_routines(conn) if r.get("is_active")}
+        for job_id, due in persisted.items():
+            # An orphan job whose routine row is gone is reconciled away a few
+            # lines later; recording a miss against a routine that no longer
+            # exists would fail the foreign key anyway.
+            if job_id not in active:
+                continue
+            if due is None or due >= now:
+                continue
+            try:
+                if record_missed_fire(
+                    conn, int(job_id),
+                    due.astimezone(timezone.utc).isoformat(),
+                    observed_at_utc=observed,
+                ):
+                    written += 1
+            except Exception:
+                logger_.exception(
+                    "Failed to record a missed fire for routine_id=%s", job_id,
+                )
+    finally:
+        _close_db(conn)
+    if written:
+        logger_.info(
+            "Recorded %d missed routine fire(s) that came due while resmon was "
+            "not running", written,
+        )
+    return written
+
+
+def _record_overlap_skipped_fire(routine_id: int, due_at) -> None:
+    """Write down a fire APScheduler refused because the run before it was alive.
+
+    The sibling of ``_record_missed_fires``, one case over. That function
+    covers the fire that came due while resmon was shut; this one covers the
+    fire that came due while resmon was running and this routine's previous
+    run had not finished. Both were silent, the first until schema 20 and this
+    one until now, and both produce the same failure for the user: a routine
+    that did not run is indistinguishable from a routine that ran and found
+    nothing.
+
+    It is also called by ``_dispatch_routine_fire`` for a scheduled fire the
+    routine's claim refused, which is the same refusal reached by the door that
+    actually sees it: the scheduler's job only starts the run's thread and
+    returns, so APScheduler rarely has two instances to refuse.
+
+    The disposition written is ``'skipped'`` rather than ``'recorded'``
+    because more is known here. The startup path sees a fire that was overdue
+    when it looked and cannot say whether the misfire grace will still carry
+    it; this path is told by APScheduler's executor that the submission was
+    refused, so the fire did not run, and will not. No catch-up run is
+    started -- the overlap rule is deliberate, and running the sweep the
+    moment the previous one finishes is the behavior the rule exists to
+    prevent.
+
+    Called on the scheduler's own thread, so it takes that thread's
+    connection from ``_get_db`` and must not raise;
+    ``scheduler._on_max_instances`` logs anything that escapes.
+    """
+    conn = _get_db()
+    try:
+        due = due_at.astimezone(timezone.utc) if due_at.tzinfo else due_at.replace(
+            tzinfo=timezone.utc)
+        wrote = record_missed_fire(
+            conn, int(routine_id), due.isoformat(),
+            observed_at_utc=utc_now_iso(), disposition="skipped",
+        )
+    finally:
+        _close_db(conn)
+    if wrote:
+        logging.getLogger(__name__).warning(
+            "Routine fire skipped because the previous run was still going: "
+            "routine_id=%d due=%s. The routine takes longer than its "
+            "interval; recorded, not run.", int(routine_id), due.isoformat(),
+        )
+
+
+def _install_scheduler_hooks() -> None:
+    """Point the scheduler module at this process's dispatcher and recorder.
+
+    One place, because the two hooks have to be installed together: a
+    scheduler that can start a run but cannot write down a fire it refused is
+    the defect this pair closes.
+    """
+    set_dispatcher(_dispatch_routine_fire)
+    set_overlap_recorder(_record_overlap_skipped_fire)
+
+
+def _init_scheduler_on_startup() -> None:
+    global scheduler
+    # When the Electron main process spawns this
+    # backend as a fallback (because no live daemon was found), it sets
+    # RESMON_DISABLE_SCHEDULER=1 to keep the scheduler off. The launchd
+    # daemon is the sole owner of the APScheduler instance so two
+    # processes never race against the shared SQLite jobstore. Routine
+    # CRUD endpoints already no-op when ``scheduler is None``.
+    if os.environ.get("RESMON_DISABLE_SCHEDULER") == "1":
+        logging.getLogger(__name__).info(
+            "RESMON_DISABLE_SCHEDULER=1 — scheduler not started in this process"
+        )
+        scheduler = None
+        return
+    _install_scheduler_hooks()
+    # When tests override the app DB to ``:memory:``, give the APScheduler
+    # jobstore a disposable on-disk SQLite so its SingletonThreadPool can
+    # share schema across worker threads. Tests clean up via ``shutdown``.
+    if _db_path == ":memory:":
+        import tempfile as _tempfile
+        _tmp = _tempfile.NamedTemporaryFile(
+            prefix="resmon-test-scheduler-", suffix=".sqlite", delete=False,
+        )
+        _tmp.close()
+        scheduler = ResmonScheduler(db_url=f"sqlite:///{_tmp.name}")
+    else:
+        scheduler = ResmonScheduler()
+    # Missed fires are read **before** ``start()``, because starting the
+    # scheduler and re-adding the routines below are both writes to the only
+    # record of when each job was next due. See
+    # ``ResmonScheduler.persisted_next_run_times``.
+    _record_missed_fires(scheduler)
+    scheduler.start()
+    conn = _get_db()
+    try:
+        routines = get_routines(conn)
+    finally:
+        _close_db(conn)
+    # Drop any orphan apscheduler_jobs rows whose id is not in the current
+    # set of active routines. This catches ghost jobs that survived a delete
+    # in a process that did not own the scheduler (e.g., a renderer-spawned
+    # backend serving the DELETE while the launchd daemon owned the
+    # scheduler).
+    active_ids = {str(r["id"]) for r in routines if r.get("is_active")}
+    try:
+        scheduler.reconcile_jobstore(active_ids)
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "Scheduler jobstore reconciliation failed on startup",
+        )
+    for r in routines:
+        if r.get("is_active"):
+            try:
+                scheduler.add_routine(r)
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "Failed to register routine on startup: id=%s", r.get("id"),
+                )
+
+
+def _shutdown_scheduler() -> None:
+    global scheduler
+    if scheduler is not None:
+        try:
+            scheduler.shutdown()
+        finally:
+            scheduler = None
+    set_dispatcher(None)
+    set_overlap_recorder(None)
+
+
+@app.get("/api/scheduler/jobs")
+def get_scheduler_jobs():
+    if scheduler is None:
+        return []
+    return scheduler.get_active_jobs()
+
+
+def _job_store_next_fire_times(conn: sqlite3.Connection) -> dict[str, Optional[float]]:
+    """``routine id -> next_run_time`` from the job store inside this database.
+
+    Read with plain SQL rather than through a ``SQLAlchemyJobStore``, because
+    starting a job store creates its table, and this is a read. The table is
+    absent from a database no scheduler has ever run over -- which is every
+    packaged corpus whose backend has only ever been the app's own -- and that
+    is an answer, not an error: no jobs.
+    """
+    present = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'apscheduler_jobs'"
+    ).fetchone()
+    if present is None:
+        return {}
+    return {
+        str(row[0]): row[1]
+        for row in conn.execute("SELECT id, next_run_time FROM apscheduler_jobs")
+    }
+
+
+def _next_fire_epochs(conn: sqlite3.Connection) -> dict[str, Optional[float]]:
+    """``routine id -> next fire`` (epoch seconds), from whichever store holds
+    the jobs: this backend's scheduler when it runs one, else the job store
+    inside this database. A time here is what is scheduled, not a promise that
+    anything will fire it; ``/api/scheduler/status`` answers that."""
+    if scheduler is None:
+        return _job_store_next_fire_times(conn)
+    out: dict[str, Optional[float]] = {}
+    for job in scheduler.get_active_jobs():
+        raw = job.get("next_run_time")
+        try:
+            out[str(job["id"])] = datetime.fromisoformat(raw).timestamp() if raw else None
+        except (TypeError, ValueError):
+            out[str(job["id"])] = None
+    return out
+
+
+@app.get("/api/today", response_model=response_models.Today, response_model_exclude_unset=True)
+def get_today(collection: Optional[str] = _COLLECTION_QUERY):
+    """The papers runs put in a collection since its Today was last looked at, by watch.
+
+    See ``today`` for what "new", "looked" and "watch" mean. Reading this does
+    not mark anything looked at; ``POST /api/today/looked`` does.
+    """
+    conn = _get_db()
+    try:
+        return today.build(conn, _next_fire_epochs(conn), collection_id=_collection_id(conn, collection))
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/today/papers", response_model=response_models.TodayPapersPage,
+         response_model_exclude_unset=True)
+def get_today_papers(cursor: str, limit: int = Query(today.PAPER_PAGE, ge=1, le=today.PAPER_PAGE),
+                     collection: Optional[str] = _COLLECTION_QUERY):
+    """The next page of a collection's new papers on Today, after the page before it.
+
+    ``cursor`` is the ``next_cursor`` that page gave, so every new paper can be
+    listed, a page at a time, however many there are.
+    """
+    conn = _get_db()
+    try:
+        return today.papers_after(conn, cursor, limit, collection_id=_collection_id(conn, collection))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    finally:
+        _close_db(conn)
+
+
+class DocumentBriefsBody(BaseModel):
+    ids: list[int] = Field(..., max_length=today.BRIEF_LIMIT)
+
+
+@app.post("/api/documents/briefs", response_model=list[response_models.DocumentBrief],
+          response_model_exclude_unset=True)
+def get_document_briefs(body: DocumentBriefsBody):
+    """A line about each paper asked for, for the plate's hover: title, authors,
+    source and dates. Ids that are not in the corpus are left out, not invented."""
+    conn = _get_db()
+    try:
+        return today.briefs(conn, body.ids)
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/today/looked", response_model=response_models.TodayLooked,
+          response_model_exclude_unset=True)
+def mark_today_looked(collection: Optional[str] = _COLLECTION_QUERY):
+    """Record that a collection's Today was looked at now: its next window starts here."""
+    conn = _get_db()
+    try:
+        return {"looked_at": today.mark_looked(conn, collection_id=_collection_id(conn, collection))}
+    finally:
+        _close_db(conn)
+
+
+def _who_fires_without_a_scheduler_here(installed: bool) -> tuple[str, Optional[str]]:
+    """``(state, service version)`` for a backend that holds no scheduler.
+
+    The evidence is the daemon-status probe's, taken through the same function
+    so the Advanced tab and the Routines page cannot disagree about one lock
+    file. The version compared is the one Electron's attach rule compares --
+    the live service's own, falling back to its lock's -- because "this app
+    does not use that service" is only true if it is the same rule.
+    """
+    status, found = _probe_daemon()
+    if found == "answered":
+        version = status.get("version") or status.get("lock_version")
+        if status.get("is_self"):
+            return "scheduler_off", version
+        if version != APP_VERSION:
+            return "service_other_version", version
+        return "service_elsewhere", version
+    if found in ("no_lock", "nothing_listening"):
+        return ("service_stopped" if installed else "no_service"), None
+    return "service_unreachable", None
+
+
+@app.get("/api/scheduler/status", response_model=response_models.SchedulerStatus,
+         response_model_exclude_unset=True)
+def scheduler_status():
+    """Whether this database's active routines will fire, and what decides it.
+
+    The Routines page showed **Active** for a routine nothing would ever fire,
+    and it looked exactly like one that would. The packaged app starts its own
+    backend with ``RESMON_DISABLE_SCHEDULER=1`` and attaches
+    to the background service only when that service is live, has a token file
+    and runs the same version. When it does not attach, nothing fires -- and
+    ``_record_missed_fires`` never runs, because it runs only where a scheduler
+    starts, so the missed-fire count stays empty however many fires were
+    missed. A routine that does not run and a routine that runs and finds
+    nothing must not look the same; this is what lets the page tell them apart.
+
+    **What decides a routine's verdict.** Every released resmon keeps
+    APScheduler's job store inside the corpus file itself
+    (``scheduler._DEFAULT_DB_URL`` is built from the same ``DEFAULT_DB_PATH``
+    the corpus opens), and a scheduler fires only what is in its store. So a
+    routine with no job in *this* database's store will not fire, whichever
+    process runs and whichever database it serves -- and activating a routine
+    in a backend with no scheduler writes no job, because the CRUD sync helpers
+    return early when ``scheduler is None``. That is the case measured on the
+    owner's corpus, and it is answered with certainty.
+
+    A routine that does have a job here fires only if some live scheduler
+    serves this file. This backend's own scheduler is known. Another process's
+    is not: ``/api/health`` reports ``identity.corpus_id``, and it is ``null``
+    on every version so far, so no running service can be shown to serve this
+    database. Where one is running, or may be, the verdict is ``None`` --
+    unconfirmed -- rather than a guess either way. Where no service answers and
+    none is listening, nothing is running a schedule at all, and the verdict is
+    ``False``.
+
+    The states, for a backend with no scheduler of its own, come from the
+    daemon-status probe: ``no_service`` / ``service_stopped`` (nothing
+    answers; unit file absent / present), ``service_other_version`` (a service
+    answered as a version this app does not attach to),
+    ``service_elsewhere`` (one of this version answered, and it is another
+    process), ``service_unreachable`` (the lock names a service that did not
+    answer cleanly), and ``scheduler_off`` (the lock names this very process,
+    started with its scheduler turned off). Nothing here starts, stops or
+    changes a schedule.
+    """
+    sched = scheduler
+    conn = _get_db()
+    try:
+        active = [r for r in get_routines(conn) if r.get("is_active")]
+        store = {} if sched is not None else _job_store_next_fire_times(conn)
+    finally:
+        _close_db(conn)
+    installed = _service_manager.is_installed()
+
+    if sched is not None:
+        state, service_version = "fires_here", None
+        held = {
+            str(job["id"]) for job in sched.get_active_jobs()
+            if job.get("next_run_time") is not None
+        }
+    else:
+        state, service_version = _who_fires_without_a_scheduler_here(installed)
+        held = set()
+
+    routines = []
+    for r in active:
+        rid = str(r["id"])
+        if sched is not None:
+            verdict = (True, "scheduled") if rid in held else (False, "not_scheduled")
+        elif store.get(rid) is None:
+            # No row, or a row with no next fire -- APScheduler's paused job.
+            verdict = (False, "not_scheduled")
+        elif state in ("no_service", "service_stopped", "scheduler_off"):
+            verdict = (False, "no_scheduler_running")
+        else:
+            verdict = (None, "unconfirmed")
+        routines.append({"id": int(r["id"]), "will_fire": verdict[0], "reason": verdict[1]})
+
+    return {
+        "state": state,
+        "app_version": APP_VERSION,
+        "service_installed": installed,
+        "service_version": service_version,
+        "routines": routines,
+    }
+
+
+class SourceSettingsBody(BaseModel):
+    contact_email: Optional[str] = None
+
+
+def _source_settings(conn) -> dict:
+    return {"contact_email": source_contact.read(conn), "sent_to": list(source_contact.SOURCES)}
+
+
+@app.get("/api/settings/sources", response_model=response_models.SourceSettings,
+         response_model_exclude_unset=True)
+def get_source_settings():
+    """The contact address resmon gives Crossref and OpenAlex, and the sources it goes to."""
+    conn = _get_db()
+    try:
+        return _source_settings(conn)
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/settings/sources", response_model=response_models.SourceSettings,
+         response_model_exclude_unset=True)
+def update_source_settings(body: SourceSettingsBody):
+    """Set the contact address, or clear it with null or an empty string, after which nothing is sent."""
+    try:
+        address = source_contact.normalized(body.contact_email)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    conn = _get_db()
+    try:
+        set_setting(conn, source_contact.SETTING, address or "")
+        return _source_settings(conn)
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/settings/execution", response_model=response_models.ExecutionSettings,
+         response_model_exclude_unset=True)
+def get_execution_settings():
+    conn = _get_db()
+    try:
+        max_concurrent, queue_limit = _load_execution_settings_from_db(conn)
+        return {
+            "max_concurrent_executions": max_concurrent,
+            "routine_fire_queue_limit": queue_limit,
+        }
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/settings/execution", response_model=response_models.ExecutionSettingsSaved,
+         response_model_exclude_unset=True)
+def update_execution_settings(body: ExecutionSettingsBody):
+    if not (1 <= body.max_concurrent_executions <= 8):
+        raise HTTPException(400, "max_concurrent_executions must be between 1 and 8")
+    if not (1 <= body.routine_fire_queue_limit <= 64):
+        raise HTTPException(400, "routine_fire_queue_limit must be between 1 and 64")
+    conn = _get_db()
+    try:
+        set_setting(conn, "max_concurrent_executions", str(body.max_concurrent_executions))
+        set_setting(conn, "routine_fire_queue_limit", str(body.routine_fire_queue_limit))
+    finally:
+        _close_db(conn)
+    admission.set_max(body.max_concurrent_executions)
+    admission.set_queue_limit(body.routine_fire_queue_limit)
+    return {
+        "success": True,
+        "max_concurrent_executions": body.max_concurrent_executions,
+        "routine_fire_queue_limit": body.routine_fire_queue_limit,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Credentials
+# ---------------------------------------------------------------------------
+
+@app.post("/api/credentials/validate")
+def validate_credential(body: CredentialValidate):
+    """Test a key against its provider: one typed here, or the AI key already stored.
+
+    ``valid`` is true only when the provider accepted the key. ``outcome`` and
+    ``detail`` keep apart what the boolean folds together: a key the provider
+    refused, an answer that says nothing about the key, and a provider resmon
+    could not reach (``credential_manager.probe_api_key``). A stored key is
+    read from the keychain here and never returned.
+    """
+    provider = (body.provider or "").strip().lower()
+    key: Optional[str] = (body.key or "").strip() or None
+    base_url = body.base_url
+    if key is None:
+        cred_name = "custom_llm_api_key" if provider == "custom" else f"{provider}_api_key"
+        if cred_name not in AI_CREDENTIAL_NAMES:
+            raise HTTPException(400, "Type the key to test: resmon tests a stored key only for an AI provider.")
+        key = get_credential(cred_name)
+        if not key:
+            raise HTTPException(400, "No key is stored for this provider, so there is nothing to test.")
+    if provider == "custom" and base_url:
+        # The rule a run's requests follow: a key goes over HTTPS, or over
+        # HTTP only to this computer, never in plain text to another one.
+        # Imported here: llm_factory loads the provider SDKs.
+        from implementation_scripts.llm_factory import _validate_custom_base_url
+        try:
+            base_url = _validate_custom_base_url(base_url.strip())
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+    probe = probe_api_key(provider, key, base_url=base_url)
+    return {"valid": probe["outcome"] == "accepted", **probe}
+
+
+@app.post("/api/ai/models")
+def list_ai_models(body: AIModelsRequest):
+    """Return the list of model IDs the BYOK credential can access.
+
+    The caller may send a freshly-typed ``key`` or rely on the credential
+    already stored in the OS keyring for ``{provider}_api_key`` (or
+    ``custom_llm_api_key`` for the Custom provider). ``local`` uses no
+    key and requires ``endpoint`` instead.
+    """
+    provider = (body.provider or "").strip().lower()
+    if not provider:
+        raise HTTPException(400, "Provider is required.")
+
+    # Subscription lanes have no key to look up, and asking for one would be
+    # the false "API key missing" all over again. They are answered from the
+    # CLI itself, and the response says which kind of answer it is: claude has
+    # no models command and offers documented aliases, codex reports a real
+    # catalog through `codex debug models`.
+    if provider in SUBSCRIPTION_PROVIDERS:
+        binary = (body.binary_path or "").strip() or None
+        if binary is None and body.purpose == "ask" and provider == "codex":
+            # The composer holds no path: a conversation is fixed to a
+            # connection, not to a locator. The engine knows which command
+            # Ask's Codex runs, so it asks that one.
+            conn = _get_db()
+            try:
+                binary = assistant_runtime.codex_cli_path(_assistant_settings(conn)) or None
+            finally:
+                _close_db(conn)
+        catalog = list_subscription_catalog(provider, binary)
+        if catalog.error:
+            raise HTTPException(400, catalog.error)
+        return catalog.to_dict()
+
+    key: Optional[str] = (body.key or "").strip() or None
+    if key is None and provider != "local":
+        cred_name = (
+            "custom_llm_api_key" if provider == "custom" else f"{provider}_api_key"
+        )
+        if cred_name in AI_CREDENTIAL_NAMES:
+            key = get_credential(cred_name)
+        if not key:
+            raise HTTPException(
+                400,
+                "No API key available for this provider. Enter a key above or "
+                "save one first.",
+            )
+
+    try:
+        models = ai_list_available_models(
+            provider=provider,
+            key=key,
+            base_url=(body.base_url or "").strip() or None,
+            header_prefix=(body.header_prefix or "Bearer").strip() or "Bearer",
+            endpoint=(body.endpoint or "").strip() or None,
+        )
+    except ModelListError as exc:
+        raise HTTPException(400, str(exc))
+    return {"models": models}
+
+
+@app.put("/api/credentials/{key_name}", response_model=response_models.CredentialChanged,
+         response_model_exclude_unset=True)
+def store_credential_endpoint(key_name: str, body: CredentialStore):
+    if not is_allowed_credential_name(key_name):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown credential name: {key_name}",
+        )
+    store_credential(key_name, body.value)
+    return {"success": True}
+
+
+@app.delete("/api/credentials/{key_name}", response_model=response_models.CredentialChanged,
+            response_model_exclude_unset=True)
+def delete_credential_endpoint(key_name: str):
+    delete_credential(key_name)
+    return {"success": True}
+
+
+# ---------------------------------------------------------------------------
+# Service unit install / uninstall
+# ---------------------------------------------------------------------------
+
+from implementation_scripts import service_manager as _service_manager
+
+
+class ServiceInstallBody(BaseModel):
+    # The wire field stays "register" - that is what AdvancedSettings.tsx posts -
+    # but the Python attribute is renamed because "register" shadows an
+    # attribute on pydantic's BaseModel and emitted a UserWarning on every
+    # import of this module.
+    model_config = ConfigDict(populate_by_name=True)
+
+    register_service: bool = Field(
+        default=False,  # default False so the OS step is explicit
+        alias="register",
+    )
+    port: Optional[int] = None
+
+
+@app.get("/api/service/status", response_model=response_models.ServiceStatus,
+         response_model_exclude_unset=True)
+def service_status():
+    """Return whether the daemon unit file is installed and its path, and on macOS what launchd holds."""
+    body = {
+        "installed": _service_manager.is_installed(),
+        "unit_path": str(_service_manager.unit_path()),
+        "platform": sys.platform,
+        "runs": _service_manager.unit_runs(),
+        "app_available": _service_manager.default_app_executable() is not None,
+    }
+    if _service_manager.uses_launchd():
+        job = _service_manager.launchd_job()
+        body["loaded"] = job.loaded
+        body["blocked"] = job.disabled
+    return body
+
+
+def _probe_daemon() -> tuple[dict, str]:
+    """Read ``daemon.lock`` and probe the service it names, once.
+
+    Returns the body ``/api/service/daemon-status`` answers with, unchanged,
+    and a word for what the probe found. The word exists because
+    ``/api/scheduler/status`` has to tell apart two failures this body reports
+    with the same ``running: false``: a port **nothing listens on** -- the
+    service is not running, and a stale lock is what a dead service leaves
+    behind -- and a port where something is listening but did not answer
+    health with a 200, which says nothing about whether the service runs. The
+    distinction is drawn from the exception's type rather than by reading the
+    ``error`` string, so rewording the diagnostic cannot move a service from
+    one state to the other. It is not added to the body: the Advanced tab's
+    shape is not this route's to change.
+
+    ``found`` is one of:
+
+    * ``no_lock`` -- no readable lock file.
+    * ``no_port`` -- a lock that names no port, so there is nothing to probe.
+    * ``nothing_listening`` -- the connection was refused.
+    * ``no_answer`` -- a timeout, a non-200 (a 401 from a service whose token
+      file this process cannot read is the realistic one), or any other
+      failure after a connection was possible.
+    * ``answered`` -- health answered 200; ``running`` is true.
+    """
+    from implementation_scripts import daemon as _daemon
+
+    payload = _daemon.read_lock()
+    if not payload:
+        return {
+            "lock_present": False,
+            "running": False,
+            "pid": None,
+            "port": None,
+            "version": None,
+            "started_at": None,
+            "lock_pid": None,
+            "lock_port": None,
+            "lock_version": None,
+            "error": None,
+        }, "no_lock"
+
+    lock_pid = payload.get("pid") if isinstance(payload.get("pid"), int) else None
+    lock_port = payload.get("port") if isinstance(payload.get("port"), int) else None
+    lock_version = payload.get("version") if isinstance(payload.get("version"), str) else None
+
+    base = {
+        "lock_present": True,
+        "running": False,
+        "pid": None,
+        "port": None,
+        "version": None,
+        "started_at": None,
+        "lock_pid": lock_pid,
+        "lock_port": lock_port,
+        "lock_version": lock_version,
+        "error": None,
+    }
+
+    if lock_port is None:
+        base["error"] = "lock file missing port"
+        return base, "no_port"
+
+    # Probe the daemon's actual port. Short timeout — this endpoint is
+    # polled from the Advanced tab on a 5 s cadence.
+    # The daemon is a separate backend with its own token, published in its
+    # token file. A daemon from before the lock-down has no file and no guard,
+    # so it is probed bare, as it always was; a current daemon without a
+    # readable file answers 401 and is reported as such.
+    daemon_token = api_auth.read_token_file(lock_port, _daemon.lock_path().parent)
+    try:
+        with httpx.Client(timeout=1.5) as client:
+            resp = client.get(f"http://127.0.0.1:{lock_port}/api/health",
+                              headers=api_auth.bearer(daemon_token) if daemon_token else None)
+        if resp.status_code != 200:
+            base["error"] = f"health probe HTTP {resp.status_code}"
+            return base, "no_answer"
+        data = resp.json()
+    except httpx.ConnectError as exc:
+        base["error"] = f"health probe failed: {exc.__class__.__name__}"
+        return base, "nothing_listening"
+    except Exception as exc:
+        base["error"] = f"health probe failed: {exc.__class__.__name__}"
+        return base, "no_answer"
+
+    # If the probe came back from *this* process, the lock points at the
+    # current backend rather than a separate daemon — flag it so the UI
+    # can render the distinction honestly.
+    probed_pid = data.get("pid") if isinstance(data.get("pid"), int) else None
+    base.update(
+        {
+            "running": True,
+            "pid": probed_pid,
+            "port": lock_port,
+            "version": data.get("version") if isinstance(data.get("version"), str) else None,
+            "started_at": data.get("started_at") if isinstance(data.get("started_at"), str) else None,
+            "is_self": probed_pid == os.getpid(),
+        }
+    )
+    return base, "answered"
+
+
+@app.get("/api/service/daemon-status", response_model=response_models.DaemonStatus,
+         response_model_exclude_unset=True)
+def service_daemon_status():
+    """Return ground-truth daemon status read from ``daemon.lock``.
+
+    Unlike ``/api/health`` (which always describes the
+    *current* backend), this endpoint reads the on-disk daemon lock file
+    and probes the daemon's actual port. The Advanced tab uses it so that
+    a renderer-spawned fallback backend cannot masquerade as the daemon.
+
+    Response shape::
+
+        {
+          "lock_present": bool,
+          "running": bool,                # true iff lock present AND health probe succeeds
+          "pid": int | None,              # from the live health probe
+          "port": int | None,
+          "version": str | None,
+          "started_at": str | None,
+          "lock_pid": int | None,         # raw lock-file payload (for diagnostics)
+          "lock_port": int | None,
+          "lock_version": str | None,
+          "error": str | None,            # populated when lock_present but probe failed
+        }
+    """
+    return _probe_daemon()[0]
+
+
+@app.post("/api/service/install", response_model=response_models.ServiceInstalled,
+          response_model_exclude_unset=True)
+def service_install(body: ServiceInstallBody = ServiceInstallBody()):
+    """Render the platform unit template and write it to the install path.
+
+    ``register=True`` additionally asks the OS service manager to enable the
+    unit at login (launchctl / systemctl / schtasks).
+    """
+    try:
+        done = _service_manager.install_unit(port=body.port, register=body.register_service)
+    except (_service_manager.TemporaryPlaceError, _service_manager.ServiceBlockedError) as exc:
+        raise HTTPException(409, str(exc))
+    except Exception as exc:  # registration failure
+        raise HTTPException(500, f"Service install failed: {exc}")
+    answer = {"installed": True, "unit_path": str(done.path)}
+    if done.restarting:
+        answer["restarting"] = True
+    return answer
+
+
+@app.post("/api/service/uninstall", response_model=response_models.ServiceUninstalled,
+          response_model_exclude_unset=True)
+def service_uninstall(body: ServiceInstallBody = ServiceInstallBody()):
+    """Remove the unit file; optionally deregister with the OS first, keeping the file if that fails."""
+    try:
+        done = _service_manager.uninstall_unit(deregister=body.register_service)
+    except Exception as exc:
+        raise HTTPException(500, f"Service uninstall failed: {exc}")
+    answer = {"installed": False, "unit_path": str(done.path), "removed": done.removed}
+    if done.restarting:
+        answer["restarting"] = True
+    return answer
+
+
+# ---------------------------------------------------------------------------
+# App factory / shutdown helpers (shared between Electron-spawn and daemon paths)
+# ---------------------------------------------------------------------------
+
+def create_app(db_path: str | None = None) -> FastAPI:
+    """Return the configured FastAPI application.
+
+    Both the Electron-spawned ``main()`` entrypoint and the standalone
+    ``resmon-daemon`` entrypoint call this factory so that identical routes,
+    middleware, and database initialization are applied to every process.
+    """
+    global _db_path, _shared_conn, _db_initialized
+    if db_path is not None:
+        _db_path = db_path
+        _shared_conn = None
+        _db_initialized = False
+    # Eagerly initialize so the first request does not race.
+    _get_db()
+    return app
+
+
+def flush_running_executions(reason: str = "daemon_restart") -> int:
+    """Mark any ``running`` executions ``interrupted`` on a graceful shutdown.
+
+    Called during graceful shutdown so that rows are not left in a permanent
+    ``running`` state after the daemon exits. Returns the number of rows flushed.
+
+    This wrote ``'failed'`` until schema 19, and that was an overclaim in the
+    one place the claim was easiest to make: the daemon *did* observe itself
+    stopping, so the row is not a mystery -- but the run did not fail. Nothing
+    went wrong with the search; the process it was running inside went away.
+    ``interrupted`` with ``interrupted_reason='daemon_restart'`` is the whole of
+    what resmon knows, and it is what the Restart button acts on.
+
+    ``cancel_reason`` keeps carrying the same word. Rows written before
+    schema 19 have it and nothing else, and the renderer and the search record
+    both read it; dropping it here would make old and new rows read
+    differently for no gain.
+    """
+    try:
+        conn = _get_db()
+    except Exception:
+        return 0
+    rows = conn.execute(
+        "SELECT id FROM executions WHERE status = 'running'"
+    ).fetchall()
+    if not rows:
+        return 0
+    now = utc_now_iso()
+    for row in rows:
+        update_execution_status(
+            conn,
+            int(row["id"]),
+            "interrupted",
+            end_time=now,
+            cancel_reason=reason,
+            interrupted_reason="daemon_restart",
+            error_message=f"Execution interrupted on {reason}",
+        )
+    return len(rows)
+
+
+# ---------------------------------------------------------------------------
+# Startup reconciliation (schema 19)
+# ---------------------------------------------------------------------------
+#
+# ``flush_running_executions`` only fires on the way out, and only on the way
+# out *gracefully*. A SIGKILL, a power cut, a force-quit, or Electron killing
+# the backend it spawned all leave the row exactly as the worker thread last
+# wrote it: ``status='running'``, ``progress_events`` NULL, and no in-memory
+# ``ProgressStore`` entry on the next start -- so the row was listed nowhere,
+# could not be canceled, and sat in Results claiming to be running forever.
+#
+# The rule below is deliberately one-sided. A row is adopted only where resmon
+# can *establish* that the process which owned it is gone; everything else is
+# left running and counted in the log. That asymmetry is the same one
+# ``selected_evidence_runtime._startup`` makes, for the same reason recorded
+# there: PID reuse is a conservative refusal, never proof of death.
+
+# How old a ``running`` row with no recorded owner has to be before a start
+# will adopt it. Such a row was written by a resmon from before schema 19,
+# which had nowhere to record who was running it, so there is no liveness fact
+# to read and the only remaining evidence is the clock.
+#
+# 24 hours, because resmon puts no ceiling on how long a sweep may take -- the
+# admission queue makes a routine fire wait for a slot with no timeout at all,
+# so there is no shorter number in the code to borrow. A day is longer than any
+# sweep observed against the twenty-two shipped sources and short enough that a
+# user who reopens resmon the next morning is not still looking at a phantom.
+# Rows that carry an owner never reach this branch, so it goes stale on its own
+# as pre-19 history ages out.
+_ORPHAN_RUNNING_ADOPT_AFTER = timedelta(hours=24)
+
+
+# The rule itself lives in ``runtime_identity.process_is_alive``, which is the
+# one implementation the three call sites that need it share. The name stays
+# here because this module's reconciliation reads as prose with it, and because
+# ``test_executions_interrupted.py`` asks for it by name. Here the cost of
+# being wrong toward alive is a row that stays ``running`` a little longer;
+# the cost in the other direction is resmon telling the user a live run is dead.
+_owner_process_is_alive = runtime_identity.process_is_alive
+
+
+def _running_row_is_orphaned(row: dict, now: datetime) -> bool:
+    """Whether this ``running`` row's owner can be established to be gone."""
+    if row.get("owner_runtime_id") == runtime_identity.current_runtime_id():
+        # Our own row. At startup this can only be a pre-existing row that
+        # happens to carry a runtime id we have just minted, which is a
+        # 122-bit coincidence; treat it as ours and leave it alone.
+        return False
+    if row.get("owner_pid") is not None:
+        return not _owner_process_is_alive(row.get("owner_pid"))
+    if row.get("owner_runtime_id") is not None:
+        # An owner was recorded, but not a pid we can ask about. There is no
+        # liveness fact here at all, and the clock rule below is for rows that
+        # predate ownership entirely -- this row is newer than that and would
+        # be adopted on nothing. Err toward alive, which is what the whole
+        # asymmetry in this function is for.
+        return False
+    # Pre-19 row: no owner was ever recorded. Adopt only when nothing has been
+    # heard from it either -- a heartbeat would mean the row is newer than it
+    # looks -- and it is older than the threshold above.
+    if row.get("last_seen_at_utc"):
+        return False
+    stamp = row.get("start_time")
+    if not stamp:
+        return False
+    try:
+        started = datetime.fromisoformat(str(stamp))
+    except ValueError:
+        return False
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    return now - started > _ORPHAN_RUNNING_ADOPT_AFTER
+
+
+def _reconcile_executions_on_startup() -> dict:
+    """Turn ``running`` rows whose owner is gone into ``interrupted`` rows.
+
+    Runs before the scheduler, so a routine that fires immediately cannot be
+    reconciled by the sweep that is meant to be cleaning up after the *last*
+    process. Returns the counts it logs, for the tests and for the daemon
+    status line.
+
+    ``progress_events`` is left as it is -- NULL, for every row this touches,
+    because the worker persists them once at the end and never got there.
+    ``error_message`` is left as it is too: an execution that recorded an error
+    and was then interrupted recorded that error, and overwriting it with the
+    interruption would lose the more specific fact.
+    """
+    result = {"interrupted": 0, "left_running": 0, "runtime_id": runtime_identity.current_runtime_id()}
+    try:
+        conn = _get_db()
+    except Exception:
+        logging.getLogger(__name__).exception("Startup reconciliation could not open the database")
+        return result
+    try:
+        try:
+            rows = [dict(r) for r in conn.execute(
+                "SELECT id, owner_pid, owner_runtime_id, last_seen_at_utc, start_time "
+                "FROM executions WHERE status = 'running'"
+            ).fetchall()]
+        except sqlite3.Error:
+            logging.getLogger(__name__).exception("Startup reconciliation could not read executions")
+            return result
+        if not rows:
+            return result
+        now = datetime.now(timezone.utc)
+        for row in rows:
+            if not _running_row_is_orphaned(row, now):
+                result["left_running"] += 1
+                continue
+            try:
+                update_execution_status(
+                    conn,
+                    int(row["id"]),
+                    "interrupted",
+                    end_time=utc_now_iso(),
+                    interrupted_reason="owner_dead",
+                )
+            except sqlite3.Error:
+                logging.getLogger(__name__).exception(
+                    "Startup reconciliation could not adopt exec_id=%s", row["id"])
+                result["left_running"] += 1
+                continue
+            result["interrupted"] += 1
+    finally:
+        # ``_close_db`` is a deliberate no-op today -- a thread keeps its
+        # connection for its lifetime -- so this releases nothing and the three
+        # early returns above were not leaking anything. It is here for the
+        # shape: every other route and startup hook in this file pairs
+        # ``_get_db`` with ``_close_db`` in a ``finally``, and the day that
+        # function grows a body, the hook that skipped it is the one that
+        # breaks. A later edit copies the nearest example, so the nearest
+        # example should be right.
+        _close_db(conn)
+    logging.getLogger(__name__).info(
+        "Startup reconciliation: %d of %d running executions adopted as "
+        "interrupted (owner_dead); %d left running because their owner may "
+        "still be alive.",
+        result["interrupted"], len(rows), result["left_running"],
+    )
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Settings → Advanced → Danger Zone
+# ---------------------------------------------------------------------------
+#
+# Bulk irreversible erase / reset endpoints exposed in the Advanced tab.
+# The renderer guards each destructive call with a typed-CONFIRM modal, but
+# the backend re-validates the literal ``"CONFIRM"`` string on the wire so
+# stray client code can't accidentally wipe data.
+
+
+class AdminConfirmBody(BaseModel):
+    confirm: str = ""
+
+
+def _require_confirm(body: AdminConfirmBody) -> None:
+    if body.confirm != "CONFIRM":
+        raise HTTPException(
+            status_code=400,
+            detail="This action is irreversible. Type CONFIRM exactly to proceed.",
+        )
+
+
+# Each eraser counts the keys that were stored and are now gone, never the
+# names it asked about: with nothing stored, every count is 0. A delete that
+# times out raises, so a key that may still be there is never counted.
+
+
+def _erase_ai_keys() -> int:
+    # The legacy single global slot is an AI key too.
+    names = sorted(AI_CREDENTIAL_NAMES) + ["ai_api_key"]
+    return sum(delete_credential(name) for name in names)
+
+
+def _erase_repo_keys() -> int:
+    return sum(delete_credential(name) for name in sorted(catalog_credential_names()))
+
+
+def _erase_smtp_credentials() -> int:
+    return sum(delete_credential(name) for name in sorted(SMTP_CREDENTIAL_NAMES))
+
+
+def _erase_upgrade_copies(conn: sqlite3.Connection) -> None:
+    """Remove retained database data before an erasure changes the live rows."""
+    # The automatic copy holds the whole database: searches, runs, settings,
+    # and papers. Every database erasure must remove it, even one that keeps
+    # the papers. A person's backup in a folder they chose stays theirs.
+    try:
+        upgrade_copy.remove_all(upgrade_copy.database_file(conn))
+    except OSError as exc:
+        raise HTTPException(
+            500, f"The erasure stopped because resmon could not remove the database copy kept before an update ({exc}).",
+        ) from exc
+
+
+def _erase_configs(conn) -> int:
+    """Delete every saved configuration plus any linked routines."""
+    _erase_upgrade_copies(conn)
+    rows = conn.execute(
+        "SELECT id, parameters, config_type FROM saved_configurations"
+    ).fetchall()
+    for row in rows:
+        if row["config_type"] != "routine":
+            continue
+        raw = row["parameters"] or "{}"
+        try:
+            payload = json.loads(raw) if isinstance(raw, str) else raw
+        except (json.JSONDecodeError, TypeError):
+            payload = {}
+        rid = payload.get("linked_routine_id") if isinstance(payload, dict) else None
+        if isinstance(rid, int) and get_routine_by_id(conn, rid):
+            delete_routine(conn, rid)
+    count = conn.execute("SELECT COUNT(*) FROM saved_configurations").fetchone()[0]
+    conn.execute("DELETE FROM saved_configurations")
+    conn.execute("DELETE FROM sqlite_sequence WHERE name='saved_configurations'")
+    return int(count)
+
+
+def _erase_executions(conn) -> int:
+    """Delete every execution row and reset the AUTOINCREMENT counter."""
+    _erase_upgrade_copies(conn)
+    count = conn.execute("SELECT COUNT(*) FROM executions").fetchone()[0]
+    # execution_documents has ON DELETE CASCADE on executions(id); explicit
+    # DELETE here is belt-and-braces against pragma drift.
+    conn.execute("DELETE FROM execution_documents")
+    conn.execute("DELETE FROM executions")
+    conn.execute("DELETE FROM sqlite_sequence WHERE name='executions'")
+    return int(count)
+
+
+def _erase_corpus(conn) -> int:
+    """Delete every collected paper and its Library associations, retaining Library files/catalog.
+
+    "Erase all app data" and "Factory reset" must remove the corpus as well as
+    executions, configurations and keys: leaving it in place would mean tens of
+    thousands of papers surviving a reset that said it erased everything.
+    "Factory reset" promises a clean slate, and a promise it did not deliver is
+    the kind of overclaim resmon refuses.
+
+    ``documents`` is the root: authors, categories, the execution join table and
+    both lifecycle tables all cascade from it, and an AFTER DELETE trigger keeps
+    the full-text index in step. The index is rebuilt afterwards anyway, because
+    a stale FTS row would surface a paper that no longer exists.
+    """
+    _erase_upgrade_copies(conn)
+    count = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+    conn.execute("DELETE FROM documents")
+    conn.execute("DELETE FROM sqlite_sequence WHERE name='documents'")
+    # The collection maps' caches hold positions and words taken from these
+    # papers, so they go with them (every collection's), and so does the
+    # shared-wording answer. The collections stay, empty.
+    from implementation_scripts import collection_map, shared_wording, related_terms  # noqa: PLC0415 - see the imports
+    collection_map.forget(conn, every=True)
+    shared_wording.forget(conn)
+    related_terms.forget(conn)
+    try:
+        conn.execute("INSERT INTO documents_fts(documents_fts) VALUES ('rebuild')")
+    except sqlite3.Error:
+        # An install predating the search index has no FTS table to rebuild.
+        pass
+    return int(count)
+
+
+def _reset_collections(conn) -> int:
+    """A factory reset's collections: every one but the default deleted, and the
+    default back to its first name. The papers are erased before this, so no
+    membership is left to move; their maps went with them."""
+    removed = conn.execute("DELETE FROM collections WHERE id <> ?",
+                           (paper_collections.DEFAULT_COLLECTION_ID,)).rowcount
+    conn.execute("UPDATE collections SET name = ? WHERE id = ?",
+                 (DEFAULT_COLLECTION_NAME, paper_collections.DEFAULT_COLLECTION_ID))
+    return int(removed)
+
+
+def _reset_settings(conn) -> int:
+    """Clear settings except the records about the database; Library catalog and files remain."""
+    _erase_upgrade_copies(conn)
+    # Kept: the schema-version marker, so the next daemon start doesn't re-run
+    # migrations, and the marker of the one-time recount of earlier runs' new
+    # papers, so it never runs twice. The runs outlive a settings reset, and so
+    # does the record that they were recounted.
+    kept = ",".join("?" * len(KEPT_THROUGH_SETTINGS_RESET))
+    count = conn.execute(
+        f"SELECT COUNT(*) FROM app_settings WHERE key NOT IN ({kept})", KEPT_THROUGH_SETTINGS_RESET,
+    ).fetchone()[0]
+    conn.execute(f"DELETE FROM app_settings WHERE key NOT IN ({kept})", KEPT_THROUGH_SETTINGS_RESET)
+    return int(count)
+
+
+@app.post("/api/admin/erase-ai-keys", response_model=response_models.AiKeysErased,
+          response_model_exclude_unset=True)
+def admin_erase_ai_keys():
+    n = _erase_ai_keys()
+    return {"success": True, "ai_keys_removed": n}
+
+
+@app.post("/api/admin/erase-repo-keys", response_model=response_models.RepositoryKeysErased,
+          response_model_exclude_unset=True)
+def admin_erase_repo_keys():
+    n = _erase_repo_keys()
+    return {"success": True, "repo_keys_removed": n}
+
+
+@app.post("/api/admin/erase-configs", response_model=response_models.ConfigurationsErased,
+          response_model_exclude_unset=True)
+def admin_erase_configs(body: AdminConfirmBody):
+    _require_confirm(body)
+    conn = _get_db()
+    try:
+        n = _erase_configs(conn)
+        conn.commit()
+        return {"success": True, "configs_removed": n}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/admin/erase-executions", response_model=response_models.ExecutionsErased,
+          response_model_exclude_unset=True)
+def admin_erase_executions(body: AdminConfirmBody):
+    _require_confirm(body)
+    conn = _get_db()
+    try:
+        n = _erase_executions(conn)
+        conn.commit()
+        return {"success": True, "executions_removed": n}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/admin/erase-execution-data", response_model=response_models.ExecutionDataErased,
+          response_model_exclude_unset=True)
+def admin_erase_execution_data(body: AdminConfirmBody):
+    """Erase all configs + all executions. Settings and API keys untouched."""
+    _require_confirm(body)
+    conn = _get_db()
+    try:
+        c = _erase_configs(conn)
+        e = _erase_executions(conn)
+        conn.commit()
+        return {"success": True, "configs_removed": c, "executions_removed": e}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/admin/erase-app-data", response_model=response_models.AppDataErased,
+          response_model_exclude_unset=True)
+def admin_erase_app_data(body: AdminConfirmBody):
+    """Erase the corpus + configs + executions + every API key.
+
+    The corpus is included: "All app data" that left every collected paper
+    behind would not describe what this does.
+    """
+    _require_confirm(body)
+    conn = _get_db()
+    try:
+        c = _erase_configs(conn)
+        e = _erase_executions(conn)
+        d = _erase_corpus(conn)
+        conn.commit()
+    finally:
+        _close_db(conn)
+    a = _erase_ai_keys()
+    r = _erase_repo_keys()
+    return {
+        "success": True,
+        "configs_removed": c,
+        "executions_removed": e,
+        "documents_removed": d,
+        "ai_keys_removed": a,
+        "repo_keys_removed": r,
+    }
+
+
+@app.post("/api/admin/erase-corpus", response_model=response_models.CorpusErased,
+          response_model_exclude_unset=True)
+def admin_erase_corpus(body: AdminConfirmBody):
+    """Erase every collected paper. Executions, configs and keys are kept."""
+    _require_confirm(body)
+    conn = _get_db()
+    try:
+        n = _erase_corpus(conn)
+        conn.commit()
+        return {"success": True, "documents_removed": n}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/admin/reset-settings", response_model=response_models.SettingsReset,
+          response_model_exclude_unset=True)
+def admin_reset_settings(body: AdminConfirmBody):
+    """Reset every setting plus erase every API key. Configs/executions kept."""
+    _require_confirm(body)
+    conn = _get_db()
+    try:
+        n = _reset_settings(conn)
+        conn.commit()
+    finally:
+        _close_db(conn)
+    a = _erase_ai_keys()
+    r = _erase_repo_keys()
+    # Also clear the SMTP password stored under SMTP_CREDENTIAL_NAMES so a
+    # settings reset truly removes every secret tied to settings.
+    m = _erase_smtp_credentials()
+    return {
+        "success": True,
+        "settings_cleared": n,
+        "ai_keys_removed": a,
+        "repo_keys_removed": r,
+        "smtp_credentials_removed": m,
+    }
+
+
+@app.post("/api/admin/factory-reset", response_model=response_models.FactoryReset,
+          response_model_exclude_unset=True)
+def admin_factory_reset(body: AdminConfirmBody):
+    """Erase every secret, config, execution, setting, and collected paper.
+
+    The corpus is included: a "factory reset" that left tens of thousands of
+    papers on disk would be the most misleading label in the app.
+    """
+    _require_confirm(body)
+    conn = _get_db()
+    try:
+        c = _erase_configs(conn)
+        e = _erase_executions(conn)
+        d = _erase_corpus(conn)
+        s = _reset_settings(conn)
+        k = _reset_collections(conn)
+        conn.commit()
+    finally:
+        _close_db(conn)
+    a = _erase_ai_keys()
+    r = _erase_repo_keys()
+    m = _erase_smtp_credentials()
+    return {
+        "success": True,
+        "configs_removed": c,
+        "executions_removed": e,
+        "documents_removed": d,
+        "settings_cleared": s,
+        "ai_keys_removed": a,
+        "repo_keys_removed": r,
+        "smtp_credentials_removed": m,
+        "collections_removed": k,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Backup and restore (Build 3, slice three)
+# ---------------------------------------------------------------------------
+#
+# Confirm-gated like the Danger Zone, and for a related reason: a backup reads
+# every retained byte the user holds and writes them somewhere they chose, and
+# a restore replaces the whole corpus. Neither is something stray client code
+# should be able to start.
+#
+# The restore is *staged*. A request thread cannot safely replace the database
+# its own process has open, so ``/api/restore`` writes a pointer and the work
+# happens on the next start, before anything opens the database. See
+# ``implementation_scripts/backup.py``.
+
+
+def _backup_state_dir() -> Path:
+    """The directory the pointer, the undo copy and the restore record live in.
+
+    ``api_auth.state_dir`` is the same resolution the token file uses, so an
+    isolated ``RESMON_STATE_DIR`` moves all of it together.
+    """
+    return api_auth.state_dir()
+
+
+def _configured_vault_id(conn) -> str | None:
+    try:
+        row = conn.execute("SELECT vault_id FROM library_vault WHERE singleton=1").fetchone()
+    except sqlite3.Error:
+        return None
+    return row["vault_id"] if row else None
+
+
+class BackupRequest(AdminConfirmBody):
+    include_reports: bool = True
+
+
+class BundleBody(BaseModel):
+    path: str = ""
+
+
+class RestoreRequest(AdminConfirmBody):
+    path: str = ""
+    # A bundle whose database carries orphan rows can still be restored, but
+    # only deliberately: the verify report names them and the user says yes.
+    accept_fk_violations: bool = False
+    # Where the Library vault should go *on this machine*. Empty means the path
+    # the bundle's own database records, which is the right answer on the
+    # machine the backup came from and often a path that does not exist on any
+    # other one. Validated here, while the user can still choose again.
+    vault_parent: str = ""
+
+
+@app.post("/api/backup", response_model=response_models.BackupWritten,
+          response_model_exclude_unset=True)
+def backup_now(body: BackupRequest):
+    """Write one bundle: the snapshotted database, the vault's bytes, optionally reports."""
+    _require_confirm(body)
+    conn = _get_db()
+    try:
+        export_dir = get_setting(conn, "export_directory") or ""
+        parent = Path(export_dir).expanduser() if export_dir else Path(tempfile.gettempdir())
+        try:
+            parent.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            raise HTTPException(400, f"Invalid export_directory: {exc}")
+        try:
+            manifest = backup_module.create_backup(
+                conn,
+                parent,
+                app_version=APP_VERSION,
+                schema_version=SCHEMA_VERSION,
+                include_reports=bool(body.include_reports),
+                reports_dir=REPORTS_DIR,
+                state_dir=_backup_state_dir(),
+            )
+        except backup_module.BackupError as exc:
+            # Surfaced, not logged away: CAPABILITIES.md:801 exists because the
+            # last backup path swallowed its failures.
+            logging.getLogger(__name__).error("Backup failed (%s): %s", exc.reason, exc.message)
+            raise HTTPException(400, detail={"reason": exc.reason, "message": exc.message})
+        except OSError as exc:
+            logging.getLogger(__name__).exception("Backup failed")
+            raise HTTPException(400, detail={"reason": "io_error", "message": str(exc)})
+    finally:
+        _close_db(conn)
+    set_setting(_get_db(), "last_backup_path", manifest["path"])
+    _get_db().commit()
+    return {"success": True, "path": manifest["path"], "manifest": manifest}
+
+
+@app.post("/api/backup/verify", response_model=response_models.BundleReport,
+          response_model_exclude_unset=True)
+def backup_verify(body: BundleBody):
+    """Recompute every hash and report what a restore would and would not do."""
+    conn = _get_db()
+    try:
+        vault_id = _configured_vault_id(conn)
+    finally:
+        _close_db(conn)
+    try:
+        return backup_module.verify_bundle(
+            Path(body.path).expanduser(),
+            this_schema_version=SCHEMA_VERSION,
+            configured_vault_id=vault_id,
+        )
+    except backup_module.BackupError as exc:
+        raise HTTPException(400, detail={"reason": exc.reason, "message": exc.message})
+
+
+def _restart_instructions() -> tuple[str, str]:
+    """``(restart, stop)``: how to restart, and how to stop, the background service here."""
+    if sys.platform == "darwin":
+        return (
+            "turn Run resmon in the background off and on again in Settings › In the Background, "
+            "or log out of your Mac and back in",
+            "turn off Run resmon in the background in Settings › In the Background",
+        )
+    if sys.platform == "win32":
+        return (
+            "end the resmon-daemon task in Task Scheduler and run it again",
+            "turn off Run resmon in the background in Settings › In the Background",
+        )
+    return (
+        "run `systemctl --user restart resmon-daemon`",
+        "turn off Run resmon in the background in Settings › In the Background",
+    )
+
+
+def _how_a_staged_restore_runs() -> tuple[str, str]:
+    """``(runs_on, sentence)``: what will apply a staged restore, and what to do to make it happen now.
+
+    A restore runs in ``_lifespan``, when a backend starts, so which backend
+    that is decides what the user has to do. A window that started its own
+    backend does apply the restore when it is reopened. A window attached to the
+    background service does not: the service keeps running when the window
+    closes, so for anyone with the service the restore stays staged however
+    often they reopen resmon. And where some *other* service holds the lock, a
+    window's own backend refuses the restore at start (``database_in_use``),
+    which the user would otherwise learn only afterwards.
+
+    ``runs_on`` is the same answer as a code, so an interface can offer the one
+    control that does what the sentence says without reading the sentence:
+    ``app_restart`` (this window's own backend applies it when resmon next
+    starts, so restarting the app restores), ``service_restart`` (the
+    background service this window uses holds the database; reopening the
+    window is not a start), and ``service_stopped`` (another live service holds
+    the database, and nothing restores until it is stopped).
+    """
+    from implementation_scripts import daemon as _daemon
+
+    restart, stop = _restart_instructions()
+    lock = _daemon.read_lock() or {}
+    pid = lock.get("pid") if isinstance(lock.get("pid"), int) else None
+    if pid == os.getpid():
+        return "service_restart", (
+            "The background service holds your database, so this restore runs when "
+            "the service next starts, not when you reopen this window. To restore "
+            f"now, restart the service: {restart}. Then open resmon again. Nothing "
+            "has changed yet."
+        )
+    if pid is not None:
+        try:
+            os.kill(pid, 0)
+            alive = True
+        except (OSError, ProcessLookupError):
+            alive = False
+        if alive:
+            return "service_stopped", (
+                f"Another resmon background service is running (pid {pid}), and a "
+                "restore will not replace the database while it holds it. To "
+                f"restore, {stop}, then quit resmon and open it again. Nothing has "
+                "changed yet."
+            )
+    return "app_restart", "Quit resmon and open it again to restore. Nothing has changed yet."
+
+
+def _when_a_staged_restore_runs() -> str:
+    """The sentence half of ``_how_a_staged_restore_runs``."""
+    return _how_a_staged_restore_runs()[1]
+
+
+@app.post("/api/restore", response_model=response_models.RestoreStaged,
+          response_model_exclude_unset=True)
+def restore_stage(body: RestoreRequest):
+    """Verify a bundle and stage it. The restore itself happens on the next start."""
+    _require_confirm(body)
+    bundle = Path(body.path or "").expanduser()
+    conn = _get_db()
+    try:
+        vault_id = _configured_vault_id(conn)
+    finally:
+        _close_db(conn)
+    try:
+        report = backup_module.verify_bundle(
+            bundle, this_schema_version=SCHEMA_VERSION, configured_vault_id=vault_id)
+    except backup_module.BackupError as exc:
+        raise HTTPException(400, detail={"reason": exc.reason, "message": exc.message})
+    if not report["ok"]:
+        raise HTTPException(400, detail={"reason": "verification_failed",
+                                         "problems": report["problems"]})
+    vault_parent: str | None = None
+    bundle_vault_id = (report["manifest"] or {}).get("vault_id")
+    if body.vault_parent and bundle_vault_id:
+        # Refused here rather than on the next start: a restore that only
+        # discovers its destination is unusable after it has moved the database
+        # aside is a restore the user watches fail.
+        try:
+            vault_parent = str(backup_module.validate_vault_parent(
+                body.vault_parent, bundle=bundle, vault_id=bundle_vault_id))
+        except backup_module.BackupError as exc:
+            raise HTTPException(400, detail={"reason": exc.reason, "message": exc.message})
+    try:
+        pointer = backup_module.stage_restore(
+            bundle, _backup_state_dir(), report,
+            accept_fk_violations=bool(body.accept_fk_violations),
+            vault_parent=vault_parent)
+    except backup_module.BackupError as exc:
+        raise HTTPException(400, detail={"reason": exc.reason, "message": exc.message,
+                                         "fk_violations": report["fk_violations"],
+                                         "fk_violations_total": report["fk_violations_total"]})
+    return {
+        "success": True,
+        "staged": pointer,
+        "report": report,
+        "next_step": _when_a_staged_restore_runs(),
+    }
+
+
+@app.get("/api/backup/last", response_model=response_models.BackupLast,
+         response_model_exclude_unset=True)
+def backup_last():
+    """The last bundle, the last restore outcome, the undo copies, and the copy kept before the last upgrade."""
+    conn = _get_db()
+    try:
+        last_path = get_setting(conn, "last_backup_path") or ""
+        drive_upload_retired = _drive_upload_was_on(conn)
+        db_file = upgrade_copy.database_file(conn)
+    finally:
+        _close_db(conn)
+    state = _backup_state_dir()
+    summary = None
+    if last_path and (Path(last_path) / backup_module.MANIFEST_NAME).is_file():
+        try:
+            manifest = backup_module.read_manifest(Path(last_path))
+            summary = {
+                "path": last_path,
+                "created_at_utc": manifest.get("created_at_utc"),
+                "app_version": manifest.get("app_version"),
+                "schema_version": manifest.get("schema_version"),
+                "vault_id": manifest.get("vault_id"),
+                "files": len(manifest.get("files", [])),
+                "includes_reports": manifest.get("includes_reports"),
+                "fk_violations_total": manifest.get("fk_violations_total") or 0,
+                # Absent on a bundle written before the row count existed, and
+                # reported as absent rather than as zero.
+                "fk_violations_rows": manifest.get("fk_violations_rows"),
+            }
+        except backup_module.BackupError:
+            summary = None
+    pending = backup_module.pending_restore(state)
+    runs_on, runs_when = _how_a_staged_restore_runs() if pending else (None, None)
+    return {
+        "last_backup": summary,
+        "last_backup_path_recorded": last_path or None,
+        "pending_restore": pending,
+        # The sentence the pending notice shows, so it says what will apply the
+        # restore here rather than "the next time resmon starts"; and the same
+        # answer as a code, for the control that restarts the app.
+        "pending_restore_runs_when": runs_when,
+        "pending_restore_runs_on": runs_on,
+        "last_restore": backup_module.last_restore(state),
+        "undo_copies": backup_module.undo_copies(state),
+        "drive_upload_retired": drive_upload_retired,
+        "pre_upgrade_copy": upgrade_copy.latest(db_file),
+    }
+
+
+# The upload to Google Drive after each run, which signed in to Google, was
+# removed. Its two settings may still be stored, and nothing reads them now
+# except the notice that says the upload has gone.
+_RETIRED_DRIVE_UPLOAD_KEYS = ("cloud_auto_backup", "cloud_provider")
+
+
+def _drive_upload_was_on(conn) -> bool:
+    """Whether this database had the upload after each run switched on, read as the upload used to read it."""
+    return (get_setting(conn, "cloud_auto_backup") or "").strip().lower() == "true"
+
+
+@app.post("/api/backup/drive-upload-notice/acknowledge",
+          response_model=response_models.DriveUploadNoticeAcknowledged,
+          response_model_exclude_unset=True)
+def drive_upload_notice_acknowledge():
+    """Dismiss the notice that the upload to Google Drive is gone, by deleting the settings it is read from."""
+    conn = _get_db()
+    try:
+        was_on = _drive_upload_was_on(conn)
+        conn.execute(
+            f"DELETE FROM app_settings WHERE key IN ({','.join('?' * len(_RETIRED_DRIVE_UPLOAD_KEYS))})",
+            _RETIRED_DRIVE_UPLOAD_KEYS,
+        )
+        conn.commit()
+    finally:
+        _close_db(conn)
+    return {"success": True, "acknowledged": was_on}
+
+
+@app.post("/api/restore/cancel", response_model=response_models.RestoreCancelled,
+          response_model_exclude_unset=True)
+def restore_cancel():
+    """Forget a staged restore. Nothing had been moved yet, so nothing is undone."""
+    backup_module.clear_pending(_backup_state_dir())
+    return {"success": True}
+
+
+@app.post("/api/restore/undo-copy/delete", response_model=response_models.RestoreUndoCopiesDeleted,
+          response_model_exclude_unset=True)
+def restore_delete_undo(body: AdminConfirmBody):
+    """Delete the database copies a restore set aside. Irreversible, so confirm-gated."""
+    _require_confirm(body)
+    return {"success": True, "deleted": backup_module.delete_undo_copies(_backup_state_dir())}
+
+
+@app.post("/api/restore/acknowledge", response_model=response_models.RestoreAcknowledged,
+          response_model_exclude_unset=True)
+def restore_acknowledge():
+    """Dismiss the one-time "what a restore did not bring back" card."""
+    state = _backup_state_dir()
+    record = backup_module.last_restore(state)
+    if record is None:
+        return {"success": True, "acknowledged": False}
+    record["acknowledged"] = True
+    (state / backup_module.RESTORE_LOG_NAME).write_text(json.dumps(record, indent=2))
+    return {"success": True, "acknowledged": True}
+
+
+def _apply_pending_restore_on_startup() -> dict | None:
+    """The restore step. Runs first in ``_lifespan``, before anything opens the database.
+
+    ``init_db`` is reached lazily through ``_get_db``, so "before ``init_db``"
+    means before the first hook that touches the database -- which is the first
+    statement of the lifespan, here.
+    """
+    from implementation_scripts import daemon as _daemon
+
+    def another_process_holds_it() -> bool:
+        """Whether a *live* daemon other than this process holds the database.
+
+        A stale lock file left by a crash must not block a restore forever, so
+        the pid is probed rather than trusted; signal 0 asks the kernel whether
+        the process exists without touching it.
+        """
+        payload = _daemon.read_lock()
+        if not payload:
+            return False
+        pid = payload.get("pid")
+        if not isinstance(pid, int) or pid == os.getpid():
+            return False
+        try:
+            os.kill(pid, 0)
+        except (OSError, ProcessLookupError):
+            return False
+        return True
+
+    db_path = _db_path or str(DEFAULT_DB_PATH)
+    if db_path == ":memory:":
+        # An ephemeral database has nothing to restore over; tests that want the
+        # startup path drive it against a real file.
+        return None
+    try:
+        return backup_module.apply_pending_restore(
+            _backup_state_dir(),
+            Path(db_path),
+            this_schema_version=SCHEMA_VERSION,
+            # The backup being restored is the copy of this database from
+            # before its upgrade, so none is made beside it; and making one
+            # would delete the copy from before the last update.
+            init_db=lambda path: init_db(path, keep_upgrade_copy=False),
+            daemon_lock_held=another_process_holds_it,
+        )
+    except Exception:
+        logging.getLogger(__name__).exception("The staged restore could not be applied")
+        return None
+
+
+def close_db() -> None:
+    """Close every sqlite connection this process opened, except the unsafe ones.
+
+    Each thread holds its own connection, so closing only the
+    anchor would leave the rest open -- and an in-memory database stays alive
+    while any connection to it remains, which would leak state between tests.
+
+    **A connection owned by another thread that is still alive is not closed.**
+    Connections are opened with ``check_same_thread=False``, so sqlite3 does
+    nothing to serialize a close against a query running on another thread; the
+    C library is handed a connection mid-statement and the process dies with
+    SIGSEGV rather than raising anything Python can catch. In an end-to-end
+    suite that showed up as a segfault here during fixture teardown while an
+    execution worker was still running, about once in twenty-five runs.
+
+    It is not only a test problem. ``daemon.py`` calls this on shutdown after
+    flushing running executions and stopping the scheduler -- neither of which
+    joins the ``exec-`` worker threads -- so the same race can take down the
+    real application as it quits.
+
+    Deferred connections go back on the list, so the next call collects them
+    once their owner has finished. Leaking a connection until then is strictly
+    better than the alternative: it costs a file handle, and the generation bump
+    below means the owning thread rebuilds rather than reusing it either way.
+    """
+    global _shared_conn, _db_initialized, _db_generation
+    with _db_lock:
+        entries = list(_db_conns)
+        _db_conns.clear()
+
+    current = threading.current_thread()
+    deferred: list[tuple[sqlite3.Connection, threading.Thread]] = []
+    for conn, owner in entries:
+        # Closing our own connection is always safe: this thread cannot be
+        # inside a query on it while it is here.
+        if owner is not current and owner.is_alive():
+            deferred.append((conn, owner))
+            continue
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    if deferred:
+        with _db_lock:
+            _db_conns.extend(deferred)
+        logging.getLogger(__name__).warning(
+            "close_db left %d connection(s) open: their owning threads (%s) are "
+            "still running. They will be closed by the next call.",
+            len(deferred),
+            ", ".join(sorted({owner.name for _, owner in deferred})),
+        )
+
+    _shared_conn = None
+    _db_initialized = False
+    # Move the generation on so any thread still holding a reference rebuilds
+    # rather than using a closed connection.
+    _db_generation += 1
+
+
+# ---------------------------------------------------------------------------
+# The embedded assistant
+# ---------------------------------------------------------------------------
+#
+# The panel talks to these nine routes and nothing else. Three things about the
+# shape are worth stating before the code.
+#
+# **The permission endpoint is where a write waits.** ``POST /assistant/permissions``
+# is called by the MCP permission server that ``claude`` invokes before running a
+# tool it was not pre-approved for, and it does not answer until the person taps
+# a card or the wait times out. It is ``async`` because it holds a request open
+# for up to five minutes; a sync endpoint would hold a thread-pool thread instead,
+# and a handful of open panels would starve the rest of the API.
+#
+# **The turn endpoint streams, so nothing may escape from it.** An exception
+# escaping before the CORS middleware has no status code and reads in the
+# renderer as ``net::ERR_FAILED``. In a *streaming* response it is worse:
+# the response has already begun, so the failure arrives as a conversation that
+# stopped mid-sentence with nothing in any log the panel can see. Every layer here
+# turns a failure into an ``error`` event instead.
+#
+# **The CLI runs on a worker thread and the stream is async.** They meet at
+# ``assistant_runtime.bus``, a plain ``queue.Queue`` per session, because the
+# permission endpoint (event loop) and the CLI reader (worker thread) both publish
+# to it and an asyncio queue is not legal from the thread.
+
+
+class AssistantFileRef(BaseModel):
+    """A Library file to attach to a new conversation, at ``version_id`` when given."""
+
+    model_config = {"extra": "forbid"}
+    file_id: str
+    version_id: Optional[str] = None
+
+
+class AssistantSessionCreate(BaseModel):
+    """A new conversation. ``files`` are the Library files Ask may read in it, and the only ones."""
+
+    model_config = {"extra": "forbid"}
+    title: Optional[str] = None
+    choices: Optional[dict] = None
+    files: Optional[list[AssistantFileRef]] = None
+
+
+class AssistantMessageBody(BaseModel):
+    """One message. ``collection`` is the window's: the turn's tools read it,
+    and a run the turn starts lands in it, where a call names no other."""
+
+    model_config = {"extra": "forbid"}
+    text: str
+    legacy_adoption: Optional[dict] = None
+    collection: CollectionRef = None
+
+
+class AssistantPermissionOpen(BaseModel):
+    session_id: int
+    tool_name: str
+    input: dict = {}
+    tool_use_id: Optional[str] = None
+
+
+class AssistantPermissionAnswer(BaseModel):
+    allow: bool
+    reason: Optional[str] = None
+
+
+def _assistant_settings(conn) -> dict:
+    """The assistant group, plus the three AI-group keys both runtimes read.
+
+    Read here rather than duplicated into the assistant group, so a user who has
+    told resmon where ``claude`` lives, or what their custom endpoint is, has
+    told it once. A key in one of two lists and not the other would be stored
+    by the PUT and never read by anything.
+    """
+    settings = _get_settings_group(conn, "assistant")
+    for key in ("ai_cli_path", "ai_provider", "ai_custom_base_url"):
+        settings[key] = get_setting(conn, key) or ""
+    return settings
+
+
+def _assistant_runtime_for(conn):
+    return assistant_runtime.get_runtime(
+        _assistant_settings(conn), backend_port=serving_port(),
+    )
+
+
+@app.get("/api/settings/assistant", response_model=response_models.AssistantSettings,
+         response_model_exclude_unset=True)
+def get_assistant_settings():
+    conn = _get_db()
+    try:
+        return _get_settings_group(conn, "assistant")
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/settings/assistant", response_model=response_models.SettingsSaved,
+         response_model_exclude_unset=True)
+def update_assistant_settings(body: SettingsBody):
+    conn = _get_db()
+    try:
+        _set_settings_group(conn, "assistant", body.settings)
+        return {"success": True}
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/assistant/status", response_model=response_models.AssistantStatus,
+         response_model_exclude_unset=True)
+def assistant_status():
+    """Whether the assistant can run, and if not, the reason in one sentence.
+
+    Every runtime is reported, Codex included, with its reason: a user who has
+    Codex installed and sees no mention of it would reasonably conclude resmon
+    had not noticed it.
+    """
+    conn = _get_db()
+    try:
+        # One read of the settings for the whole answer, so a save landing between two
+        # reads can never give a runtime and composer choices that disagree.
+        settings = _assistant_settings(conn)
+        status = assistant_runtime.runtime_status(settings, backend_port=serving_port())
+        status["composer_choices"] = assistant_choices.descriptor(settings, backend_port=serving_port())
+        status["contract_version"] = _mcp_contract_version()
+        return status
+    finally:
+        _close_db(conn)
+
+
+def _mcp_contract_version() -> str:
+    try:
+        import mcp_server  # noqa: PLC0415
+
+        return mcp_server.CONTRACT_VERSION
+    except Exception:                                # pragma: no cover - defensive
+        return "unknown"
+
+
+@app.post("/api/assistant/sessions", status_code=201, response_model=response_models.AssistantSession,
+          response_model_exclude_unset=True)
+def create_assistant_session(body: AssistantSessionCreate):
+    conn = _get_db()
+    try:
+        try:
+            settings = _assistant_settings(conn)
+            if 'choices' in body.model_fields_set and body.choices is None:
+                raise ValueError('Supply a complete choices object, or omit it to use settings defaults.')
+            binding = assistant_choices.resolve(settings, body.choices)
+            runtime = assistant_runtime.get_bound_runtime(binding, settings, backend_port=serving_port())
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        status = runtime.status()
+        if not status.available:
+            raise HTTPException(409, status.reason)
+        try:
+            files = assistant_files.attachable(conn, [ref.model_dump(exclude_none=True) for ref in body.files or []])
+        except library.LibraryError as exc:
+            raise HTTPException(exc.status, {"reason": exc.reason, "message": str(exc)}) from None
+        session_id = assistant_store.create_bound_session(conn, binding, (body.title or '').strip() or None, files)
+        return assistant_store.get_session(conn, session_id)
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/assistant/sessions/{session_id}/file-text", response_model=response_models.AssistantFileText,
+         response_model_exclude_unset=True)
+def read_assistant_file(session_id: int, file_id: Optional[str] = None, page: int = Query(1, ge=1, le=200),
+                        offset: int = Query(0, ge=0)):
+    """Part of one page of a Library file attached to this conversation, and of no other file.
+
+    The route ``read_attached_file`` calls. A file is readable here only because the
+    person attached it to the conversation when it was created; every other file in the
+    Library stays behind the renderer-only Library routes.
+    """
+    conn = _get_db()
+    try:
+        return assistant_files.read(conn, session_id, file_id, page, offset)
+    except library.LibraryError as exc:
+        raise HTTPException(exc.status, {"reason": exc.reason, "message": str(exc)}) from None
+    except OSError:
+        raise HTTPException(409, {"reason": "storage_unavailable",
+                                  "message": "The Library folder could not be read just now."}) from None
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/assistant/sessions", response_model=response_models.AssistantSessions,
+         response_model_exclude_unset=True)
+def list_assistant_sessions(limit: int = 50):
+    conn = _get_db()
+    try:
+        return {"sessions": assistant_store.list_sessions(conn, limit=limit)}
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/assistant/sessions/browse", response_model=response_models.AssistantSessionPage,
+         response_model_exclude_unset=True)
+def browse_assistant_sessions(limit: int = Query(50, ge=1, le=100),
+                              before_id: Optional[int] = Query(None, ge=1, le=9223372036854775807),
+                              through_id: Optional[int] = Query(None, ge=0, le=9223372036854775807),
+                              q: str = Query("", max_length=200)):
+    conn = _get_db()
+    try:
+        return assistant_store.browse_sessions(conn, limit=limit, before_id=before_id,
+                                               through_id=through_id, q=q)
+    finally:
+        _close_db(conn)
+
+
+def _assistant_activity_observation(session_id: int) -> dict:
+    from datetime import datetime, timezone
+
+    return {"observed_at_utc": datetime.now(timezone.utc).isoformat(),
+            "turn_claimed": assistant_runtime.bus.is_open(session_id),
+            "cli_running": assistant_runtime.is_running(session_id),
+            "basis": "in_memory_observation_not_atomic_with_sqlite"}
+
+
+@app.get("/api/assistant/sessions/{session_id}", response_model=response_models.AssistantTranscript,
+         response_model_exclude_unset=True)
+def get_assistant_session(session_id: int):
+    conn = _get_db()
+    try:
+        snapshot = assistant_store.read_snapshot(conn, session_id)
+        if snapshot is None:
+            raise HTTPException(404, "That conversation does not exist.")
+        observation = _assistant_activity_observation(session_id)
+        return {**{k: snapshot[k] for k in ('session', 'messages', 'totals', 'snapshot', 'choices_version', 'turn_choices')},
+                "running": observation['cli_running'], "activity_observation": observation}
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/assistant/sessions/{session_id}/export", response_model=response_models.AssistantExport,
+         response_model_exclude_unset=True)
+def export_assistant_session(session_id: int, format: str = Query(..., pattern="^(json|markdown)$")):
+    conn = _get_db()
+    try:
+        snapshot = assistant_store.read_snapshot(conn, session_id)
+        if snapshot is None:
+            raise HTTPException(404, "That conversation does not exist.")
+        try:
+            return assistant_export.export_snapshot(snapshot, format, _assistant_activity_observation(session_id))
+        except ValueError as exc:
+            raise HTTPException(413, str(exc)) from exc
+    finally:
+        _close_db(conn)
+
+
+@app.delete("/api/assistant/sessions/{session_id}", response_model=response_models.AssistantSessionDeleted,
+            response_model_exclude_unset=True)
+def delete_assistant_session(session_id: int):
+    conn = _get_db()
+    try:
+        if not assistant_store.delete_session(conn, session_id):
+            raise HTTPException(404, "That conversation does not exist.")
+        return {"deleted": session_id}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/assistant/sessions/{session_id}/cancel", response_model=response_models.AssistantTurnCancelled,
+          response_model_exclude_unset=True)
+def cancel_assistant_turn(session_id: int):
+    """Stop the running turn. Idempotent, and it says which happened."""
+    killed = assistant_runtime.cancel_turn(session_id)
+    denied = permission_broker.cancel_session(session_id)
+    return {"cancelled": killed, "permissions_denied": denied}
+
+
+@app.post("/api/assistant/permissions", response_model=response_models.AssistantPermissionDecision,
+          response_model_exclude_unset=True)
+async def open_assistant_permission(body: AssistantPermissionOpen):
+    """Ask the person, and hold this request open until they answer.
+
+    Called by ``assistant_permission_server.py``, not by the renderer. The wait
+    is the point: ``claude`` is blocked on this reply and will not run the tool
+    until it arrives, so a write physically cannot precede the answer.
+
+    A card that nobody is listening for is denied immediately rather than left to
+    time out — if the panel has closed the stream, there is no one to ask.
+    """
+    request = permission_broker.open(
+        session_id=body.session_id,
+        tool_name=body.tool_name,
+        tool_input=body.input,
+        tool_use_id=body.tool_use_id,
+    )
+    if not assistant_runtime.bus.publish(body.session_id, request.to_event()):
+        permission_broker.answer(
+            request.id, allow=False,
+            reason="The panel was not open to ask, so resmon said no.",
+        )
+    decision, message = await permission_broker.wait(request)
+    return {"decision": decision, "message": message, "request_id": request.id}
+
+
+@app.post("/api/assistant/permissions/{request_id}", response_model=response_models.AssistantPermissionAnswered,
+          response_model_exclude_unset=True)
+async def answer_assistant_permission(request_id: str, body: AssistantPermissionAnswer):
+    """The panel's Allow / Deny.
+
+    A second answer to the same request is refused rather than applied: two taps
+    on a card must not turn a deny into an allow.
+    """
+    if not permission_broker.answer(request_id, allow=body.allow, reason=body.reason):
+        raise HTTPException(409, "That request has already been answered or has expired.")
+    return {"request_id": request_id, "decision": "allow" if body.allow else "deny"}
+
+
+def _run_assistant_turn(session_id: int, prompt: str, resume: bool,
+                        cli_session_id: str,
+                        history: Optional[list], runtime, user_message_id: int,
+                        events, finished: threading.Event, detached: threading.Event,
+                        collection_id: Optional[int] = None) -> None:
+    """The worker thread, in the window's collection: every tool call of the
+    turn that names no collection reads it, and a run it starts lands in it,
+    in this thread for resmon's own loop and in the MCP server a CLI starts
+    (``mcp_server.in_collection``). A conversation with attached Library files
+    is also named to the tools, which is what offers ``read_attached_file``
+    and limits it to those files (``mcp_server.in_conversation``)."""
+    import mcp_server  # noqa: PLC0415 - a sibling script, not a package
+    conn = _get_db()
+    try:
+        attached = bool(assistant_store.session_files(conn, session_id))
+    except sqlite3.Error:
+        attached = False
+    finally:
+        _close_db(conn)
+    with mcp_server.in_collection(collection_id), mcp_server.in_conversation(session_id if attached else None):
+        _assistant_turn(session_id, prompt, resume, cli_session_id, history, runtime,
+                        user_message_id, events, finished, detached)
+
+
+def _assistant_turn(session_id: int, prompt: str, resume: bool,
+                    cli_session_id: str,
+                    history: Optional[list], runtime, user_message_id: int,
+                    events, finished: threading.Event, detached: threading.Event) -> None:
+    """The worker thread: drive the CLI, publish events, store the turn.
+
+    Runs on its own thread with its own database connection (``_get_db`` is
+    per-thread). Everything is inside one ``try``: a thread that
+    raises here would leave the SSE generator waiting for a ``done`` that never
+    comes, and the panel would show a spinner for ever.
+    """
+    from implementation_scripts.ai_model_names import model_display_name
+
+    logger = logging.getLogger(__name__)
+    text_parts: list[str] = []
+    tool_calls: list[dict] = []
+    tool_results: list[dict] = []
+    usage: dict = {}
+    failure: Optional[dict] = None
+    conn = None
+    try:
+        conn = _get_db()
+        # Runtime was captured at admission; never reconstruct it from defaults.
+        # ``history`` is read by the API-key runtime and ignored by the CLI
+        # one, which keeps its own session. Passed always rather than
+        # conditionally: a caller that has to know which runtime it is talking
+        # to is a caller that will get it wrong when a third arrives.
+        for event in runtime.run_turn(
+            session_id, prompt,
+            cli_session_id=cli_session_id, resume=resume, history=history,
+        ):
+            observations = [event['model_report']] if event.get('model_report') else []
+            observations += [o for o in event.get('model_reports') or [] if o]
+            for observation in observations:
+                observed = assistant_store.append_report(conn, session_id, user_message_id, observation)
+                assistant_runtime.bus.publish(session_id, {'type': 'turn_model_report', 'session_id': session_id,
+                                                          'user_message_id': user_message_id,
+                                                          'reported': {**observed, 'name': model_display_name(observed['model'])}})
+            if event["type"] == "started":
+                # The id the CLI actually reports, which is normally the one it
+                # was handed and is *not* after a failed resume: the runtime
+                # starts a fresh CLI session and this is where resmon learns
+                # about it. Without this the next turn would resume the id the
+                # CLI has already said it does not have, for ever.
+                reported = str(event.get("owned_cli_session_id") or "")
+                if reported and reported != cli_session_id:
+                    cli_session_id = reported
+                    assistant_store.set_cli_session_id(conn, session_id, reported)
+            elif event["type"] == "notice":
+                # Stored as it happens rather than folded into the turn's
+                # message, so the transcript keeps the order the person saw and
+                # re-opening the conversation shows the notice in place.
+                assistant_store.add_message(
+                    conn, session_id, role="system",
+                    content=str(event.get("message") or ""),
+                )
+            elif event["type"] == "text_delta":
+                text_parts.append(event["text"])
+            elif event["type"] == "tool_call":
+                tool_calls.append({"name": event["tool_name"],
+                                   "input": event.get("input") or {},
+                                   "tool_use_id": event.get("tool_use_id")})
+            elif event["type"] == "tool_result":
+                tool_results.append({"tool_use_id": event.get("tool_use_id"),
+                                     "is_error": event.get("is_error"),
+                                     "content": event.get("content")})
+            elif event["type"] == "done":
+                usage = event
+            elif event["type"] == "error" and failure is None:
+                failure = event
+            assistant_runtime.bus.publish(session_id, event)
+
+        if failure is None and usage.get("is_error"):
+            # A result envelope that calls itself an error is a failure even
+            # where no error event followed it.
+            failure = {"code": "failed", "detail": usage.get("subtype"),
+                       "message": "The command reported that this turn failed, and did not say why."}
+        if failure is not None:
+            # A failed turn is not an answer. The CLI's failure text arrives as
+            # an ordinary assistant block before the error result ("Failed to
+            # authenticate..."), and storing it as the answer put it in the
+            # transcript as the assistant speaking, with a cost line under it.
+            # It is kept as what the turn wrote before it ended, beside the
+            # failure, and the user's message stays.
+            assistant_store.fail_turn(
+                conn, session_id, user_message_id,
+                code=str(failure.get("code") or "failed"),
+                message=str(failure.get("message") or ""),
+                detail=str(failure["detail"]) if failure.get("detail") else None,
+                partial_text="".join(text_parts),
+                tool_calls=tool_calls or None,
+                tool_results=tool_results or None,
+                input_tokens=usage.get("input_tokens"),
+                output_tokens=usage.get("output_tokens"),
+                cost_usd=usage.get("cost_usd"),
+            )
+        else:
+            assistant_store.finish_turn(
+                conn, session_id, user_message_id,
+                content="".join(text_parts),
+                tool_calls=tool_calls or None,
+                tool_results=tool_results or None,
+                input_tokens=usage.get("input_tokens"),
+                output_tokens=usage.get("output_tokens"),
+                cost_usd=usage.get("cost_usd"),
+            )
+        assistant_store.touch_session(conn, session_id)
+    except Exception as exc:                         # noqa: BLE001
+        logger.exception("Assistant turn thread failed")
+        assistant_runtime.bus.publish(session_id, {
+            "type": "error",
+            "message": "resmon could not finish that turn.",
+            "detail": type(exc).__name__,
+            "code": "failed",
+        })
+        if conn is not None:
+            # Best effort: the turn is kept as a failure rather than as a user
+            # message nothing answered. The record may itself be what failed.
+            try:
+                assistant_store.fail_turn(
+                    conn, session_id, user_message_id, code="failed",
+                    message="resmon could not finish that turn.", detail=type(exc).__name__,
+                    partial_text="".join(text_parts), tool_calls=tool_calls or None,
+                    tool_results=tool_results or None,
+                )
+            except Exception:                        # noqa: BLE001
+                logger.debug("The failed turn could not be recorded", exc_info=True)
+    finally:
+        # Always, so the stream ends even when the turn did not.
+        assistant_runtime.bus.publish(session_id, {"type": "stream_end"})
+        finished.set()
+        if detached.is_set():
+            assistant_runtime.bus.close(session_id, expected=events)
+
+
+@app.post("/api/assistant/sessions/{session_id}/messages")
+async def send_assistant_message(session_id: int, body: AssistantMessageBody):
+    conn = _get_db()
+    session = assistant_store.get_session(conn, session_id)
+    if not session:
+        raise HTTPException(404, "That conversation does not exist.")
+    text = (body.text or "").strip()
+    if not text:
+        raise HTTPException(400, "There is nothing to send.")
+    turn_collection = _collection_id(conn, body.collection) if body.collection is not None else None
+
+    settings = _assistant_settings(conn)
+    binding = assistant_store.get_choices(conn, session_id)
+    legacy = binding is None
+    if legacy:
+        adoption = body.legacy_adoption
+        if not isinstance(adoption, dict) or set(adoption) != {'choices', 'confirmed'} or adoption['confirmed'] is not True:
+            raise HTTPException(409, {'code': 'legacy_adoption_required', 'message':
+                'Historical settings are unknown. Choose and confirm a future connection before sending.'})
+        try:
+            if not isinstance(adoption['choices'], dict):
+                raise ValueError('Supply explicit future choices.')
+            binding = assistant_choices.resolve(settings, adoption['choices'], legacy=True)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if binding['runtime'] != session['runtime']:
+            raise HTTPException(409, {'code': 'runtime_change_requires_new_conversation', 'message':
+                'A different connection kind starts a new empty conversation.'})
+    elif body.legacy_adoption is not None:
+        raise HTTPException(409, {'code': 'already_bound', 'message': 'This conversation already has fixed choices. Reopen it.'})
+    try:
+        runtime = assistant_runtime.get_bound_runtime(binding, settings, backend_port=serving_port())
+    except ValueError as exc:
+        raise HTTPException(409, {'code': 'configuration_changed', 'message': str(exc)}) from exc
+    status = runtime.status()
+    if not status.available:
+        raise HTTPException(409, status.reason)
+
+    # Claimed before anything is written, and before the worker starts. The
+    # tempting guard -- "is a process running for this session?" -- has a window:
+    # the subprocess is not registered until the worker thread reaches it, so a
+    # second request arriving in between was accepted and two CLIs resumed the
+    # same conversation.
+    events = assistant_runtime.bus.try_open(session_id)
+    if events is None:
+        raise HTTPException(409, "That conversation is already answering. Wait, or stop it.")
+
+    # From here on the claim must be released on any failure, or the
+    # conversation is wedged: every later turn would answer 409 for ever, and
+    # only restarting the app would clear it.
+    try:
+        try:
+            admitted = assistant_store.admit_turn(conn, session_id, text, binding, legacy=legacy)
+        except ValueError as exc:
+            raise HTTPException(409, {'code': 'admission_conflict', 'message': str(exc)}) from exc
+        assistant_runtime.bus.publish(session_id, {'type': 'turn_choices', 'session_id': session_id,
+            'user_message_id': admitted['user_message_id'], 'requested': admitted['requested']})
+        finished, detached = threading.Event(), threading.Event()
+        worker = threading.Thread(
+            target=_run_assistant_turn,
+            args=(session_id, text, admitted['resume'], admitted['cli_session_id'], admitted['history'],
+                  runtime, admitted['user_message_id'], events, finished, detached, turn_collection),
+            daemon=True,
+        )
+        worker.start()
+    except Exception:                                # noqa: BLE001
+        assistant_runtime.bus.close(session_id)
+        raise
+
+    async def _generator():
+        try:
+            while True:
+                try:
+                    event = events.get_nowait()
+                except queue.Empty:
+                    # 50 ms, not the progress stream's 300: this is a chat panel
+                    # and 300 ms of latency per chunk is visible as stutter.
+                    await asyncio.sleep(0.05)
+                    yield ": heartbeat\n\n"
+                    continue
+                if event.get("type") == "stream_end":
+                    break
+                yield f"event: assistant\ndata: {json.dumps(event, default=str)}\n\n"
+        except Exception:                            # noqa: BLE001
+            # The response has already started, so this cannot become a 500.
+            # An error event is the only thing the panel can be told.
+            logging.getLogger(__name__).exception("Assistant stream failed")
+            yield ('event: assistant\ndata: '
+                   + json.dumps({"type": "error",
+                                 "message": "The connection to resmon broke "
+                                            "part-way through that answer."})
+                   + "\n\n")
+        finally:
+            # A dropped reader does not prove the runtime stopped. Keep the
+            # claim until this exact worker finishes, so another send cannot
+            # overlap it or inherit its late permission/model events.
+            detached.set()
+            if finished.is_set():
+                assistant_runtime.bus.close(session_id, expected=events)
+            else:
+                assistant_runtime.cancel_turn(session_id)
+            # Anything still waiting for a card belongs to a turn nobody is
+            # watching any more.
+            permission_broker.cancel_session(session_id)
+            yield "event: assistant\ndata: " + json.dumps({"type": "closed"}) + "\n\n"
+
+    return StreamingResponse(
+        _generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive",
+                 "X-Accel-Buffering": "no"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Watch profiles
+# ---------------------------------------------------------------------------
+#
+# **The basis warning is returned by the API, not left to the interface.** A
+# profile with no identifier can only ever produce name matches, and the one
+# place that fact must never be lost is the moment a person creates one. Putting
+# it in the response means the renderer, the assistant and any harness driving
+# MCP all get the same sentence, and none of them has to remember to say it.
+#
+# Import and export are their own routes with their own documented JSON shape
+# rather than a widening of `saved_configurations`: a configuration is a search
+# and a profile is an identity, and `config_type`'s CHECK constraint stays as it
+# is (decision 10).
+#
+# **These eleven routes are the first on the surface to declare a
+# `response_model`**, so `openapi.json` describes what they answer with instead
+# of giving every 200 body the empty schema `{}`. The models are in
+# `implementation_scripts/response_models.py`, which explains the hazard at
+# length: FastAPI's `response_model` *filters* the body, and a field the handler
+# returns that the model does not declare is dropped silently with a 200.
+#
+# Two things stop that here, and both are tested rather than remembered. Every
+# model inherits `LosslessModel`, whose `extra="allow"` keeps a key nobody
+# modeled; and every one of these routes sets `response_model_exclude_unset`,
+# so a declared field the handler did not return is not invented at its default
+# — which is what would otherwise put `"detail": null` into every delete. The
+# body is therefore the handler's own key set, and
+# `verification_scripts/test_response_models.py` proves it by driving each route
+# and comparing the wire body with what the handler returned on that same call.
+# Add a route or a model here and that file goes red until it has a case.
+
+
+class WatchProfileBody(BaseModel):
+    kind: str = "person"
+    display_name: str = ""
+    names: list = []
+    identifiers: dict = {}
+    affiliations: list[str] = []
+    field_hints: list[str] = []
+    notes: Optional[str] = None
+
+
+class ProfileImportBody(BaseModel):
+    """One exported profile, or a list of them."""
+
+    profiles: list[dict] = []
+
+
+@app.get("/api/profiles", response_model=response_models.WatchProfileList,
+         response_model_exclude_unset=True)
+def list_watch_profiles(kind: Optional[str] = None):
+    conn = _get_db()
+    try:
+        return {"profiles": watch_profiles.list_profiles(conn, kind)}
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/profiles/starter", response_model=response_models.StarterWatchProfileList,
+         response_model_exclude_unset=True)
+def list_starter_profiles():
+    """The curated set that ships with the app, not yet anybody's profile.
+
+    Served rather than bundled into the renderer so the files stay the one
+    source: the picker shows what is on disk, and a user who edits or removes
+    one sees that.
+    """
+    return {"profiles": watch_profiles.load_starter_profiles()}
+
+
+@app.post("/api/profiles", status_code=201, response_model=response_models.WatchProfile,
+          response_model_exclude_unset=True)
+def create_watch_profile(body: WatchProfileBody):
+    conn = _get_db()
+    try:
+        return watch_profiles.create_profile(conn, body.model_dump())
+    except watch_profiles.ProfileError as exc:
+        raise HTTPException(400, str(exc)) from None
+    finally:
+        _close_db(conn)
+
+
+class ProfileMatchesForDocumentsBody(BaseModel):
+    document_ids: list[int] = []
+
+
+@app.post("/api/profiles/matches/for-documents",
+          response_model=response_models.WatchProfileMatchesByDocument,
+          response_model_exclude_unset=True)
+def profile_matches_for_documents(body: ProfileMatchesForDocumentsBody):
+    """Which watch profiles matched a page of papers, and on what basis.
+
+    The Explorer and the Results list render fifty papers at a time and each
+    one may carry a basis badge. Asking per row would be fifty requests to
+    paint one screen; this is one — the same shape and the same reason as
+    ``/api/lifecycle/for-documents``.
+
+    Declared **above** ``/api/profiles/{profile_id}`` deliberately. FastAPI
+    matches in declaration order, and a path parameter declared first swallows
+    a literal segment after it: ``/api/profiles/starter`` was written below
+    ``/api/profiles/{profile_id}`` once and three tests failed on it.
+    """
+    conn = _get_db()
+    try:
+        return _profile_matches_for(conn, body.document_ids)
+    finally:
+        _close_db(conn)
+
+
+def _profile_matches_for(conn, document_ids) -> dict:
+    """``/api/profiles/matches/for-documents``'s answer, for the search page that carries it too."""
+    ids = [int(i) for i in document_ids][:500]
+    if not ids:
+        return {"matches": {}}
+    placeholders = ",".join("?" for _ in ids)
+    rows = conn.execute(
+        f"SELECT m.document_id, m.profile_id, m.basis, m.matched_author, "
+        f"       m.evidence, p.display_name "
+        f"  FROM watch_profile_matches m "
+        f"  JOIN watch_profiles p ON p.id = m.profile_id "
+        f" WHERE m.document_id IN ({placeholders}) "
+        f" ORDER BY p.display_name", ids).fetchall()
+    matches: dict[str, list] = {}
+    for row in rows:
+        matches.setdefault(str(row["document_id"]), []).append({
+            "profile_id": row["profile_id"],
+            "display_name": row["display_name"],
+            "basis": row["basis"],
+            "matched_author": row["matched_author"],
+            "evidence": row["evidence"],
+        })
+    return {"matches": matches}
+
+
+@app.get("/api/profiles/{profile_id}", response_model=response_models.WatchProfile,
+         response_model_exclude_unset=True)
+def get_watch_profile(profile_id: int):
+    conn = _get_db()
+    try:
+        profile = watch_profiles.get_profile(conn, profile_id)
+        if not profile:
+            raise HTTPException(404, "That profile does not exist.")
+        return profile
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/profiles/{profile_id}", response_model=response_models.WatchProfile,
+         response_model_exclude_unset=True)
+def update_watch_profile(profile_id: int, body: WatchProfileBody):
+    conn = _get_db()
+    try:
+        profile = watch_profiles.update_profile(conn, profile_id, body.model_dump())
+        if not profile:
+            raise HTTPException(404, "That profile does not exist.")
+        return profile
+    except watch_profiles.ProfileError as exc:
+        raise HTTPException(400, str(exc)) from None
+    finally:
+        _close_db(conn)
+
+
+@app.delete("/api/profiles/{profile_id}", response_model=response_models.WatchProfileDeleted,
+            response_model_exclude_unset=True)
+def delete_watch_profile(profile_id: int):
+    """Remove a profile and its matches. **The corpus is untouched.**
+
+    A routine pointing at this profile is *named* rather than silently orphaned.
+    There is no foreign key from a routine to a profile — a routine's
+    configuration is a JSON blob — so the deletion cannot cascade, and the next
+    fire of such a routine fails with a sentence saying the profile is gone.
+    Saying which routines those are here is the difference between that being a
+    surprise and being a consequence.
+    """
+    conn = _get_db()
+    try:
+        watching = watch_profiles.routines_watching(conn, profile_id)
+        if not watch_profiles.delete_profile(conn, profile_id):
+            raise HTTPException(404, "That profile does not exist.")
+        response: dict = {"deleted": profile_id, "routines_watching": watching}
+        if watching:
+            names = ", ".join(f"'{r['name']}'" for r in watching)
+            response["detail"] = (
+                f"{len(watching)} watch{'es' if len(watching) != 1 else ''} followed this profile: {names}. "
+                f"They are still saved and will now fail on their next run "
+                f"until you point them somewhere else or delete them.")
+        return response
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/profiles/{profile_id}/export",
+         response_model=response_models.WatchProfileExport,
+         response_model_exclude_unset=True)
+def export_watch_profile(profile_id: int):
+    conn = _get_db()
+    try:
+        profile = watch_profiles.get_profile(conn, profile_id)
+        if not profile:
+            raise HTTPException(404, "That profile does not exist.")
+        return watch_profiles.profile_to_json(profile)
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/profiles/import", response_model=response_models.WatchProfileImportResult,
+          response_model_exclude_unset=True)
+def import_watch_profiles(body: ProfileImportBody):
+    """Import one or more exported profiles.
+
+    Reports per profile rather than failing the batch: a file with one bad
+    entry should import the rest and say which one it could not read, because
+    the alternative is a user editing JSON to find out which line resmon
+    objected to.
+    """
+    conn = _get_db()
+    imported, failed = [], []
+    try:
+        for index, document in enumerate(body.profiles):
+            try:
+                profile = watch_profiles.profile_from_json(document)
+                imported.append(watch_profiles.create_profile(conn, profile))
+            except watch_profiles.ProfileError as exc:
+                failed.append({"index": index, "reason": str(exc)})
+        return {"imported": imported, "failed": failed}
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/profiles/{profile_id}/lifecycle",
+         response_model=response_models.WatchProfileLifecycle,
+         response_model_exclude_unset=True)
+def get_watch_profile_lifecycle(profile_id: int, limit: int = 100):
+    """Retractions and other lifecycle findings on this profile's papers.
+
+    A **join** over findings resmon already holds, never a new claim: the rule
+    that resmon never asserts a lifecycle event on its own authority is at its
+    most load-bearing here, because a false retraction attached to a named
+    person is defamatory. Every finding carries its notice link and every match
+    carries its basis, so a finding on a `name_only` match is visibly a finding
+    on a paper that merely has this name on it.
+    """
+    conn = _get_db()
+    try:
+        if not watch_profiles.get_profile(conn, profile_id):
+            raise HTTPException(404, "That profile does not exist.")
+        return watch_profiles.profile_lifecycle_findings(conn, profile_id, limit)
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/profiles/{profile_id}/matches",
+         response_model=response_models.WatchProfileMatchPage,
+         response_model_exclude_unset=True)
+def get_watch_profile_matches(profile_id: int, limit: int = 50, offset: int = 0,
+                              collection: Optional[str] = _COLLECTION_QUERY):
+    """Papers of a collection matched to this profile, **each with the basis it was matched on**.
+
+    The basis rides on every row and is never omitted: a list of papers with no
+    basis is exactly the claim resmon refuses to make.
+    """
+    conn = _get_db()
+    try:
+        if not watch_profiles.get_profile(conn, profile_id):
+            raise HTTPException(404, "That profile does not exist.")
+        chosen = _collection_id(conn, collection)
+        within = paper_collections.member_clause("m.document_id")
+        rows = conn.execute(
+            "SELECT m.document_id, m.basis, m.matched_author, m.evidence, "
+            "       m.first_seen_at, d.title, d.source_repository, d.doi, d.url, "
+            "       d.publication_date "
+            "  FROM watch_profile_matches m "
+            "  JOIN documents d ON d.id = m.document_id "
+            f" WHERE m.profile_id = ? AND {within} "
+            " ORDER BY m.first_seen_at DESC, m.document_id DESC LIMIT ? OFFSET ?",
+            (profile_id, chosen, max(1, min(int(limit), 200)), max(0, int(offset))),
+        ).fetchall()
+        total = conn.execute(
+            f"SELECT COUNT(*) FROM watch_profile_matches m WHERE m.profile_id = ? AND {within}",
+            (profile_id, chosen)).fetchone()[0]
+        by_basis = {
+            row[0]: row[1] for row in conn.execute(
+                "SELECT basis, COUNT(*) FROM watch_profile_matches m "
+                f"WHERE m.profile_id = ? AND {within} GROUP BY basis", (profile_id, chosen))
+        }
+        return {"matches": [dict(r) for r in rows], "total": total,
+                "by_basis": by_basis}
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# The first run
+# ---------------------------------------------------------------------------
+#
+# One card on the Dashboard, on a fresh install, and then never again.
+#
+# **It is a checklist of facts, not a wizard.** Each item reports something
+# resmon can actually see — a CLI on the PATH, a key slot with something in it —
+# and nothing here claims a lane *works*: resmon cannot tell whether a CLI is
+# signed in or a key is valid without spending one, and proposing is not
+# promising. An item resmon cannot decide says so rather
+# than guessing, which is why ``done`` is nullable.
+#
+# **What makes a run "first" is history, not configuration.** Someone who has
+# added a key but never swept is still at the beginning; someone who has run a
+# sweep does not need to be told where to start, whatever their settings say.
+# So the card shows while the corpus, the executions and the routines are all
+# empty — and stops for ever once any of them is not, or once the person
+# dismisses it.
+
+_ONBOARDING_DISMISSED_KEY = "onboarding_dismissed"
+
+
+def _credential_present(names) -> Optional[bool]:
+    """Whether any of *names* holds a value. ``None`` when the keyring will not say.
+
+    An unreadable keyring is the case this exists for: an unsigned macOS build
+    is denied items stored under a different code signature, and reporting that as "no key"
+    would tell someone to add a key they already have.
+    """
+    if not names:
+        return False
+    statuses = [probe_credential(name) for name in sorted(names)]
+    if any(status == PRESENT for status in statuses):
+        return True
+    if not keyring_is_responsive():
+        return None
+    return False
+
+
+def _ai_key_step(display: dict[str, str]) -> dict:
+    """The first-run AI step, worded from what it checks: which AI provider keys are stored.
+
+    Whether a provider is *selected* is a different fact and not this step's:
+    the step is done when a key is stored. The keyring is read once, and as in
+    ``_credential_present`` a keyring that will not answer is not a missing key.
+    """
+    held = [name for name in sorted(AI_CREDENTIAL_NAMES) if probe_credential(name) == PRESENT]
+    if held:
+        providers = []
+        for name in held:
+            provider = "custom" if name == "custom_llm_api_key" else name.removesuffix("_api_key")
+            providers.append(display.get(provider, provider))
+        if len(providers) == 1:
+            return {"id": "ai_key", "done": True,
+                    "detail": f"A key for {providers[0]} is stored on this machine."}
+        named = (" and ".join(providers) if len(providers) == 2
+                 else f"{', '.join(providers[:-1])}, and {providers[-1]}")
+        return {"id": "ai_key", "done": True,
+                "detail": f"Keys for {named} are stored on this machine."}
+    if not keyring_is_responsive():
+        return {"id": "ai_key", "done": None,
+                "detail": ("The keychain did not answer, so resmon cannot say whether "
+                           "an AI provider key is stored on this machine.")}
+    return {"id": "ai_key", "done": False,
+            "detail": "No AI provider key is stored on this machine."}
+
+
+@app.get("/api/onboarding", response_model=response_models.OnboardingState,
+         response_model_exclude_unset=True)
+def onboarding_state():
+    """What the first-run card renders, as facts rather than as prose."""
+    from implementation_scripts.ai_cli import (  # noqa: PLC0415
+        SUPPORTED_CLI_PROVIDERS, discover_cli,
+    )
+
+    conn = _get_db()
+    try:
+        counts = {
+            "documents": conn.execute(
+                "SELECT COUNT(*) FROM documents").fetchone()[0],
+            "executions": conn.execute(
+                "SELECT COUNT(*) FROM executions").fetchone()[0],
+            "routines": conn.execute(
+                "SELECT COUNT(*) FROM routines").fetchone()[0],
+        }
+        dismissed = str(get_setting(conn, _ONBOARDING_DISMISSED_KEY) or "").lower() in (
+            "1", "true", "yes")
+    finally:
+        _close_db(conn)
+
+    from implementation_scripts.ai_lanes import _PROVIDER_DISPLAY  # noqa: PLC0415
+
+    found = [_PROVIDER_DISPLAY.get(p, p)
+             for p in SUPPORTED_CLI_PROVIDERS if discover_cli(p).found]
+    repository_slots = sorted(catalog_credential_names())
+
+    return {
+        "show": not dismissed and not any(counts.values()),
+        "dismissed": dismissed,
+        "counts": counts,
+        "steps": [
+            {
+                "id": "agent_cli",
+                # Detection, never a login check: this endpoint does not run the
+                # binary, so "found" is the strongest true word available.
+                "done": bool(found),
+                "detail": (
+                    "resmon found " + " and ".join(found) + " on this machine."
+                    if found else
+                    "No agent CLI was found on this machine."
+                ),
+            },
+            _ai_key_step(_PROVIDER_DISPLAY),
+            {
+                "id": "repository_key",
+                "done": _credential_present(repository_slots),
+                "detail": (
+                    f"{len(repository_slots)} of resmon's sources can take a key "
+                    "of their own. The rest need none."
+                ),
+            },
+        ],
+    }
+
+
+@app.post("/api/onboarding/dismiss", response_model=response_models.OnboardingDismissed,
+          response_model_exclude_unset=True)
+def dismiss_onboarding():
+    """Put the card away for good.
+
+    Deliberately not a settings *group*: a group is something the assistant's
+    ``update_settings`` reaches, and the assistant putting away the user's own
+    getting-started card is not a write anyone would ask for.
+    """
+    conn = _get_db()
+    try:
+        set_setting(conn, _ONBOARDING_DISMISSED_KEY, "true")
+        return {"dismissed": True}
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# Entrypoint
+# ---------------------------------------------------------------------------
+
+_serving_port: Optional[int] = None
+
+
+def set_serving_port(port: int) -> None:
+    """Record the port this process serves, for a backend not started by ``main()``.
+
+    The background service (``daemon.run``) serves this app on its own port.
+    Without this it fell back to the port file, which names whichever window's
+    engine last wrote it, so Evidence's answers were bound to a stale port.
+    """
+    global _serving_port
+    _serving_port = port
+
+
+def serving_port() -> Optional[int]:
+    """The port this backend is actually answering on.
+
+    Set by ``main()``, and by the service through ``set_serving_port``. The
+    fallbacks exist for a backend started by a test or by an embedder — and they
+    are read in the same order the MCP server uses, so the two cannot disagree
+    about which resmon is meant.
+    """
+    if _serving_port is not None:
+        return _serving_port
+    env = os.environ.get("RESMON_PORT")
+    if env:
+        try:
+            return int(env)
+        except ValueError:
+            pass
+    try:
+        return int(Path(PORT_FILE).read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+
+
+def write_port_file(port: int) -> None:
+    """Record the port this process is serving on, for the MCP server to find.
+
+    Best-effort by design: a read-only or missing state directory must not stop
+    the backend starting. The MCP server's other way of being told a port is
+    RESMON_PORT, and it confirms whatever it finds with GET /api/health before
+    using it, so a stale file costs a probe rather than a wrong answer. An
+    *absent* file costs more: the server does not reach for a default when
+    nothing names a port, so with this file missing and
+    RESMON_PORT unset a harness is refused rather than answered. That is the
+    intended trade -- the only thing a default could reach is whichever resmon
+    happens to hold it.
+    """
+    try:
+        PORT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        PORT_FILE.write_text(str(int(port)), encoding="utf-8")
+    except OSError:
+        logging.getLogger(__name__).warning(
+            "Could not write the port file at %s; an MCP server will not find "
+            "this backend unless RESMON_PORT names it.", PORT_FILE,
+        )
+
+
+def remove_port_file() -> None:
+    """Delete the port file on the way out. Never raises."""
+    try:
+        PORT_FILE.unlink()
+    except OSError:
+        pass
+
+
+def main():
+    global _serving_port
+
+    import uvicorn
+    from implementation_scripts.logger import install_engine_log
+
+    # Before ``create_app`` opens the database: warnings and errors, and the
+    # lines an upgrade of an older database writes once, go to standard error,
+    # which the app reads and writes to its own output.
+    install_engine_log()
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8742
+    _serving_port = port
+    # Electron hands its minted token and its renderer's origin over in the
+    # environment; a bare ``python resmon.py <port>`` mints its own. Either way
+    # the token is written beside the daemon lock for clients that did not
+    # start this process (the MCP server under a harness) and is never printed.
+    token = api_auth.configure_from_environment()
+    # The app's notification listener, when the app started this backend.
+    from implementation_scripts import desktop_notifier
+    desktop_notifier.configure_host_from_environment()
+    create_app()
+    print(f"{APP_NAME} v{APP_VERSION}")
+    write_port_file(port)
+    try:
+        api_auth.write_token_file(port, token)
+    except OSError:
+        logging.getLogger(__name__).warning(
+            "Could not write the API token file in %s; only the process that "
+            "started this backend can reach it.", api_auth.state_dir(),
+        )
+    # uvicorn shuts down gracefully on SIGTERM and then re-raises the signal
+    # into whatever handler was installed before it started. With the default
+    # handler that kills the process on the spot and the ``finally`` below never
+    # ran — so the port file, and now the token file, outlived every backend
+    # Electron stopped. This handler removes both and then dies of the same
+    # signal, exactly as before. It must not raise SystemExit instead: an
+    # interpreter exiting normally waits for non-daemon threads (a running
+    # sweep, an assistant turn), and a backend that ignores SIGTERM is worse
+    # than a stale file.
+    import signal
+
+    def _clean_up_and_die(signum, _frame):
+        api_auth.remove_token_file(port, token)
+        remove_port_file()
+        signal.signal(signum, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)
+
+    signal.signal(signal.SIGTERM, _clean_up_and_die)
+    try:
+        uvicorn.run(app, host="127.0.0.1", port=port)
+    finally:
+        api_auth.remove_token_file(port, token)
+        remove_port_file()
+
+
+if __name__ == "__main__":
+    main()

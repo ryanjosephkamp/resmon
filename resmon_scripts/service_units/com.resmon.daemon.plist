@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{{LABEL}}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{PYTHON}}</string>
+        {{LAUNCH_ARGS}}
+        <string>{{PORT}}</string>{{STATE_ARGS}}
+    </array>
+    <key>WorkingDirectory</key>
+    <string>{{WORKDIR}}</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key>
+        <string>{{WORKDIR}}</string>
+        <!-- Augment PATH so subprocess lookups (notably xelatex/pdflatex
+             for routine-fired execution PDF bundles) can find binaries
+             that the default launchd PATH does not include. -->
+        <key>PATH</key>
+        <string>/Library/TeX/texbin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>{{LOG_DIR}}/resmon-daemon.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>{{LOG_DIR}}/resmon-daemon.err.log</string>
+    <!-- Interactive, not Background: the service is the app, and opening resmon
+         while it runs opens the window in this same process. launchd throttles a
+         Background job's CPU and I/O to the background band (priority 4, where an
+         app runs at 31), which every scroll in that window felt. -->
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>

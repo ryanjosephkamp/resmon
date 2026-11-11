@@ -1,0 +1,295 @@
+import { WordBreaks } from '../../lib/WordBreaks';
+import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
+import { answer, engine } from '../../api/client';
+import { useAppearance } from '../../theme/appearance';
+import { Tip, paperTip } from '../Today';
+import { tipWords } from '../../charts/ChartTip';
+import { mapKey, readMap } from '../today/freshness';
+import { useCollection, useCollectionWords } from '../../collections/current';
+import { number } from '../today/format';
+import { epochDay, gridCell, watchShape, type Sky } from '../today/model';
+import { Plate, type PlateHandle, type PlateHover, type PlateLook } from '../today/Plate';
+import { collectionSky } from './collectionSky';
+import { useReadAfter } from './readAfter';
+
+/** Up to this many marked papers are ringed; more are lit in the accent without rings. */
+const RING_LIMIT = 80;
+/** The fewest marked papers an outline goes around. */
+const OUTLINE_MIN = 5;
+
+/** What the sky could establish about the papers it was asked to mark. */
+export interface SkyFacts {
+  /** How many of the marked papers the map has placed; `null` until the map is read. */
+  placed: number | null;
+  total: number;
+  /** The map is fitted and has points. */
+  ready: boolean;
+  /** How the map placed papers: by their embeddings or by shared wording. */
+  basis: 'embeddings' | 'words' | null;
+  /** How many papers in the whole collection the map leaves off, by the reason the map gives; `null` until it is read. */
+  unplaced?: { no_text: number; not_embedded: number } | null;
+}
+
+/** A paper chosen on the map, and where it sits there: its grid cell and its region's name. */
+export interface SkyChoice { id: number; cell: string | null; region: string | null }
+
+export interface PaperSkyHandle {
+  /** Fly to a paper on the map, as "show it on the map" does. */
+  show: (id: number) => void;
+  /** Give the map the keyboard, as a way back from beside it lands. */
+  focus: () => void;
+}
+
+interface Props {
+  /** The papers to mark among the whole collection. */
+  marked: readonly number[];
+  /** One paper at the center of attention, crossed in the accent (a paper's own page). */
+  focus?: number | null;
+  /** The accessible name of the figure. */
+  label: string;
+  caption: (facts: SkyFacts) => string;
+  /** Square by default; `tall` fills the height it is given. */
+  shape?: 'square' | 'tall';
+  /**
+   * Of the marked papers, the ones to ring however many there are (a watch's
+   * latest night); the rest of the marked are lit in the accent.
+   */
+  bright?: readonly number[];
+  /**
+   * Draw the marked papers' outline, as Today draws a watch's: where their
+   * density falls to a fifth of its peak, named with `outline`.
+   */
+  outline?: string | null;
+  /**
+   * An engine timestamp the map must have been read after, such as a run's end:
+   * a map read earlier was read without the papers that arrived since, so it
+   * is read again, and until then counts as not ready rather than as a map
+   * that could not place them.
+   */
+  readAfter?: string | null;
+  /** The paper open beside the map, crossed on it, or none. */
+  chosen?: number | null;
+  /**
+   * Open a paper beside the map (or close the one open, with null). Without
+   * it, a click opens the paper's own page, and from the keyboard Enter does.
+   */
+  onChoose?: (choice: SkyChoice | null) => void;
+  /** `zoom` where the map is the page's own height; `page` where the page around it scrolls. */
+  wheel?: 'zoom' | 'page';
+  /** What a source's slug is called, for the hover. */
+  sourceName?: (slug: string) => string;
+}
+
+/** Light the marked papers in the accent, dim the rest, and ring the few or the bright ones. */
+export function markLook(sky: Sky, marked: readonly number[], bright?: readonly number[]): { look: PlateLook | null; placed: number } {
+  const at = new Set<number>();
+  for (const id of marked) {
+    const i = sky.indexOf.get(id);
+    if (i !== undefined) at.add(i);
+  }
+  if (marked.length === 0) return { look: null, placed: 0 };
+  const lit = new Uint8Array(sky.count);
+  for (const i of at) lit[i] = 1;
+  const ringed: number[] = [];
+  if (bright) {
+    for (const id of bright) {
+      const i = sky.indexOf.get(id);
+      if (i !== undefined) ringed.push(i);
+    }
+  } else if (at.size <= RING_LIMIT) ringed.push(...at);
+  return {
+    look: { lit, group: new Uint8Array(sky.count), colors: ['var(--accent-mark)'], found: Int32Array.from(ringed) },
+    placed: at.size,
+  };
+}
+
+/**
+ * Where some papers sit in the whole collection, on the same plate as Today's:
+ * the marked papers lit in the accent, the rest dimmed rather than removed, so
+ * the collection keeps its shape. Hover names a paper; a click opens it beside
+ * the map where the page has room (`onChoose`), or its own page where it has
+ * not; it zooms and pans as Today's does.
+ *
+ * One map rather than a picture beside a plate: every page that shows where
+ * papers sit can then be explored the same way, and the whole collection is
+ * built into a sky once for all of them (`collectionSky`).
+ *
+ * A paper the map has not placed (too little text to place, or not yet read
+ * by the embedding model the map was drawn with) is not drawn, so the caption
+ * is told how many of the marked papers were placed and can say so rather
+ * than imply the whole set.
+ */
+export const PaperSky = forwardRef<PaperSkyHandle, Props>(function PaperSky(props, ref) {
+  const {
+    marked, focus = null, label, caption, shape = 'square', bright, outline = null, readAfter = null,
+    chosen = null, onChoose, wheel = 'page', sourceName = (slug: string) => slug,
+  } = props;
+  const navigate = useNavigate();
+  const { shown, theme } = useAppearance();
+  const { id: collection } = useCollection();
+  const place = useCollectionWords();
+  const map = useQuery({
+    queryKey: mapKey(collection),
+    queryFn: () => readMap(collection),
+    // A map being fitted is asked for again until it is drawn, as on Today:
+    // otherwise a page opened during the fit says it is drawing until left.
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      return data && (data.state === 'fitting' || data.refitting) ? 2_000 : false;
+    },
+  });
+  const current = useReadAfter(map, readAfter);
+  const [now] = useState(() => new Date());
+  const ready = current && map.data?.state === 'ready' && map.data.points.id.length > 0 ? map.data : null;
+  const built = useMemo(() => (ready ? collectionSky(ready, epochDay(now)) : null), [ready, now]);
+  const sky = built?.sky ?? null;
+  const marks = useMemo(() => (sky ? markLook(sky, marked, bright) : null), [sky, marked, bright]);
+  const shapes = useMemo(() => {
+    if (!sky || !ready || outline === null || (marks?.placed ?? 0) < OUTLINE_MIN) return [];
+    return [watchShape(sky, ready.regions, { id: -1, name: outline, members: [...marked] })];
+  }, [sky, ready, outline, marks, marked]);
+  const regionNames = useMemo(() => new Map((ready?.regions ?? []).map((r) => [r.id, r.label])), [ready]);
+
+  const plate = useRef<PlateHandle>(null);
+  // A paper chosen from the keyboard on a page that opens papers on their own page: crossed until Enter opens it.
+  const [pick, setPick] = useState<number | null>(null);
+  const [hover, setHover] = useState<PlateHover | null>(null);
+  const hovered = hover && sky ? sky.ids[hover.index] ?? null : null;
+  const brief = useQuery({
+    queryKey: ['brief', hovered],
+    enabled: hovered !== null,
+    staleTime: Infinity,
+    queryFn: async () => (await answer(engine().POST('/api/documents/briefs', { body: { ids: [hovered ?? 0] } })))[0] ?? null,
+  });
+
+  const choiceAt = (i: number): SkyChoice | null => {
+    if (!sky) return null;
+    const id = sky.ids[i];
+    if (id === undefined) return null;
+    return {
+      id, cell: gridCell(sky.x[i] ?? 0, sky.y[i] ?? 0, sky.bounds),
+      region: regionNames.get(sky.region[i] ?? -1) || null,
+    };
+  };
+  const open = (i: number) => {
+    const id = sky?.ids[i];
+    if (id !== undefined && id !== focus) navigate(`/papers/${id}`);
+  };
+  const onSelect = (index: number | null, via: 'pointer' | 'keyboard') => {
+    if (onChoose) {
+      onChoose(index === null ? null : choiceAt(index));
+      return;
+    }
+    if (index === null) { setPick(null); return; }
+    if (via === 'pointer') open(index);
+    else setPick(sky?.ids[index] ?? null);
+  };
+
+  useImperativeHandle(ref, () => ({
+    show: (id) => {
+      const i = sky?.indexOf.get(id);
+      if (sky && i !== undefined) plate.current?.flyTo({ x: sky.x[i] ?? 0, y: sky.y[i] ?? 0, r: sky.bounds.size * 0.12 });
+    },
+    focus: () => plate.current?.focus(),
+  }), [sky]);
+
+  const crossed = onChoose ? chosen : pick ?? focus;
+  const selected = crossed !== null && sky ? sky.indexOf.get(crossed) ?? null : null;
+  const facts: SkyFacts = {
+    placed: marks?.placed ?? null,
+    total: marked.length + (focus !== null && !marked.includes(focus) ? 1 : 0),
+    ready: !!ready,
+    basis: map.data?.basis ?? null,
+    unplaced: ready ? ready.unplaced : null,
+  };
+  const said = caption(facts);
+  return (
+    <figure className={shape === 'tall' ? 'sky tall' : 'sky'} aria-label={label}>
+      <div className={shape === 'tall' ? 'sky-plate tall' : 'sky-plate'}>
+        {sky && built && ready ? (
+          <Plate
+            ref={plate}
+            sky={sky}
+            regions={ready.regions}
+            shapes={shapes}
+            field={built.field}
+            arrivals={[]}
+            selected={selected}
+            pointed={null}
+            onSelect={onSelect}
+            onOpen={onChoose ? undefined : open}
+            onHover={setHover}
+            onKeyed={setHover}
+            paletteKey={`${theme}:${shown.accent ?? ''}`}
+            label={`${said} ${onChoose ? 'Choose a paper to open it beside the map.' : 'Choose a paper to open its page.'}`}
+            onAway={() => undefined}
+            toolsAt="left"
+            look={marks?.look ?? null}
+            wheel={wheel}
+          >
+            {hover && (
+              <Tip hover={hover} brief={brief.data ?? undefined} now={now} sourceName={sourceName}
+                cell={gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds)}
+                opens={opensWords(hover.via ?? 'pointer', !!onChoose, hovered === focus || (!!onChoose && hovered === chosen))} />
+            )}
+          </Plate>
+        ) : (
+          <div className="sky-empty">
+            <WordBreaks text={map.isPending || (map.data?.state === 'ready' && !current) ? 'Reading the map.'
+              : map.data?.state === 'fitting' ? `Drawing the map of ${place.name}.`
+                : place.named ? `The map of ${place.name} has no papers placed yet.` : 'The collection map has no papers placed yet.'} />
+          </div>
+        )}
+      </div>
+      {/* The paper the keyboard chose, said as its tip says it: the map itself is one picture to a screen reader. */}
+      <p className="sr-only" aria-live="polite" data-map-said="">
+        {hover?.via === 'keyboard' && sky ? tipWords(paperTip({
+          brief: brief.data ?? undefined, now, sourceName, cell: gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds),
+          opens: opensWords('keyboard', !!onChoose, hovered === focus),
+        })) : ''}
+      </p>
+      <figcaption>{said}</figcaption>
+    </figure>
+  );
+});
+
+/**
+ * What choosing a paper does on a map, for its tip: opens it beside the map,
+ * or opens its page (from the keyboard, Enter does, once it is chosen). The
+ * page's own paper, and a paper already open beside the map, open nothing
+ * more, and their tips say nothing of it.
+ */
+export function opensWords(via: 'pointer' | 'keyboard', beside: boolean, isOpen: boolean): string | undefined {
+  if (isOpen) return undefined;
+  if (beside) return via === 'keyboard' ? undefined : 'Opens it beside the map';
+  return via === 'keyboard' ? 'Enter opens its page' : 'Opens its page';
+}
+
+/** "placed by shared wording" or "placed by meaning", for a caption. */
+/**
+ * Why `off` marked papers are not on the map, from the reasons the map gives
+ * for the whole collection. A paper is left off when its title and abstract
+ * hold too little text to place (on the words basis, too few words shared with
+ * the rest), and, on a map drawn from an embedding model, a paper that model
+ * has not read yet is still to be placed. The map counts each reason for the
+ * collection, not per paper, so where both apply the sentence names both.
+ */
+export function leftOffWords(off: number, facts: Pick<SkyFacts, 'basis' | 'unplaced'>): string {
+  const left = `${number(off)} ${off === 1 ? 'is' : 'are'} left off the map`;
+  const unplaced = facts.unplaced;
+  const waiting = facts.basis === 'embeddings' && (unplaced?.not_embedded ?? 0) > 0;
+  const tooLittle = facts.basis === 'words'
+    ? `${off === 1 ? 'its title and abstract share' : 'their titles and abstracts share'} too few words with the rest to place ${off === 1 ? 'it' : 'them'}`
+    : `${off === 1 ? 'its title and abstract hold' : 'their titles and abstracts hold'} too little text to place ${off === 1 ? 'it' : 'them'}`;
+  if (!waiting) return `${left}: ${tooLittle}.`;
+  if ((unplaced?.no_text ?? 0) === 0) return `${number(off)} ${off === 1 ? 'is' : 'are'} not placed yet: your embedding model has not read ${off === 1 ? 'it' : 'them'}.`;
+  return `${number(off)} ${off === 1 ? 'is' : 'are'} off the map: your embedding model has not read ${off === 1 ? 'it' : 'some of them'} yet, or ${tooLittle}.`;
+}
+
+export function basisWords(basis: SkyFacts['basis']): string {
+  if (basis === 'embeddings') return 'placed by meaning';
+  if (basis === 'words') return 'placed by shared wording';
+  return 'placed on the map';
+}

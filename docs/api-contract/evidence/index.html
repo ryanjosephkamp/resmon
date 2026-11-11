@@ -1,0 +1,260 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Evidence workspace · resmon</title><meta name="description" content="Evidence joins explicit projects to immutable local Library versions. Start in Library, import or choose a file, follow Open in Evidence / add to project, choose the intended proj…"><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/api-contract/evidence/"><link rel="icon" href="/resmon/favicon.png" type="image/png" sizes="64x64"><link rel="apple-touch-icon" href="/resmon/apple-touch-icon.png"><link rel="preload" href="/resmon/static/geist-latin-wght-normal.BgDaEnEv.woff2" as="font" type="font/woff2" crossorigin><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="Evidence workspace · resmon"><meta property="og:description" content="Evidence joins explicit projects to immutable local Library versions. Start in Library, import or choose a file, follow Open in Evidence / add to project, choose the intended proj…"><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/api-contract/evidence/"><meta property="og:image" content="https://ryanjosephkamp.github.io/resmon/media/resmon-og.png"><meta name="twitter:card" content="summary_large_image"><script>
+      // A theme and color chosen on an earlier visit, set before the page paints. The top bar's
+      // appearance control (src/scripts/appearance.ts) keeps them; only its own names and colors are read.
+      // `scripted` lets a page hold room for what its scripts will draw.
+      document.documentElement.classList.add('scripted');
+      try {
+        const kept = JSON.parse(localStorage.getItem('resmon:appearance') || 'null');
+        if (kept) {
+          const root = document.documentElement;
+          if (kept.theme === 'light' || kept.theme === 'dark') root.dataset.theme = kept.theme;
+          for (const [name, value] of Object.entries(kept.tones || {})) {
+            if (/^--dial-(light|dark)-[a-z]+$/.test(name) && /^#[0-9a-f]{6}$/i.test(value)) root.style.setProperty(name, value);
+          }
+        }
+      } catch {}
+    </script><link rel="stylesheet" href="/resmon/static/_doc_.CrUxPVYO.css">
+<style>.cartouche[data-astro-cid-vyumnbmr]{margin-bottom:var(--space-6);padding:var(--space-5) var(--space-5) var(--space-4);background:var(--color-canvas);border:var(--border-width) solid var(--color-border-strong);box-shadow:inset 0 0 0 var(--space-1) var(--color-canvas),inset 0 0 0 calc(var(--space-1) + var(--border-width)) var(--color-border)}h1[data-astro-cid-vyumnbmr]{margin:0;font-size:var(--text-3xl);line-height:var(--leading-display)}.meta[data-astro-cid-vyumnbmr]{display:flex;flex-direction:column;gap:var(--space-1) var(--space-3);margin:var(--space-3) 0 0;max-width:var(--measure);color:var(--color-text-muted);font-size:var(--text-sm)}.section[data-astro-cid-vyumnbmr]{font-weight:var(--weight-semibold);color:var(--color-text)}@media(min-width:40rem){.meta[data-astro-cid-vyumnbmr]{flex-direction:row;flex-wrap:wrap}.section[data-astro-cid-vyumnbmr]:after{content:"·";margin-inline-start:var(--space-3);color:var(--color-text-faint)}}
+.doc[data-astro-cid-c2uqhu5p]{display:grid;gap:var(--space-6);padding-block:var(--space-6) var(--space-8)}.doc-body[data-astro-cid-c2uqhu5p]{min-width:0;max-width:var(--measure-wide)}.rail[data-astro-cid-c2uqhu5p]{order:2;font-size:var(--text-sm);border-top:var(--border-width) solid var(--color-border);padding-top:var(--space-4)}.rail-head[data-astro-cid-c2uqhu5p]{display:block;margin-bottom:var(--space-2);font-weight:var(--weight-semibold);color:var(--color-text);text-decoration:none}.rail[data-astro-cid-c2uqhu5p] ol[data-astro-cid-c2uqhu5p]{margin:0;padding:0;list-style:none;columns:2 11rem;column-gap:var(--space-5)}.rail[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:0}.rail[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p]{display:flex;align-items:center;gap:var(--space-2);padding-block:var(--space-1);color:var(--color-text-muted);text-decoration:none;break-inside:avoid;transition:color var(--duration-fast) var(--ease)}.rail[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p]:before{content:"";flex-shrink:0;width:var(--space-1);height:var(--space-1);border-radius:50%;background:var(--color-border-strong)}.rail[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p]:hover{color:var(--color-text)}.rail[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p][aria-current=page]{color:var(--color-text);font-weight:var(--weight-semibold)}.rail[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p][aria-current=page]:before{background:var(--color-accent-mark);outline:var(--border-width) solid var(--color-accent-mark);outline-offset:var(--border-width-heavy)}.contents[data-astro-cid-c2uqhu5p]{max-width:var(--measure);margin-bottom:var(--space-6);padding-block:var(--space-3);border-block:var(--border-width) solid var(--color-border)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-sm);font-weight:var(--weight-semibold);color:var(--color-text);border:0;padding:0}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm);columns:2 14rem;column-gap:var(--space-6)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}.contents[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p]{color:var(--color-text-muted)}.contents[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p]:hover{color:var(--color-text)}@media(min-width:64rem){.doc[data-astro-cid-c2uqhu5p].has-rail{grid-template-columns:var(--rail) minmax(0,1fr);gap:var(--space-7)}.rail[data-astro-cid-c2uqhu5p]{order:0;position:sticky;top:var(--space-5);align-self:start;border-top:0;padding-top:0}.rail[data-astro-cid-c2uqhu5p] ol[data-astro-cid-c2uqhu5p]{columns:auto}}@media(min-width:84rem){.doc[data-astro-cid-c2uqhu5p].has-rail.has-contents .doc-body[data-astro-cid-c2uqhu5p]{display:grid;grid-template-columns:minmax(0,var(--measure)) var(--rail);column-gap:var(--space-7);max-width:none;align-items:start}.doc[data-astro-cid-c2uqhu5p].has-rail.has-contents .doc-body[data-astro-cid-c2uqhu5p]>.cartouche{grid-column:1 / -1}.doc[data-astro-cid-c2uqhu5p].has-rail.has-contents .contents[data-astro-cid-c2uqhu5p]{grid-column:2;grid-row:2 / span 2;position:sticky;top:var(--space-5);border-block:0;border-inline-start:var(--border-width) solid var(--color-border);padding:0 0 0 var(--space-4)}.doc[data-astro-cid-c2uqhu5p].has-rail.has-contents .contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{columns:auto;padding-inline-start:0;list-style:none}.doc[data-astro-cid-c2uqhu5p].has-rail.has-contents .prose[data-astro-cid-c2uqhu5p],.doc[data-astro-cid-c2uqhu5p].has-rail.has-contents .doc-body[data-astro-cid-c2uqhu5p]>:not(.cartouche):not(.contents){grid-column:1}}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="lockup" href="/resmon/" aria-label="resmon, research monitor: home" data-astro-cid-5hce7sga> <img class="mark" src="/resmon/mark.webp" width="96" height="96" alt="" decoding="async" data-astro-cid-iifiznic>  <span class="lockup-words" aria-hidden="true" data-astro-cid-5hce7sga><b data-astro-cid-5hce7sga>res</b>earch <b data-astro-cid-5hce7sga>mon</b>itor</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/#sources" data-astro-cid-5hce7sga> Sources </a> </li><li class="nav-wide" data-astro-cid-5hce7sga> <a href="/resmon/#tour" data-astro-cid-5hce7sga> Tour </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" data-astro-cid-5hce7sga> Guide </a> </li><li class="nav-wide" data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li> <li class="nav-wide" data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>Source code</a> </li> </ul> </nav> <div class="mast-end" data-astro-cid-5hce7sga> <div class="appearance" data-appearance hidden data-astro-cid-5hce7sga> <button type="button" class="appearance-button" aria-expanded="false" aria-controls="appearance-panel" data-astro-cid-5hce7sga> <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" data-astro-cid-5hce7sga> <path d="M8 1.75s-4.25 4.6-4.25 7.6a4.25 4.25 0 0 0 8.5 0c0-3-4.25-7.6-4.25-7.6Z" data-astro-cid-5hce7sga></path> </svg> <span class="visually-hidden" data-astro-cid-5hce7sga>Theme and color</span> </button> <div class="appearance-panel" id="appearance-panel" hidden data-astro-cid-5hce7sga> <fieldset class="themes" data-astro-cid-5hce7sga> <legend data-astro-cid-5hce7sga>Theme</legend> <div class="seg" data-astro-cid-5hce7sga> <label data-astro-cid-5hce7sga> <input class="visually-hidden" type="radio" name="theme" value="system" data-astro-cid-5hce7sga> <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" data-astro-cid-5hce7sga><rect x="1.75" y="2.75" width="12.5" height="8.5" rx="1.5" /><path d="M5.5 14h5M8 11.25V14" /></svg> <span data-astro-cid-5hce7sga>Follow the system</span> </label><label data-astro-cid-5hce7sga> <input class="visually-hidden" type="radio" name="theme" value="light" data-astro-cid-5hce7sga> <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" data-astro-cid-5hce7sga><circle cx="8" cy="8" r="3" /><path d="M8 1.5v1.5M8 13v1.5M14.5 8H13M3 8H1.5M12.6 3.4l-1.06 1.06M4.46 11.54 3.4 12.6M12.6 12.6l-1.06-1.06M4.46 4.46 3.4 3.4" /></svg> <span data-astro-cid-5hce7sga>Light</span> </label><label data-astro-cid-5hce7sga> <input class="visually-hidden" type="radio" name="theme" value="dark" data-astro-cid-5hce7sga> <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" data-astro-cid-5hce7sga><path d="M13.5 9.6A5.75 5.75 0 0 1 6.4 2.5a5.75 5.75 0 1 0 7.1 7.1Z" /></svg> <span data-astro-cid-5hce7sga>Dark</span> </label> </div> </fieldset> <div class="dial" data-astro-cid-5hce7sga> <label for="hue" data-astro-cid-5hce7sga><i data-astro-cid-5hce7sga>Its color:</i> <span class="hue-name" data-astro-cid-5hce7sga>amber</span></label> <div class="dial-row" data-astro-cid-5hce7sga> <input id="hue" type="range" min="0" max="359" step="1" value="51" data-astro-cid-5hce7sga> <button type="button" class="hue-reset" data-astro-cid-5hce7sga>Use the default</button> </div> <p class="dial-note" data-astro-cid-5hce7sga>
+Only the hue turns. As in the app, each tone is then drawn light or deep enough to read on this
+                  page, in either theme.
+</p> </div> </div> </div> <a class="mast-action" href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Download</a> </div> </div> </header> <main id="main" class="shell main main-full" data-astro-cid-5hce7sga>  <div class="doc has-rail has-contents" data-astro-cid-c2uqhu5p> <nav class="rail" aria-label="The API contract" data-astro-cid-c2uqhu5p> <a class="rail-head" href="/resmon/api-contract/" data-astro-cid-c2uqhu5p> The API contract </a> <ol data-astro-cid-c2uqhu5p> <li data-astro-cid-c2uqhu5p> <a href="/resmon/api-contract/assistant-choices/" data-astro-cid-c2uqhu5p> Assistant choices (schema 15) </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/api-contract/evidence/" aria-current="page" data-astro-cid-c2uqhu5p> Evidence workspace </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/api-contract/library/" data-astro-cid-c2uqhu5p> Library: owned copies and bounded text </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/api-contract/assistant-conversations/" data-astro-cid-c2uqhu5p> Saved conversations: browse, snapshot, export </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/api-contract/selected-evidence/" data-astro-cid-c2uqhu5p> Selected-evidence answers </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/api-contract/http/" data-astro-cid-c2uqhu5p> The HTTP surface, by journey </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/api-contract/mcp/" data-astro-cid-c2uqhu5p> The resmon MCP tool surface — contract 1.1 </a> </li> </ol> </nav> <article class="doc-body" data-astro-cid-c2uqhu5p> <header class="cartouche" data-astro-cid-vyumnbmr> <h1 data-astro-cid-vyumnbmr>Evidence workspace</h1> <p class="meta" data-astro-cid-vyumnbmr> <span class="section" data-astro-cid-vyumnbmr>Contract</span> <span data-astro-cid-vyumnbmr>docs/api-contract/evidence.md</span> </p>  </header>  <nav class="contents" aria-labelledby="contents-heading" data-astro-cid-c2uqhu5p> <h2 id="contents-heading" class="contents-heading" data-astro-cid-c2uqhu5p>
+On this page
+</h2> <ul data-astro-cid-c2uqhu5p> <li data-astro-cid-c2uqhu5p> <a href="#identity-retention-and-schema-17" data-astro-cid-c2uqhu5p>Identity, retention and schema 17</a> </li><li data-astro-cid-c2uqhu5p> <a href="#twelve-http-operations" data-astro-cid-c2uqhu5p>Twelve HTTP operations</a> </li><li data-astro-cid-c2uqhu5p> <a href="#reading-and-immutable-passages" data-astro-cid-c2uqhu5p>Reading and immutable passages</a> </li><li data-astro-cid-c2uqhu5p> <a href="#selected-portable-bundle" data-astro-cid-c2uqhu5p>Selected portable bundle</a> </li><li data-astro-cid-c2uqhu5p> <a href="#verification-and-distribution" data-astro-cid-c2uqhu5p>Verification and distribution</a> </li><li data-astro-cid-c2uqhu5p> <a href="#selected-answers-schema-18" data-astro-cid-c2uqhu5p>Selected answers (schema 18)</a> </li> </ul> </nav> <div class="prose" data-astro-cid-c2uqhu5p><p>Evidence joins explicit projects to immutable local Library versions. Start in
+Library, import or choose a file, follow <strong>Open in Evidence / add to project</strong>,
+choose the intended project, and explicitly add that exact version. There is no
+latest-import inference or second path-based import API.</p>
+<h2 id="identity-retention-and-schema-17">Identity, retention and schema 17</h2>
+<p>Projects have random UUIDs within the configured vault. Names are literal text,
+1–120 Unicode codepoints after boundary trim. The bounds are 100 projects,
+1,000 current members per project and 5,000 notes per project. Membership pins an
+existing file/version pair in the same vault. Repeated add or absent-member
+remove is a true no-op, preserving timestamps and revision. Removing membership
+preserves original files, Library bytes, paper associations, provenance, other
+projects and all saved notes. Re-adding the same identity reconnects those notes.
+There is no project/note/file delete, adoption, relocation or recovery operation.</p>
+<p>Schema 17 adds exactly <code>evidence_projects</code>, <code>evidence_project_files</code> and
+<code>evidence_notes</code>, with explicit indexes <code>idx_evidence_project_files_order</code> and
+<code>idx_evidence_notes_order</code>. The atomic 16→17 migration creates and validates exact
+object SQL under a savepoint before advancing the marker. Existing partial or
+wrong shapes refuse; restart validates rather than repairs. There is no backfill,
+vault creation, file access or rewrite of existing rows. The physical table census is
+32 application/FTS tables plus SQLite’s internal <code>sqlite_sequence</code> before,
+35 application/FTS tables plus that internal table afterward. Implicit unique
+indexes are separate from the two explicit indexes.</p>
+<p>Existing settings resets and corpus erasure retain projects, notes, the Library
+catalog and managed bytes. Corpus erasure still removes paper associations to
+those deleted papers. Database backup alone does not preserve managed files.
+Library’s no-follow, descriptor-relative platform requirements apply, so the
+Library, and Evidence with it, is unavailable on Windows.</p>
+<h2 id="twelve-http-operations">Twelve HTTP operations</h2>
+<p>Every operation requires the exact loopback renderer Origin
+<code>http://127.0.0.1:&#x3C;port></code> and <code>X-Resmon-Library: 1</code>. This is browser Origin
+protection, not authentication of another local program capable of forging a
+header. The guard applies before parsing. Evidence responses use <code>no-store</code> and
+expose only their named download/identity headers to the renderer; global CORS
+and other routes are not affected. The Evidence client uses the port of the
+engine its window talks to, the background service’s included, and has no
+default-instance fallback: with no port from the window it sends nothing.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Method</th><th>Path under <code>/api/evidence/projects</code></th><th>Request and result</th></tr></thead><tbody><tr><td>GET</td><td>empty</td><td><code>expected_vault_id</code>; paged project metadata</td></tr><tr><td>POST</td><td>empty</td><td><code>expected_vault_id</code>, <code>name</code>; project at revision 1</td></tr><tr><td>GET</td><td><code>/{project_id}</code></td><td><code>expected_vault_id</code>; project and current counts</td></tr><tr><td>PATCH</td><td><code>/{project_id}</code></td><td>expected vault/revision, name; compare-and-swap rename</td></tr><tr><td>GET</td><td><code>/{project_id}/files</code></td><td>expected vault; paged current memberships and exact file metadata</td></tr><tr><td>POST</td><td><code>/{project_id}/files</code></td><td>expected vault/revision, <code>file_id</code>, <code>version_id</code>; add/no-op</td></tr><tr><td>DELETE</td><td><code>/{project_id}/files/{file_id}</code></td><td>expected vault/revision, <code>version_id</code>; membership only</td></tr><tr><td>GET</td><td><code>/{project_id}/notes</code></td><td>expected vault; optional exact <code>file_id</code> + <code>version_id</code>; paged saved records</td></tr><tr><td>POST</td><td><code>/{project_id}/notes</code></td><td>expected vault/revision, exact file/version, kind/body, passage anchor or null</td></tr><tr><td>PATCH</td><td><code>/{project_id}/notes/{note_id}</code></td><td>expected vault/project revision, <code>expected_note_revision</code>, body only</td></tr><tr><td>GET</td><td><code>/{project_id}/reader/{file_id}</code></td><td>expected vault, version, page, <code>representation=text</code> or <code>pdf</code></td></tr><tr><td>POST</td><td><code>/{project_id}/bundle</code></td><td>expected vault/revision, explicit selected file/version array, <code>include_files</code> boolean</td></tr></tbody></table>
+<p>Expected revision fields are named <code>expected_revision</code>; expected vault is
+<code>expected_vault_id</code>. UUIDs are canonical lowercase; numeric inputs are exact
+integers, never bool/float/string coercions. Unknown fields and duplicate JSON
+or query keys refuse. Streamed JSON request bodies are at most 256 KiB.
+Malformed input is 422, missing IDs 404, conflicting vault/version/revision 409,
+and resource limits 413 or a typed page status. No lost-update retry is automatic.
+The editor preserves unsaved body text on conflicts. After a concurrent note edit,
+refresh, review its latest saved body and explicitly keep the draft against the
+current revision before saving. This does not silently overwrite another edit.
+The editor keeps text or a passage selected after an earlier save was submitted;
+the success notice distinguishes the saved snapshot from newer unsaved changes.
+An explicit selected-file membership refresh checks up to twenty pages of fifty
+metadata rows at one revision/ceiling; absence from the first page is not removal.</p>
+<p>Evidence timestamps are generated with microsecond UTC precision; malformed
+stored timestamps refuse reads/exports without repairing the saved record.</p>
+<p>JSON envelopes carry <code>contract_version: 1</code>, vault and project where applicable.
+List queries use <code>after_id</code> (default 0), <code>through_id</code> (initial current maximum)
+and <code>limit</code> (1–50, default 50); IDs ascend. Responses include <code>through_id</code>,
+<code>next_after_id</code>, <code>has_more</code>, <code>total</code> and a count basis. Later inserts appear on
+explicit refresh. A ceiling is not a time-travel snapshot across removals.
+Collection file/note lists include current project revision; a mixed refresh
+is rejected by the renderer. Bundle generation uses a single SQL read snapshot.</p>
+<p>No Evidence tool is in MCP or the assistant. The manifest is 26 tools, 19 reads
+and seven confirmation writes; notes are not implicitly sent to any model. Ask’s
+<code>read_attached_file</code>, offered only in a conversation with an attached Library file, reads
+that file’s pages through the same page reader, and no project, passage, or note. Route
+counts describe declared surfaces, not proof that every capability has been
+exercised.</p>
+<h2 id="reading-and-immutable-passages">Reading and immutable passages</h2>
+<p>TXT/MD reuse Library’s literal UTF-8 reader: at most 256 KiB, 5,000 logical lines,
+no NUL, one logical page. Only CRLF/CR→LF changes the text projection; retained
+bytes and Unicode composition remain unchanged. HTML, Markdown and links stay
+literal. A text projection has the <code>library-text-lf/v1</code> extraction contract.</p>
+<p>PDF input is at most 16 MiB and 200 physical pages. The Library’s 64 MiB
+import limit still applies: a larger retained PDF is explicitly unreadable in-app.
+One fixed pypdf 6.18.1 child receives only already-verified bytes and one requested
+page. The parent owns a 20-second timeout, bounded pipes, cancellation and exact
+process reaping. Child output is at most 200,000 codepoints and 1 MiB of JSON.
+The page tree is bounded to 2,000 root-inclusive nodes and depth 32; form
+invocations to 100. Public configuration limits declared/decoded streams and
+image buffers to 8 MiB, zlib recovery input to 1 MiB, flate columns to 16,384 and
+row length to 1 MiB, XMP input/elements to 1 MiB/10,000 and outline entries/depth
+to 1,000/32. <code>jbig2dec_binary=None</code>; no image, attachment, XMP or outline extraction
+API is called. Strict parsing or parser warnings refuse rather than save
+silently shortened text. Encrypted files, including empty-password encryption,
+refuse without password collection. No extras, OCR or external decoder is used.</p>
+<p>The fixed child uses an empty owned directory and a minimal environment; it has
+no app database handle, arbitrary command/path input or credential environment.
+The interface, audit hook, configuration, output bounds and timeout do not prove
+a portable hard RSS ceiling or OS/network sandbox. Aggregate parsing can still
+exceed nominal stream budgets. The parent permits one child at a time, with no
+automatic retry, and reaps it on completion, failure or cancellation.</p>
+<p>PDF page statuses are <code>extracted</code>, <code>no_text</code>, <code>unsupported</code>, <code>malformed</code>,
+<code>limit_exceeded</code>, <code>timeout</code> or <code>unavailable</code>. Text results identify requested page,
+page count when known, examined pages and all remaining pages as <code>not_examined</code>.
+No text is not evidence of no content. Canonical extraction can omit or reshape
+columns, equations, images and tables; it makes no scientific completeness claim.
+PDF extraction contract: <code>pypdf-6.18.1/plain-lf/v1</code>.</p>
+<p>PDF.js 6.3.289 displays one canvas with at most four million pixels/16 MiB. Zoom
+reduces resolution where needed. It uses an actual version-matched local worker,
+terminated on close, selection change, failure or a 20-second rendering timeout;
+there is no fake-worker fallback. XFA, WASM, system fonts, worker fetching,
+autofetch, streams and ranges are disabled; parsing stops at errors. CMaps and
+standard fonts are local. Rendering disables annotations and provides no viewer,
+action/link/form/attachment layer. Unsupported codecs can make the image fail
+while canonical text remains available. The sole CSP addition is local
+<code>worker-src 'self'</code>. Canvas geometry never defines saved text offsets.</p>
+<p>A passage records physical/logical page, extraction contract, page-text SHA256,
+start/end Unicode codepoint offsets and exact quote, joined to vault/project/
+file/version and retained-byte digest. Quote and body each allow at most 20,000
+codepoints; a passage body may be empty, a plain-note body must not be empty.
+The backend re-reads verified bytes and recomputes the exact hash/quote/range
+before the transaction, then rechecks membership, revision and cancellation
+before insert. Body editing never modifies an anchor. Reopening displays saved
+text even when bytes are missing; highlighting requires the same contract, hash,
+page and exact range. Mismatch remains unresolved, without fuzzy reanchoring or
+latest-version fallback.</p>
+<h2 id="selected-portable-bundle">Selected portable bundle</h2>
+<p>Select 1–20 distinct current file versions in one project. Metadata-only is the
+default and explicitly says retained bytes were not checked. Optional file mode
+rehashes every included retained descriptor against the captured identity while
+streaming into an owned spool. Missing, corrupt, over-limit or canceled input
+cannot become a completed partial archive. A consistent SQLite read snapshot
+captures project revision, membership, file metadata and all notes for exactly
+the selected versions. Removed or unselected members are excluded.</p>
+<p>The only ZIP entries are <code>manifest.json</code>, <code>notes.md</code> and, in file mode,
+<code>files/&#x3C;file_uuid>/&#x3C;version_uuid>.&#x3C;pdf|txt|md></code>. Paths are generated from validated
+identity/media fields; user names are values only. Markdown escapes user syntax
+and uses fences longer than literal backtick runs. There are no absolute/private
+paths, unrelated settings/corpus/session rows, credentials, route locators or
+native runtime IDs. Limits: 256 MiB retained bytes, 4 MiB manifest, 4 MiB notes.
+Both actual stream counts and captured metadata are checked. Temporary spools
+are owned and cleaned on error, cancellation, completion or abandoned response.</p>
+<p>The manifest identifies <code>format=evidence-bundle</code>, <code>version=1</code>, random bundle ID,
+capture time, mode, vault, project UUID/name/revision, selected file/version/
+SHA256/size/media/name, optional safe content path, exact saved note records and
+verification status. Rehashed bytes do not imply re-extracted passages. UUIDs and
+hashes are portable identity, not permission to attach the bundle to another
+live database. This is not encrypted backup/restore or a redistribution-rights
+judgment. Review selected files, original names and notes before sharing.</p>
+<h2 id="verification-and-distribution">Verification and distribution</h2>
+<p><code>test_evidence*.py</code> uses authored SQLite/filesystem/parser/socket fixtures and
+labeled failure injection. <code>e2e/evidence.spec.ts</code> exercises the actual desktop
+journey with isolated source/state/profile and scripted native destinations.
+The five ordinary local gates and e2e typecheck remain required. A requirements
+change also triggers the existing four-target sqlite-vec packaging probe; its
+success is not proof of a reader journey on all packaged platforms.</p>
+<p>There are 188 pinned PDF.js/CMap/font/notice source assets, 3,700,085 bytes.
+Webpack preserves all publisher bytes. Only the two built module filenames map
+from <code>.mjs</code> to <code>.js</code>, allowing the renderer HTTP server to assign its
+JavaScript MIME type. Both remain native ES modules; this is not a
+source modification, transpilation or extra asset. The scoped loader preserves
+native <code>import()</code> rather than CommonJS require. No npm PDF runtime, native
+canvas, package scripts, Node upgrade or new build dependency is used.</p>
+<p>See <a href="/resmon/third-party-notices/">third-party notices</a> and the exact asset-hash
+assertion in <code>src/__tests__/pdfjs.test.ts</code>. Installer launch and release verification
+and independent acceptance are separate from these tests.</p>
+<h2 id="selected-answers-schema-18">Selected answers (schema 18)</h2>
+<p>The separate <a href="/resmon/api-contract/selected-evidence/">selected-answer contract</a> defines seven explicit
+preview, answer, event, history and selected-text export routes. The 12 Evidence
+routes above keep their own request, origin, storage and effect contracts.
+Schema 18 adds one answer table and its project-order index without backfilling
+or rewriting existing Evidence records. Selecting a passage does not select its
+note body; answers have separate consent and history from ordinary Ask.</p></div>   </article> </div>  </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell footer-inner" data-astro-cid-5hce7sga> <p class="footer-line" data-astro-cid-5hce7sga> <img class="mark" src="/resmon/mark.webp" width="96" height="96" alt="" decoding="async" data-astro-cid-iifiznic>  <span data-astro-cid-5hce7sga>
+resmon is free and open source under the MIT license. What it collects stays on your
+            computer unless you switch on summaries, delivery, or a backup, and then goes only where
+            you point it.
+</span> </p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source code</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/" data-astro-cid-5hce7sga>Guide</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/reference/" data-astro-cid-5hce7sga>Reference</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> </ul> <div class="credit" data-astro-cid-if6ord5i> <p class="made" data-astro-cid-if6ord5i>Made by <a href="https://ryanjosephkamp.github.io/" data-astro-cid-if6ord5i>Ryan Kamp</a></p> <ul class="social" aria-label="Ryan Kamp online" data-astro-cid-if6ord5i> <li data-astro-cid-if6ord5i> <a href="https://ryanjosephkamp.github.io/" aria-label="Ryan Kamp’s website" title="Website" data-astro-cid-if6ord5i> <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.2"/><path d="M2.8 12h18.4M12 2.8c2.6 2.6 3.9 5.7 3.9 9.2s-1.3 6.6-3.9 9.2c-2.6-2.6-3.9-5.7-3.9-9.2S9.4 5.4 12 2.8Z"/></g> </svg> </a> </li><li data-astro-cid-if6ord5i> <a href="https://github.com/ryanjosephkamp/" aria-label="Ryan Kamp on GitHub" title="GitHub" data-astro-cid-if6ord5i> <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <path fill="currentColor" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/> </svg> </a> </li><li data-astro-cid-if6ord5i> <a href="https://www.linkedin.com/in/rjk1999" aria-label="Ryan Kamp on LinkedIn" title="LinkedIn" data-astro-cid-if6ord5i> <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <path fill="currentColor" d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/> </svg> </a> </li><li data-astro-cid-if6ord5i> <a href="https://x.com/ryanjosephkamp" aria-label="Ryan Kamp on X" title="X" data-astro-cid-if6ord5i> <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <path fill="currentColor" d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"/> </svg> </a> </li><li data-astro-cid-if6ord5i> <a href="https://m.youtube.com/@RyanJosephKamp" aria-label="Ryan Kamp on YouTube" title="YouTube" data-astro-cid-if6ord5i> <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <path fill="currentColor" d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/> </svg> </a> </li> </ul> <a class="sponsor" href="https://github.com/sponsors/ryanjosephkamp" data-astro-cid-if6ord5i> <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <path d="M10 16.8S3 12.6 3 7.6A3.6 3.6 0 0 1 10 6a3.6 3.6 0 0 1 7 1.6c0 5-7 9.2-7 9.2Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" data-astro-cid-if6ord5i></path> </svg>
+Sponsor on GitHub
+</a> </div>  </div> </footer> <script type="module" src="/resmon/static/Base.astro_astro_type_script_index_0_lang.nXCB1RqC.js"></script> </body> </html>  

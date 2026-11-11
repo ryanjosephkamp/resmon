@@ -1,0 +1,118 @@
+"""Real populated schema 15, exact additive objects and atomic failure."""
+import sqlite3
+from pathlib import Path
+import pytest
+from implementation_scripts import database as db
+
+FIXTURE = Path(__file__).parent / 'fixtures/library/schema_15.sql'
+
+
+def old_database(path):
+    c = db.get_connection(path)
+    c.executescript(FIXTURE.read_text())
+    assert db.get_schema_version(c) == 15
+    for table in ('documents', 'reading_queue', 'assistant_messages', 'assistant_session_choices', 'assistant_turn_choices'):
+        assert c.execute(f'SELECT count(*) FROM {table}').fetchone()[0] > 0
+    assert not c.execute("SELECT 1 FROM sqlite_master WHERE name LIKE 'library_%'").fetchone()
+    return c
+
+
+# Schema 19 rebuilt ``executions`` with a wider ``status`` CHECK and five new
+# nullable columns, so its DDL and the width of its row tuples both change on
+# an upgrade. That is growth, which this file allows; what it does not allow is
+# a value being rewritten or a row disappearing, and the projections below keep
+# that claim exact by re-reading the table through the columns it had before.
+
+
+def contents(c, widths=None):
+    tables = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'library_%' AND name NOT IN ('evidence_projects','evidence_project_files','evidence_notes','evidence_answers','routine_missed_fires','routine_delivery_targets','deliveries','assistant_turn_failures','execution_ai_models','collections','collection_documents','document_open_access','document_identifiers','execution_find_results','full_text_downloads','assistant_session_files')")]
+    out = {}
+    for t in tables:
+        columns = [r[1] for r in c.execute(f'PRAGMA table_info("{t}")')]
+        if widths and t in widths:
+            columns = [col for col in columns if col in widths[t]]
+        order = ', '.join(f'"{col}"' for col in columns)
+        out[t] = sorted([tuple(r) for r in c.execute(f'SELECT {order} FROM "{t}"')], key=repr)
+    # Schema 26's default collection is a later schema's row, as its tables are.
+    if 'sqlite_sequence' in out:
+        out['sqlite_sequence'] = [r for r in out['sqlite_sequence'] if r[0] != 'collections']
+    return out
+
+
+def column_names(c):
+    return {r[0]: [x[1] for x in c.execute(f'PRAGMA table_info("{r[0]}")')]
+            for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+
+
+def objects(c):
+    return {r[0]: (r[1], ' '.join(r[2].split())) for r in c.execute(
+        "SELECT name,type,sql FROM sqlite_master WHERE name LIKE 'library_%' OR name='idx_library_file_documents_document'")}
+
+
+# A launch records the one-shot backfills it has finished. Those rows are this
+# build's bookkeeping rather than the user's data, so they are separated out
+# by name wherever a snapshot is compared across an init_db.
+from verification_scripts.test_cumulative_upgrade import (  # noqa: E402
+    _MARKERS_A_LAUNCH_MAY_ADD as BACKFILL_MARKERS,
+    _as_recounted,
+)
+
+
+def minus_markers(rows):
+    """*rows* with the one-shot backfill markers dropped from ``app_settings``."""
+    return {**rows, 'app_settings': [(k, v) for k, v in rows['app_settings']
+                                     if k not in BACKFILL_MARKERS]}
+
+
+def test_populated_15_upgrade_restart_preserves_old_rows_and_creates_no_vault(tmp_path):
+    path = tmp_path / 'old.db'; c = old_database(path)
+    # Any launch also recounts the runs' new papers once; the rows are compared
+    # with the database as that recount leaves it.
+    recounted = _as_recounted(c); before = contents(recounted); recounted.close()
+    widths = column_names(c)
+    db.init_db(conn=c)
+    assert db.get_schema_version(c) == 29
+    after = contents(c, widths)
+    assert ({k for k, _ in after['app_settings']}
+            - {k for k, _ in before['app_settings']}) == BACKFILL_MARKERS
+    after['app_settings'] = [(k, '15' if k == 'schema_version' else v)
+                             for k, v in after['app_settings'] if k not in BACKFILL_MARKERS]
+    assert after == before
+    ddl = objects(c)
+    # Schema 16's three tables and index, and schema 25's removed-file record.
+    assert len(ddl) == 5
+    assert [x[0] for x in ddl.values()].count('table') == 4
+    assert [x[0] for x in ddl.values()].count('index') == 1
+    for table in ('library_vault', 'library_files', 'library_file_documents', 'library_removed'):
+        assert c.execute(f'SELECT count(*) FROM {table}').fetchone()[0] == 0
+    c.close(); db.init_db(path); db.init_db(path)
+    with db.get_connection(path) as reopened:
+        assert objects(reopened) == ddl
+        assert db.get_schema_version(reopened) == 29
+    assert not list(tmp_path.glob('resmon-library-*'))
+    fresh = db.get_connection(tmp_path / 'fresh.db'); db.init_db(conn=fresh)
+    assert objects(fresh) == ddl
+    fresh.close()
+
+
+@pytest.mark.parametrize('blocker', ['table', 'view', 'index', 'authorizer'])
+def test_real_blockers_leave_15_and_roll_back_new_objects(tmp_path, blocker):
+    c = old_database(tmp_path / 'blocked.db')
+    if blocker == 'table':
+        c.execute('CREATE TABLE library_files (wrong INTEGER)')
+    elif blocker == 'view':
+        c.execute('CREATE VIEW library_files AS SELECT 1 AS wrong')
+    elif blocker == 'index':
+        c.execute('CREATE INDEX idx_library_file_documents_document ON documents(title)')
+    c.commit(); before = contents(c); initial = objects(c)
+    if blocker == 'authorizer':
+        c.set_authorizer(lambda code, name, *args: sqlite3.SQLITE_DENY if code == sqlite3.SQLITE_CREATE_INDEX and name == 'idx_library_file_documents_document' else sqlite3.SQLITE_OK)
+    with pytest.raises(sqlite3.DatabaseError):
+        db.init_db(conn=c)
+    c.set_authorizer(lambda *_: sqlite3.SQLITE_OK)
+    assert db.get_schema_version(c) == 15
+    assert objects(c) == initial
+    # The markers are excluded, not forgiven: an earlier step wrote and
+    # committed them, so putting them back is not what this rollback is for.
+    assert minus_markers(contents(c)) == minus_markers(before)
+    c.close()

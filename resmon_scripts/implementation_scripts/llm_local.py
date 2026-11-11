@@ -1,0 +1,95 @@
+# resmon_scripts/implementation_scripts/llm_local.py
+"""Local LLM client via the ollama REST API.
+
+``SUMMARIZE_ABSTRACT`` tells the model to follow the attached constitution, so
+this lane must attach one. ``/api/generate`` takes it in the ``system`` field,
+which keeps the accuracy rules above the abstract rather than beside it — the
+abstract is untrusted text from the internet.
+"""
+
+import logging
+
+import httpx
+
+from .ai_errors import classify_exception
+from .prompt_templates import SUMMARIZE_ABSTRACT, SYSTEM_PREAMBLE, length_band
+
+logger = logging.getLogger(__name__)
+
+_DEFAULT_ENDPOINT = "http://localhost:11434"
+
+
+class LocalLLMClient:
+    """Local LLM client that communicates with an ollama instance.
+
+    Uses the ollama REST API (``/api/generate`` for inference,
+    ``/api/tags`` for model listing).
+    """
+
+    def __init__(self, model: str, endpoint: str = _DEFAULT_ENDPOINT) -> None:
+        self.model = model
+        self.endpoint = endpoint.rstrip("/")
+        logger.info(
+            "LocalLLMClient initialized: model=%s, endpoint=%s",
+            model, self.endpoint,
+        )
+
+    # ------------------------------------------------------------------
+    # Summarize
+    # ------------------------------------------------------------------
+
+    def summarize(self, text: str, prompt_params: dict | None = None) -> str:
+        """Send *text* to the local ollama model and return the summary.
+
+        *prompt_params* may contain ``tone``, ``length``, and
+        ``extraction_goals``.
+        """
+        defaults = {
+            "tone": "technical",
+            "length": "standard",
+            "extraction_goals": "key findings, methodology, contributions",
+        }
+        params = {**defaults, **{k: v for k, v in (prompt_params or {}).items() if v}}
+        params.setdefault("abstract", text)
+        params.setdefault("word_count_band", length_band(params.get("length", "")))
+
+        prompt = SUMMARIZE_ABSTRACT.format(**params)
+
+        # Classified rather than raw. An ollama server that is not running
+        # raises ConnectError on every single document; without the
+        # NETWORK classification the caller cannot tell that from one paper
+        # the model choked on, and would retry a dead endpoint per paper for
+        # the length of the run.
+        try:
+            with httpx.Client(timeout=120) as client:
+                response = client.post(
+                    f"{self.endpoint}/api/generate",
+                    json={
+                        "model": self.model,
+                        "prompt": prompt,
+                        "system": str(SYSTEM_PREAMBLE),
+                        "stream": False,
+                    },
+                )
+                response.raise_for_status()
+                return response.json().get("response", "")
+        except Exception as exc:
+            error = classify_exception(exc, provider="local", model=self.model)
+            logger.error(
+                "Local summarization failed (model=%s, kind=%s): %s",
+                self.model, error.kind.value, error.message,
+            )
+            raise error from None
+
+    # ------------------------------------------------------------------
+    # List models
+    # ------------------------------------------------------------------
+
+    def list_available_models(self) -> list[str]:
+        """GET ``/api/tags`` and return the names of available models."""
+        with httpx.Client(timeout=30) as client:
+            response = client.get(f"{self.endpoint}/api/tags")
+            response.raise_for_status()
+            data = response.json()
+            models = data.get("models", [])
+            return sorted(m.get("name", "") for m in models)

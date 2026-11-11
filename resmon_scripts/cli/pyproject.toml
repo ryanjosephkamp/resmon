@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "resmon-cli"
+dynamic = ["version"]
+description = "resmon's command line: ask the running resmon what it has collected and how its watches are doing."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+# None. It talks to resmon over loopback HTTP with the standard library, so it
+# installs in a second and adds nothing to the app's bundled interpreter.
+dependencies = []
+
+[project.scripts]
+resmon = "resmon_cli.main:run"
+
+[tool.setuptools]
+packages = ["resmon_cli"]
+
+[tool.setuptools.dynamic]
+version = { attr = "resmon_cli.__version__" }

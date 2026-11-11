@@ -1,0 +1,16 @@
+.wording-exports { margin: 14px 0; flex-wrap: wrap; }
+.wording-page .wording-list { display: grid; gap: 10px; margin-top: 14px; }
+.wording-page .wording-row { border: 1px solid var(--rule); border-radius: var(--r-lg); padding: 16px 18px; background: var(--panel); gap: 12px; }
+.wording-page .wording-row:hover { background: var(--panel-2); border-color: var(--rule-2); }
+.wording-page .wording-title { font-size: 15px; line-height: 1.5; }
+.wording-title small { display: block; margin-bottom: 6px; font: 400 12px/1.4 var(--sans); color: var(--ink-3); }
+.wording-page .wording-row .meta { border-top: 1px solid var(--rule); padding-top: 10px; line-height: 1.6; }
+.wording-group[data-category="standard_statement"] { border-top: 1px solid var(--rule-2); padding-top: 24px; }
+.wording-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 24px; margin: 24px 0; }
+.wording-chart-button { width: 100%; border: 0; background: transparent; text-align: left; color: var(--ink); font: inherit; cursor: pointer; }
+.wording-chart-button[aria-pressed="true"] { background: var(--accent-wash); }
+.wording-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 20px 0; }
+.wording-charts .bar-row { grid-template-columns: minmax(0, 1.4fr) minmax(30px, 1fr) auto; gap: 12px; }
+.wording-charts .bar-name { overflow-wrap: anywhere; white-space: normal; }
+.wording-charts .bar-row { min-height: 44px; margin: 0; }
+.wording-charts .bar-figure { white-space: normal; }

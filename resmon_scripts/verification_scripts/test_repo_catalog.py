@@ -1,0 +1,317 @@
+# resmon_scripts/verification_scripts/test_repo_catalog.py
+"""Tests for the static repository catalog."""
+
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
+
+from implementation_scripts.repo_catalog import (
+    REPOSITORY_CATALOG,
+    catalog_as_dicts,
+    credential_names,
+    required_credential_for,
+)
+
+
+EXPECTED_SLUGS = {
+    "arxiv", "biorxiv", "core", "crossref", "datacite", "dblp", "doaj", "dryad",
+    "eric", "europepmc", "govinfo", "hal", "inspire_hep", "medrxiv", "nasa_ads",
+    "ndl_search", "openaire", "openalex", "openlibrary", "osti", "plos", "pubmed", "semantic_scholar",
+    "springer", "zenodo",
+}
+
+EXPECTED_CREDENTIAL_NAMES = {
+    "core_api_key", "govinfo_api_key", "nasa_ads_api_key",
+    "pubmed_api_key", "semantic_scholar_api_key", "springer_api_key",
+}
+
+
+def test_catalog_has_twenty_five_entries():
+    """The active catalog should contain exactly 25 entries."""
+    # IEEE, NIST RMM, OAPEN, RePEc and SSRN are retired and must not appear.
+    assert len(REPOSITORY_CATALOG) == 25
+
+
+def test_catalog_slugs_match_expected():
+    """Every expected slug must be present, and no excluded slugs."""
+    slugs = {e.slug for e in REPOSITORY_CATALOG}
+    assert slugs == EXPECTED_SLUGS
+    assert "repec" not in slugs
+    assert "ssrn" not in slugs
+
+
+def test_requirement_values_are_normalized():
+    """api_key_requirement is one of the 4 allowed literals."""
+    allowed = {"none", "required", "optional", "recommended"}
+    for e in REPOSITORY_CATALOG:
+        assert e.api_key_requirement in allowed, e.slug
+
+
+def test_placeholder_matches_requirement():
+    """Placeholder text matches requirement tier (REQUIRED/OPTIONAL/RECOMMENDED)."""
+    for e in REPOSITORY_CATALOG:
+        if e.api_key_requirement == "required":
+            assert e.placeholder == "Enter API key here (REQUIRED)"
+            assert e.credential_name is not None
+        elif e.api_key_requirement == "optional":
+            assert e.placeholder == "Enter API key here (OPTIONAL)"
+        elif e.api_key_requirement == "recommended":
+            assert e.placeholder == "Enter API key here (RECOMMENDED)"
+        else:
+            assert e.placeholder == ""
+            assert e.credential_name is None
+
+
+def test_credential_names_helper():
+    """credential_names() returns the union of non-null credential names."""
+    assert credential_names() == EXPECTED_CREDENTIAL_NAMES
+
+
+def test_required_credential_for():
+    """required_credential_for returns the credential name for required repos only."""
+    assert required_credential_for("core") == "core_api_key"
+    assert required_credential_for("ieee") is None  # retired
+    # "recommended" / "optional" / "none" do not count as "required"
+    assert required_credential_for("semantic_scholar") is None
+    assert required_credential_for("pubmed") is None
+    assert required_credential_for("arxiv") is None
+
+
+def test_catalog_as_dicts_shape():
+    """catalog_as_dicts returns JSON-serializable dicts with expected keys."""
+    dicts = catalog_as_dicts()
+    assert len(dicts) == 25
+    expected_keys = {
+        "slug", "name", "description", "subject_coverage", "endpoint",
+        "query_method", "rate_limit", "client_module", "api_key_requirement",
+        "credential_name", "website", "registration_url", "placeholder",
+        "upstream_policy", "parallel_safe", "notes", "service_notice",
+        "keyword_combination", "keyword_combination_notes",
+        "attribution", "attribution_requirement", "attribution_source",
+        "date_granularity",
+        "result_order", "result_order_established",
+        "entity_search",
+        "constraints",
+        "paper_lookup",
+    }
+    for d in dicts:
+        assert set(d.keys()) == expected_keys
+
+
+def test_keyword_combination_populated_for_every_active_repo():
+    """Every active catalog entry has a non-empty keyword_combination label and notes."""
+    for e in REPOSITORY_CATALOG:
+        assert e.keyword_combination, e.slug
+        assert e.keyword_combination_notes, e.slug
+
+
+def test_website_urls_are_http():
+    """Every entry has an http(s) website URL."""
+    for e in REPOSITORY_CATALOG:
+        assert e.website.startswith("http"), e.slug
+
+
+def test_every_label_says_what_resmon_does_with_several_terms():
+    """The Terms Combine label and the opening of its notes come from the one
+    place that decides how each source is asked (``search_terms.PLANS``)."""
+    from implementation_scripts import search_terms
+
+    kinds = {e.slug: search_terms.PLANS[e.slug].kind for e in REPOSITORY_CATALOG}
+    assert {s for s, k in kinds.items() if k == "local"} == {"biorxiv", "medrxiv"}
+    assert {s for s, k in kinds.items() if k == "ranked"} == {"crossref", "semantic_scholar"}
+    assert {s for s, k in kinds.items() if k == "per_term"} == {"dblp", "dryad", "ndl_search", "openaire"}
+    for e in REPOSITORY_CATALOG:
+        plan = search_terms.PLANS[e.slug]
+        assert e.keyword_combination == plan.label, e.slug
+        assert e.keyword_combination_notes.startswith(search_terms.notes(e.slug, e.name)), e.slug
+        # No label from before the terms were kept apart survives.
+        assert "Implicit" not in e.keyword_combination and "Explicit OR" not in e.keyword_combination
+        assert "forwarded as typed" not in e.keyword_combination_notes, e.slug
+        assert "as part of a word" not in e.keyword_combination_notes, e.slug
+
+
+def test_required_repos_have_credential_names():
+    """All `required` repos have a non-null credential_name."""
+    for e in REPOSITORY_CATALOG:
+        if e.api_key_requirement == "required":
+            assert e.credential_name, e.slug
+
+
+def test_openaire_catalog_does_not_overclaim_upstream_behavior():
+    entry = next(e for e in REPOSITORY_CATALOG if e.slug == "openaire")
+
+    assert entry.rate_limit == "0.0167 req/s (60/hour unauthenticated)"
+    assert entry.keyword_combination == "Any: one request per term"
+    assert "refused with HTTP 409" in entry.keyword_combination_notes
+    assert "discontinued" in entry.notes.lower()
+
+
+def test_datacite_catalog_records_documented_limits_and_semantics():
+    entry = next(e for e in REPOSITORY_CATALOG if e.slug == "datacite")
+
+    assert entry.rate_limit == "1.5 req/s (below 500 requests/5 min unidentified)"
+    # Measured live; the note says the documentation describes the opposite.
+    assert entry.keyword_combination == "Any or all, phrases kept"
+    assert "documentation describes" in entry.keyword_combination_notes
+    assert "year" in entry.query_method.lower()
+
+
+def test_eric_catalog_does_not_invent_upstream_limits_or_date_precision():
+    entry = next(e for e in REPOSITORY_CATALOG if e.slug == "eric")
+
+    assert entry.rate_limit == "0.5 req/s (conservative; no published API limit)"
+    assert entry.keyword_combination == "Any or all, phrases kept"
+    assert "OR as the default" in entry.keyword_combination_notes
+    assert "year" in entry.query_method.lower()
+
+
+def test_dblp_catalog_records_supported_routes_pacing_and_limits():
+    entry = next(e for e in REPOSITORY_CATALOG if e.slug == "dblp")
+
+    assert entry.rate_limit == "0.5 req/s (shared; at least 2 seconds between requests)"
+    assert "search/publ/api" in entry.endpoint
+    assert "sparql.dblp.org/sparql" in entry.endpoint
+    assert entry.entity_search.author_query == "endpoint"
+    assert "authoredBy" in entry.entity_search.author_syntax
+    assert "year precision" in entry.notes
+    assert "not a known day" in entry.notes
+    assert "challenge" in entry.notes
+    assert "not guaranteed" in entry.notes
+
+
+def test_openlibrary_catalog_records_year_precision_and_measured_query_semantics():
+    entry = next(e for e in REPOSITORY_CATALOG if e.slug == "openlibrary")
+
+    assert entry.rate_limit == "1.0 req/s (unidentified-client ceiling)"
+    assert entry.keyword_combination == "Any or all, phrases kept"
+    assert "rests on a live comparison" in entry.keyword_combination_notes
+    assert "sub-year window returns nothing" in entry.notes
+
+
+def test_ndl_search_catalog_records_current_contract_and_required_credits():
+    entry = next(e for e in REPOSITORY_CATALOG if e.slug == "ndl_search")
+
+    assert entry.rate_limit == "0.5 req/s (conservative; no published numeric API limit)"
+    assert entry.keyword_combination == "Any: one request per term"
+    assert "documents AND as the default" in entry.keyword_combination_notes
+    assert "at most 500 records per SRU request" in entry.query_method
+    assert "https://ndlsearch.ndl.go.jp/file/help/api/specifications/ndlsearch_api_20260331.pdf" in entry.notes
+    assert "https://ndlsearch.ndl.go.jp/en/help/api/provider" in entry.notes
+    assert "You must credit NDL Search API, on a website or application using the API." in entry.notes
+    assert "Also, you must credit the metadata providing database and institution in the case that credit is needed." in entry.notes
+    assert "https://ndlsearch.ndl.go.jp/en/help/api/" in entry.notes
+    assert "does not itself discharge attribution" in entry.notes
+    assert "YYYY, YYYY-MM, YYYY-MM-DD" in entry.notes
+    assert "lower partials to their first day" in entry.notes
+    assert "upper partials to their last day" in entry.notes
+    assert "same-precision" in entry.notes
+
+
+def test_osti_catalog_does_not_invent_upstream_limits_and_measures_keyword_semantics():
+    entry = next(e for e in REPOSITORY_CATALOG if e.slug == "osti")
+
+    assert entry.rate_limit == "0.5 req/s (conservative; no published API limit)"
+    assert entry.keyword_combination == "Any or all, phrases kept"
+    assert "rests on a live comparison" in entry.keyword_combination_notes
+    assert "publication date" in entry.query_method.lower()
+
+
+# ---------------------------------------------------------------------------
+# Every entry answers what it can be asked about a person, with a citation
+# ---------------------------------------------------------------------------
+#
+# The pattern ``date_granularity`` set, one field later: a capability nobody can
+# add a source without answering. `can_embed` and the tool-calling table are the
+# same shape, and all three exist because a capability read off a key name or a
+# vendor's documentation is a claim wearing a citation.
+
+def test_every_entry_has_an_established_entity_capability():
+    """With `_CLIENT_MODULES` as the denominator rather than a hand count.
+
+    A source added without an `entity_search` gets `unknown` **and an empty
+    citation**, which fails here — so the omission is loud rather than a quiet
+    default that reads like an answer.
+    """
+    from implementation_scripts.api_registry import list_repositories  # noqa: PLC0415
+
+    for entry in REPOSITORY_CATALOG:
+        capability = entry.entity_search
+        assert capability.author_query in (
+            "none", "field", "param", "endpoint", "unknown"), entry.slug
+        assert capability.established.strip(), (
+            f"{entry.slug} claims '{capability.author_query}' with no record of how it "
+            "was established")
+        assert capability.established.startswith(("2", "20")), (
+            f"{entry.slug}'s citation does not begin with the date it was established")
+
+    # The denominator is the registry itself — every slug the app will actually
+    # offer — rather than a list in this file. A source that registers and has
+    # no catalog entry has no capability, and the app would ask it anyway.
+    registered = set(list_repositories())
+    covered = {entry.slug for entry in REPOSITORY_CATALOG}
+    assert registered <= covered, (
+        f"registered clients with no catalog entry: {sorted(registered - covered)}")
+    assert len(covered) == 25, f"the catalog is {len(covered)} entries, not 25"
+
+
+def test_a_source_that_can_be_asked_says_how():
+    """`supported` and a syntax are one fact, and half of it is useless."""
+    for entry in REPOSITORY_CATALOG:
+        capability = entry.entity_search
+        if capability.supported:
+            assert capability.author_syntax, (
+                f"{entry.slug} is asked about people with no recorded syntax")
+        else:
+            assert not capability.author_syntax, (
+                f"{entry.slug} carries a syntax it will never be asked with")
+
+
+def test_returning_a_field_is_never_claimed_without_a_count():
+    """`returns_orcid` is about what the record carried, not which keys exist.
+
+    Crossref puts an `affiliation` key on every author and leaves it empty on
+    most; DataCite and Zenodo carry an `orcid` key populated on none of the 54
+    and 16 creators measured. A capability read off key names would have claimed
+    all three, so a `True` here has to point at a number.
+    """
+    import re  # noqa: PLC0415
+
+    for entry in REPOSITORY_CATALOG:
+        capability = entry.entity_search
+        if capability.returns_orcid or capability.returns_affiliation:
+            assert re.search(r"\d+ of \d+", capability.established), (
+                f"{entry.slug} claims it returns an identifier or an affiliation "
+                "without a measured count in its citation")
+
+
+def test_datacite_and_zenodo_can_be_asked_about_an_author_but_fill_no_identifier():
+    """DataCite and Zenodo look like fill candidates and are not fills.
+
+    Recorded as an assertion so that turning either on is a deliberate change
+    to this test, with a new measurement behind it, rather than a quiet edit.
+    """
+    by_slug = {entry.slug: entry.entity_search for entry in REPOSITORY_CATALOG}
+    for slug in ("datacite", "zenodo"):
+        assert by_slug[slug].supported, f"{slug} can still be asked about an author"
+        assert not by_slug[slug].returns_orcid, slug
+        assert not by_slug[slug].returns_affiliation, slug
+        assert "o ORCID and no affiliation" in by_slug[slug].established, slug
+
+
+def test_unknown_is_used_where_nothing_was_asked():
+    """Four sources are unestablished, and each says why in its own words."""
+    unknown = {e.slug: e.entity_search for e in REPOSITORY_CATALOG
+               if e.entity_search.author_query == "unknown"}
+    assert set(unknown) == {"core", "govinfo", "nasa_ads", "springer"}
+    for slug, capability in unknown.items():
+        assert "not established" in capability.established, slug
+        assert not capability.supported
+
+
+def test_openaire_carries_its_notice_and_no_other_source_has_one():
+    """OpenAIRE has announced its API's end; it is kept, with a notice shown wherever it is chosen."""
+    notices = {e.slug: e.service_notice for e in REPOSITORY_CATALOG if e.service_notice}
+    assert set(notices) == {"openaire"}
+    assert "announced the end" in notices["openaire"]

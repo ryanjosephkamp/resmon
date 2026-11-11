@@ -1,0 +1,1439 @@
+{
+ "provenance": "The Source wall of the same collection on November 11, 2026, exported unedited: three searches and each watch's run of the day, every one asked of the public sources for real.",
+ "wall": {
+  "runs": [
+   {
+    "execution_id": 52,
+    "execution_type": "deep_sweep",
+    "status": "completed",
+    "started_at": "2026-11-11T18:18:35Z",
+    "ended_at": "2026-11-11T18:18:36Z",
+    "label": "Deep Sweep"
+   },
+   {
+    "execution_id": 53,
+    "execution_type": "deep_dive",
+    "status": "completed",
+    "started_at": "2026-11-11T18:18:37Z",
+    "ended_at": "2026-11-11T18:18:38Z",
+    "label": "Deep Dive"
+   },
+   {
+    "execution_id": 54,
+    "execution_type": "deep_sweep",
+    "status": "completed",
+    "started_at": "2026-11-11T18:18:39Z",
+    "ended_at": "2026-11-11T18:18:50Z",
+    "label": "Deep Sweep"
+   },
+   {
+    "execution_id": 55,
+    "execution_type": "automated_sweep",
+    "status": "completed",
+    "started_at": "2026-11-11T18:19:11Z",
+    "ended_at": "2026-11-11T18:19:11Z",
+    "label": "Watch — Graph neural networks"
+   },
+   {
+    "execution_id": 56,
+    "execution_type": "automated_sweep",
+    "status": "completed",
+    "started_at": "2026-11-11T18:19:33Z",
+    "ended_at": "2026-11-11T18:19:33Z",
+    "label": "Watch — Protein structure"
+   },
+   {
+    "execution_id": 57,
+    "execution_type": "automated_sweep",
+    "status": "completed",
+    "started_at": "2026-11-11T18:19:55Z",
+    "ended_at": "2026-11-11T18:19:56Z",
+    "label": "Watch — Diffusion models"
+   }
+  ],
+  "sources": [
+   {
+    "slug": "arxiv",
+    "name": "arXiv",
+    "in_catalog": true,
+    "cells": [
+     {
+      "execution_id": 52,
+      "state": "answered",
+      "label": "answered",
+      "note": "Recorded returned records; this is not the number newly added to the corpus.",
+      "result_count": 60,
+      "status": "ok",
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": true,
+      "in_selection": true
+     },
+     {
+      "execution_id": 53,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 54,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 55,
+      "state": "answered",
+      "label": "answered",
+      "note": "Recorded returned records; this is not the number newly added to the corpus.",
+      "result_count": 17,
+      "status": "ok",
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": true,
+      "in_selection": true
+     },
+     {
+      "execution_id": 56,
+      "state": "answered_empty",
+      "label": "answered, zero",
+      "note": "arXiv answered (HTTP 200) and resmon found no records in the reply.",
+      "result_count": 0,
+      "status": "ok",
+      "zero_reason": "answered_empty",
+      "partial": false,
+      "outcome_recorded": true,
+      "in_selection": true
+     },
+     {
+      "execution_id": 57,
+      "state": "answered",
+      "label": "answered",
+      "note": "Recorded returned records; this is not the number newly added to the corpus.",
+      "result_count": 51,
+      "status": "ok",
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": true,
+      "in_selection": true
+     }
+    ],
+    "counts": {
+     "answered": 3,
+     "answered_empty": 1,
+     "answered_in_part": 0,
+     "could_not_be_asked": 0,
+     "rate_limited": 0,
+     "failed": 0,
+     "not_recorded": 0,
+     "not_selected": 2
+    },
+    "latest_known_state": "answered"
+   },
+   {
+    "slug": "core",
+    "name": "CORE",
+    "in_catalog": true,
+    "cells": [
+     {
+      "execution_id": 52,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 53,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 54,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 55,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 56,
+      "state": "could_not_be_asked",
+      "label": "no API key configured",
+      "note": "Selected, but the API key it requires was not configured, so this source returned nothing. It did not contribute to the search.",
+      "result_count": 0,
+      "status": "skipped_missing_key",
+      "zero_reason": "missing_key",
+      "partial": false,
+      "outcome_recorded": true,
+      "in_selection": true
+     },
+     {
+      "execution_id": 57,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     }
+    ],
+    "counts": {
+     "answered": 0,
+     "answered_empty": 0,
+     "answered_in_part": 0,
+     "could_not_be_asked": 1,
+     "rate_limited": 0,
+     "failed": 0,
+     "not_recorded": 0,
+     "not_selected": 5
+    },
+    "latest_known_state": "could_not_be_asked"
+   },
+   {
+    "slug": "crossref",
+    "name": "Crossref",
+    "in_catalog": true,
+    "cells": [
+     {
+      "execution_id": 52,
+      "state": "answered",
+      "label": "answered",
+      "note": "Recorded returned records; this is not the number newly added to the corpus.",
+      "result_count": 60,
+      "status": "ok",
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": true,
+      "in_selection": true
+     },
+     {
+      "execution_id": 53,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 54,
+      "state": "answered",
+      "label": "answered",
+      "note": "Recorded returned records; this is not the number newly added to the corpus.",
+      "result_count": 9,
+      "status": "ok",
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": true,
+      "in_selection": true
+     },
+     {
+      "execution_id": 55,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 56,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 57,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     }
+    ],
+    "counts": {
+     "answered": 2,
+     "answered_empty": 0,
+     "answered_in_part": 0,
+     "could_not_be_asked": 0,
+     "rate_limited": 0,
+     "failed": 0,
+     "not_recorded": 0,
+     "not_selected": 4
+    },
+    "latest_known_state": "answered"
+   },
+   {
+    "slug": "dblp",
+    "name": "DBLP",
+    "in_catalog": true,
+    "cells": [
+     {
+      "execution_id": 52,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 53,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 54,
+      "state": "could_not_be_asked",
+      "label": "could not answer this window",
+      "note": "DBLP filters by publication year only, so a window shorter than one whole calendar year cannot be answered. resmon did not widen your window.",
+      "result_count": 0,
+      "status": "ok",
+      "zero_reason": "window_unanswerable",
+      "partial": false,
+      "outcome_recorded": true,
+      "in_selection": true
+     },
+     {
+      "execution_id": 55,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 56,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 57,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     }
+    ],
+    "counts": {
+     "answered": 0,
+     "answered_empty": 0,
+     "answered_in_part": 0,
+     "could_not_be_asked": 1,
+     "rate_limited": 0,
+     "failed": 0,
+     "not_recorded": 0,
+     "not_selected": 5
+    },
+    "latest_known_state": "could_not_be_asked"
+   },
+   {
+    "slug": "doaj",
+    "name": "DOAJ",
+    "in_catalog": true,
+    "cells": [
+     {
+      "execution_id": 52,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 53,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 54,
+      "state": "failed",
+      "label": "did not answer",
+      "note": "DOAJ could not be queried: HTTP 502 after 1 attempt. This is not a zero — the source did not answer.",
+      "result_count": 0,
+      "status": "ok",
+      "zero_reason": "upstream_failure",
+      "partial": false,
+      "outcome_recorded": true,
+      "in_selection": true,
+      "cooldown_until_utc": "2026-11-11T18:19:40Z"
+     },
+     {
+      "execution_id": 55,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 56,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 57,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     }
+    ],
+    "counts": {
+     "answered": 0,
+     "answered_empty": 0,
+     "answered_in_part": 0,
+     "could_not_be_asked": 0,
+     "rate_limited": 0,
+     "failed": 1,
+     "not_recorded": 0,
+     "not_selected": 5
+    },
+    "latest_known_state": "failed"
+   },
+   {
+    "slug": "europepmc",
+    "name": "EuropePMC",
+    "in_catalog": true,
+    "cells": [
+     {
+      "execution_id": 52,
+      "state": "answered",
+      "label": "answered",
+      "note": "Recorded returned records; this is not the number newly added to the corpus.",
+      "result_count": 60,
+      "status": "ok",
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": true,
+      "in_selection": true
+     },
+     {
+      "execution_id": 53,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 54,
+      "state": "answered",
+      "label": "answered",
+      "note": "Recorded returned records; this is not the number newly added to the corpus.",
+      "result_count": 3,
+      "status": "ok",
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": true,
+      "in_selection": true
+     },
+     {
+      "execution_id": 55,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 56,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 57,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     }
+    ],
+    "counts": {
+     "answered": 2,
+     "answered_empty": 0,
+     "answered_in_part": 0,
+     "could_not_be_asked": 0,
+     "rate_limited": 0,
+     "failed": 0,
+     "not_recorded": 0,
+     "not_selected": 4
+    },
+    "latest_known_state": "answered"
+   },
+   {
+    "slug": "hal",
+    "name": "HAL",
+    "in_catalog": true,
+    "cells": [
+     {
+      "execution_id": 52,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 53,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 54,
+      "state": "answered",
+      "label": "answered",
+      "note": "Recorded returned records; this is not the number newly added to the corpus.",
+      "result_count": 1,
+      "status": "ok",
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": true,
+      "in_selection": true
+     },
+     {
+      "execution_id": 55,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 56,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 57,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     }
+    ],
+    "counts": {
+     "answered": 1,
+     "answered_empty": 0,
+     "answered_in_part": 0,
+     "could_not_be_asked": 0,
+     "rate_limited": 0,
+     "failed": 0,
+     "not_recorded": 0,
+     "not_selected": 5
+    },
+    "latest_known_state": "answered"
+   },
+   {
+    "slug": "openalex",
+    "name": "OpenAlex",
+    "in_catalog": true,
+    "cells": [
+     {
+      "execution_id": 52,
+      "state": "answered",
+      "label": "answered",
+      "note": "Recorded returned records; this is not the number newly added to the corpus.",
+      "result_count": 60,
+      "status": "ok",
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": true,
+      "in_selection": true
+     },
+     {
+      "execution_id": 53,
+      "state": "answered",
+      "label": "answered",
+      "note": "Recorded returned records; this is not the number newly added to the corpus.",
+      "result_count": 80,
+      "status": "ok",
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": true,
+      "in_selection": true
+     },
+     {
+      "execution_id": 54,
+      "state": "answered",
+      "label": "answered",
+      "note": "Recorded returned records; this is not the number newly added to the corpus.",
+      "result_count": 20,
+      "status": "ok",
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": true,
+      "in_selection": true
+     },
+     {
+      "execution_id": 55,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 56,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 57,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     }
+    ],
+    "counts": {
+     "answered": 3,
+     "answered_empty": 0,
+     "answered_in_part": 0,
+     "could_not_be_asked": 0,
+     "rate_limited": 0,
+     "failed": 0,
+     "not_recorded": 0,
+     "not_selected": 3
+    },
+    "latest_known_state": "answered"
+   },
+   {
+    "slug": "plos",
+    "name": "PLOS",
+    "in_catalog": true,
+    "cells": [
+     {
+      "execution_id": 52,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 53,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 54,
+      "state": "answered",
+      "label": "answered",
+      "note": "Recorded returned records; this is not the number newly added to the corpus.",
+      "result_count": 20,
+      "status": "ok",
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": true,
+      "in_selection": true
+     },
+     {
+      "execution_id": 55,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 56,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 57,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     }
+    ],
+    "counts": {
+     "answered": 1,
+     "answered_empty": 0,
+     "answered_in_part": 0,
+     "could_not_be_asked": 0,
+     "rate_limited": 0,
+     "failed": 0,
+     "not_recorded": 0,
+     "not_selected": 5
+    },
+    "latest_known_state": "answered"
+   },
+   {
+    "slug": "pubmed",
+    "name": "PubMed",
+    "in_catalog": true,
+    "cells": [
+     {
+      "execution_id": 52,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 53,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 54,
+      "state": "answered",
+      "label": "answered",
+      "note": "Recorded returned records; this is not the number newly added to the corpus.",
+      "result_count": 20,
+      "status": "ok",
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": true,
+      "in_selection": true
+     },
+     {
+      "execution_id": 55,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 56,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 57,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     }
+    ],
+    "counts": {
+     "answered": 1,
+     "answered_empty": 0,
+     "answered_in_part": 0,
+     "could_not_be_asked": 0,
+     "rate_limited": 0,
+     "failed": 0,
+     "not_recorded": 0,
+     "not_selected": 5
+    },
+    "latest_known_state": "answered"
+   },
+   {
+    "slug": "semantic_scholar",
+    "name": "Semantic Scholar",
+    "in_catalog": true,
+    "cells": [
+     {
+      "execution_id": 52,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 53,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 54,
+      "state": "rate_limited",
+      "label": "rate-limited",
+      "note": "Semantic Scholar rate-limited resmon: it answered HTTP 429 (too many requests) after 4 attempts. Try again later. This is not a zero — the source did not answer.",
+      "result_count": 0,
+      "status": "ok",
+      "zero_reason": "upstream_failure",
+      "partial": false,
+      "outcome_recorded": true,
+      "in_selection": true
+     },
+     {
+      "execution_id": 55,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 56,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 57,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     }
+    ],
+    "counts": {
+     "answered": 0,
+     "answered_empty": 0,
+     "answered_in_part": 0,
+     "could_not_be_asked": 0,
+     "rate_limited": 1,
+     "failed": 0,
+     "not_recorded": 0,
+     "not_selected": 5
+    },
+    "latest_known_state": "rate_limited"
+   },
+   {
+    "slug": "zenodo",
+    "name": "Zenodo",
+    "in_catalog": true,
+    "cells": [
+     {
+      "execution_id": 52,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 53,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 54,
+      "state": "answered",
+      "label": "answered",
+      "note": "Recorded returned records; this is not the number newly added to the corpus.",
+      "result_count": 20,
+      "status": "ok",
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": true,
+      "in_selection": true
+     },
+     {
+      "execution_id": 55,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 56,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     },
+     {
+      "execution_id": 57,
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed.",
+      "result_count": null,
+      "status": null,
+      "zero_reason": null,
+      "partial": false,
+      "outcome_recorded": false,
+      "in_selection": false
+     }
+    ],
+    "counts": {
+     "answered": 1,
+     "answered_empty": 0,
+     "answered_in_part": 0,
+     "could_not_be_asked": 0,
+     "rate_limited": 0,
+     "failed": 0,
+     "not_recorded": 0,
+     "not_selected": 5
+    },
+    "latest_known_state": "answered"
+   }
+  ],
+  "states": [
+   "answered",
+   "answered_empty",
+   "answered_in_part",
+   "could_not_be_asked",
+   "rate_limited",
+   "failed",
+   "not_recorded",
+   "not_selected"
+  ],
+  "state_legend": [
+   {
+    "state": "answered",
+    "label": "answered",
+    "meaning": "The source replied and returned records."
+   },
+   {
+    "state": "answered_empty",
+    "label": "answered, zero",
+    "meaning": "The source replied and genuinely had nothing. A quiet field, not a fault."
+   },
+   {
+    "state": "answered_in_part",
+    "label": "answered in part",
+    "meaning": "The source answered every page; resmon stopped at its own time budget or the run's cap."
+   },
+   {
+    "state": "could_not_be_asked",
+    "label": "could not be asked",
+    "meaning": "No key, retired, no author query, or a window the source cannot answer."
+   },
+   {
+    "state": "rate_limited",
+    "label": "rate-limited",
+    "meaning": "The source was asked and told resmon to slow down (HTTP 429). It is up; try again later."
+   },
+   {
+    "state": "failed",
+    "label": "failed",
+    "meaning": "The source was asked and the exchange broke."
+   },
+   {
+    "state": "not_recorded",
+    "label": "outcome not recorded",
+    "meaning": "resmon did not observe an outcome. This is not a success and not a failure."
+   },
+   {
+    "state": "not_selected",
+    "label": "not asked on this run",
+    "meaning": "This run's saved selection did not name this source. Nothing was asked of it."
+   }
+  ],
+  "totals": {
+   "answered": 14,
+   "answered_empty": 1,
+   "answered_in_part": 0,
+   "could_not_be_asked": 2,
+   "rate_limited": 1,
+   "failed": 1,
+   "not_recorded": 0,
+   "not_selected": 53
+  },
+  "verdict": {
+   "level": "attention",
+   "headline": "4 of 12 sources have not answered any run resmon has a record of. Semantic Scholar rate-limited resmon's last request.",
+   "detail": [
+    "Crossref, EuropePMC, HAL, OpenAlex, PLOS, PubMed, and Zenodo answered when last asked and are no longer in the most recent run's saved selection."
+   ]
+  },
+  "window": {
+   "requested": 6,
+   "returned": 6,
+   "max": 50,
+   "runs_available": 57
+  },
+  "notes": [
+   "Every cell is one source's recorded answer to one run. Nothing here is inferred: a run with no row for a source reads as not recorded.",
+   "A source that answered and whose records resmon could not store reads as answered, because the source did reply with records. The cell's note carries how many were matched and how many were kept.",
+   "Answered in part is resmon stopping, at its own time budget or the run's cap, not the source failing. The cell's note says which part of the window was read; the rest was not read and is counted neither way.",
+   "A canceled run reads as not recorded for every source it was still querying: resmon observed its own cancellation, not an answer.",
+   "Not asked and not recorded are different marks. The first is a choice saved on the run; the second is a gap in what resmon observed."
+  ]
+ },
+ "runs": [
+  {
+   "id": 52,
+   "execution_type": "deep_sweep",
+   "routine_id": null,
+   "saved_configuration_id": null,
+   "parameters": "{\"query\": \"protein language models\", \"keywords\": null, \"date_from\": null, \"date_to\": null, \"max_results\": 60, \"collection_id\": 1, \"repositories\": [\"arxiv\", \"europepmc\", \"openalex\", \"crossref\"], \"queries_sent\": {\"crossref\": {\"sent\": [\"query=protein language models\"]}, \"openalex\": {\"sent\": [\"search=protein AND language AND models\"]}, \"arxiv\": {\"sent\": [\"search_query=all:protein AND all:language AND all:models & sortBy=submittedDate & sortOrder=descending\"]}, \"europepmc\": {\"sent\": [\"query=protein AND language AND models\"]}}}",
+   "start_time": "2026-11-11T18:18:35Z",
+   "end_time": "2026-11-11T18:18:36Z",
+   "status": "completed",
+   "result_count": 240,
+   "new_result_count": 232,
+   "error_message": null,
+   "current_stage": "finalizing",
+   "interrupted_reason": null,
+   "restarted_from": null,
+   "cancel_reason": null,
+   "dedup_total": 240,
+   "dedup_new": 232,
+   "dedup_duplicates": 8,
+   "dedup_invalid": 0,
+   "dedup_cross_source": 0,
+   "request_id": null,
+   "saved_configuration_name": null,
+   "query": "protein language models",
+   "keywords": [
+    "protein language models"
+   ],
+   "repositories": [
+    "arxiv",
+    "europepmc",
+    "openalex",
+    "crossref"
+   ],
+   "total_results": 240,
+   "new_results": 232,
+   "restarted_into": []
+  },
+  {
+   "id": 53,
+   "execution_type": "deep_dive",
+   "routine_id": null,
+   "saved_configuration_id": null,
+   "parameters": "{\"query\": \"equivariant graph neural networks\", \"keywords\": null, \"date_from\": null, \"date_to\": null, \"max_results\": 80, \"collection_id\": 1, \"repositories\": [\"openalex\"], \"queries_sent\": {\"openalex\": {\"sent\": [\"search=equivariant AND graph AND neural AND networks\"]}}}",
+   "start_time": "2026-11-11T18:18:37Z",
+   "end_time": "2026-11-11T18:18:38Z",
+   "status": "completed",
+   "result_count": 80,
+   "new_result_count": 80,
+   "error_message": null,
+   "current_stage": "finalizing",
+   "interrupted_reason": null,
+   "restarted_from": null,
+   "cancel_reason": null,
+   "dedup_total": 80,
+   "dedup_new": 80,
+   "dedup_duplicates": 0,
+   "dedup_invalid": 0,
+   "dedup_cross_source": 0,
+   "request_id": null,
+   "saved_configuration_name": null,
+   "query": "equivariant graph neural networks",
+   "keywords": [
+    "equivariant graph neural networks"
+   ],
+   "repositories": [
+    "openalex"
+   ],
+   "total_results": 80,
+   "new_results": 80,
+   "restarted_into": []
+  },
+  {
+   "id": 54,
+   "execution_type": "deep_sweep",
+   "routine_id": null,
+   "saved_configuration_id": null,
+   "parameters": "{\"query\": \"protein structure\", \"keywords\": null, \"date_from\": \"2026-11-08\", \"date_to\": \"2026-11-11\", \"max_results\": 20, \"collection_id\": 1, \"repositories\": [\"openalex\", \"crossref\", \"europepmc\", \"pubmed\", \"plos\", \"hal\", \"zenodo\", \"dblp\", \"doaj\", \"semantic_scholar\"], \"queries_sent\": {\"dblp\": {\"sent\": []}, \"crossref\": {\"sent\": [\"query=protein structure & filter=from-pub-date:2026-11-08,until-pub-date:2026-11-11\"]}, \"openalex\": {\"sent\": [\"search=protein AND structure & filter=from_publication_date:2026-11-08,to_publication_date:2026-11-11\"]}, \"plos\": {\"sent\": [\"q=(protein AND structure) AND publication_date:[2026-11-08T00:00:00Z TO 2026-11-11T23:59:59Z] & sort=publication_date desc\"]}, \"europepmc\": {\"sent\": [\"query=(protein AND structure) AND FIRST_PDATE:[2026-11-08 TO 2026-11-11]\"]}, \"hal\": {\"sent\": [\"q=protein AND structure & fq=producedDate_tdate:[2026-11-08T00:00:00Z TO 2026-11-11T23:59:59Z] & sort=producedDate_tdate desc\"]}, \"pubmed\": {\"sent\": [\"term=protein AND structure & mindate=2026/11/08 & maxdate=2026/11/11 & datetype=pdat & sort=pub_date\"]}, \"doaj\": {\"sent\": [\"path /api/search/articles/(protein AND structure) AND bibjson.year:[2026 TO 2026]\"]}, \"zenodo\": {\"sent\": [\"q=(protein AND structure) AND publication_date:[2026-11-08 TO 2026-11-11] & sort=bestmatch\"]}, \"semantic_scholar\": {\"sent\": [\"query=protein structure & year=2026-2026\"]}}}",
+   "start_time": "2026-11-11T18:18:39Z",
+   "end_time": "2026-11-11T18:18:50Z",
+   "status": "completed",
+   "result_count": 93,
+   "new_result_count": 93,
+   "error_message": null,
+   "current_stage": "finalizing",
+   "interrupted_reason": null,
+   "restarted_from": null,
+   "cancel_reason": null,
+   "dedup_total": 93,
+   "dedup_new": 93,
+   "dedup_duplicates": 0,
+   "dedup_invalid": 0,
+   "dedup_cross_source": 4,
+   "request_id": null,
+   "saved_configuration_name": null,
+   "query": "protein structure",
+   "keywords": [
+    "protein structure"
+   ],
+   "repositories": [
+    "openalex",
+    "crossref",
+    "europepmc",
+    "pubmed",
+    "plos",
+    "hal",
+    "zenodo",
+    "dblp",
+    "doaj",
+    "semantic_scholar"
+   ],
+   "total_results": 93,
+   "new_results": 93,
+   "restarted_into": []
+  },
+  {
+   "id": 55,
+   "execution_type": "automated_sweep",
+   "routine_id": 1,
+   "saved_configuration_id": null,
+   "parameters": "{\"repositories\": [\"arxiv\"], \"keywords\": [\"\\\"graph neural network\\\"\"], \"query\": \"\\\"graph neural network\\\"\", \"date_from\": \"2026-11-07\", \"date_to\": null, \"date_window\": {\"since\": \"previous_run\"}, \"max_results\": 100, \"collection_id\": 1, \"date_window_computed\": {\"mode\": \"since_previous_run\", \"basis\": \"previous_run\", \"date_from\": \"2026-11-07\", \"date_to\": null, \"days\": null, \"previous_execution_id\": 17, \"previous_start_time\": \"2026-11-10T10:00:05Z\", \"overlap_days\": 3, \"default_days\": null, \"computed_at\": \"2026-11-11T18:19:11Z\", \"sentence\": \"Papers published since the previous run: from November 7, 2026, with no end date. Run 17, the latest earlier completed run in which a source answered, started on November 10, 2026; the window starts 3 days before that, because a source often lists a paper after the date it carries.\"}, \"queries_sent\": {\"arxiv\": {\"sent\": [\"search_query=all:\\\"graph neural network\\\" AND submittedDate:[202611070000 TO 209912312359] & sortBy=submittedDate & sortOrder=descending\"]}}}",
+   "start_time": "2026-11-11T18:19:11Z",
+   "end_time": "2026-11-11T18:19:11Z",
+   "status": "completed",
+   "result_count": 17,
+   "new_result_count": 4,
+   "error_message": null,
+   "current_stage": "finalizing",
+   "interrupted_reason": null,
+   "restarted_from": null,
+   "cancel_reason": null,
+   "dedup_total": 17,
+   "dedup_new": 4,
+   "dedup_duplicates": 13,
+   "dedup_invalid": 0,
+   "dedup_cross_source": 0,
+   "request_id": null,
+   "saved_configuration_name": null,
+   "query": "\"graph neural network\"",
+   "keywords": [
+    "\"graph neural network\""
+   ],
+   "repositories": [
+    "arxiv"
+   ],
+   "total_results": 17,
+   "new_results": 4,
+   "restarted_into": []
+  },
+  {
+   "id": 56,
+   "execution_type": "automated_sweep",
+   "routine_id": 2,
+   "saved_configuration_id": null,
+   "parameters": "{\"repositories\": [\"arxiv\", \"core\"], \"keywords\": [\"\\\"protein structure\\\"\"], \"query\": \"\\\"protein structure\\\"\", \"date_from\": \"2026-11-07\", \"date_to\": null, \"date_window\": {\"since\": \"previous_run\"}, \"max_results\": 100, \"collection_id\": 1, \"date_window_computed\": {\"mode\": \"since_previous_run\", \"basis\": \"previous_run\", \"date_from\": \"2026-11-07\", \"date_to\": null, \"days\": null, \"previous_execution_id\": 34, \"previous_start_time\": \"2026-11-10T10:30:05Z\", \"overlap_days\": 3, \"default_days\": null, \"computed_at\": \"2026-11-11T18:19:33Z\", \"sentence\": \"Papers published since the previous run: from November 7, 2026, with no end date. Run 34, the latest earlier completed run in which a source answered, started on November 10, 2026; the window starts 3 days before that, because a source often lists a paper after the date it carries.\"}, \"queries_sent\": {\"core\": {\"sent\": []}, \"arxiv\": {\"sent\": [\"search_query=all:\\\"protein structure\\\" AND submittedDate:[202611070000 TO 209912312359] & sortBy=submittedDate & sortOrder=descending\"]}}}",
+   "start_time": "2026-11-11T18:19:33Z",
+   "end_time": "2026-11-11T18:19:33Z",
+   "status": "completed",
+   "result_count": 0,
+   "new_result_count": 0,
+   "error_message": null,
+   "current_stage": "finalizing",
+   "interrupted_reason": null,
+   "restarted_from": null,
+   "cancel_reason": null,
+   "dedup_total": 0,
+   "dedup_new": 0,
+   "dedup_duplicates": 0,
+   "dedup_invalid": 0,
+   "dedup_cross_source": 0,
+   "request_id": null,
+   "saved_configuration_name": null,
+   "query": "\"protein structure\"",
+   "keywords": [
+    "\"protein structure\""
+   ],
+   "repositories": [
+    "arxiv",
+    "core"
+   ],
+   "total_results": 0,
+   "new_results": 0,
+   "restarted_into": []
+  },
+  {
+   "id": 57,
+   "execution_type": "automated_sweep",
+   "routine_id": 3,
+   "saved_configuration_id": null,
+   "parameters": "{\"repositories\": [\"arxiv\"], \"keywords\": [\"\\\"diffusion model\\\"\"], \"query\": \"\\\"diffusion model\\\"\", \"date_from\": \"2026-11-07\", \"date_to\": null, \"date_window\": {\"since\": \"previous_run\"}, \"max_results\": 100, \"collection_id\": 1, \"date_window_computed\": {\"mode\": \"since_previous_run\", \"basis\": \"previous_run\", \"date_from\": \"2026-11-07\", \"date_to\": null, \"days\": null, \"previous_execution_id\": 51, \"previous_start_time\": \"2026-11-10T11:00:05Z\", \"overlap_days\": 3, \"default_days\": null, \"computed_at\": \"2026-11-11T18:19:55Z\", \"sentence\": \"Papers published since the previous run: from November 7, 2026, with no end date. Run 51, the latest earlier completed run in which a source answered, started on November 10, 2026; the window starts 3 days before that, because a source often lists a paper after the date it carries.\"}, \"queries_sent\": {\"arxiv\": {\"sent\": [\"search_query=all:\\\"diffusion model\\\" AND submittedDate:[202611070000 TO 209912312359] & sortBy=submittedDate & sortOrder=descending\"]}}}",
+   "start_time": "2026-11-11T18:19:55Z",
+   "end_time": "2026-11-11T18:19:56Z",
+   "status": "completed",
+   "result_count": 51,
+   "new_result_count": 12,
+   "error_message": null,
+   "current_stage": "finalizing",
+   "interrupted_reason": null,
+   "restarted_from": null,
+   "cancel_reason": null,
+   "dedup_total": 51,
+   "dedup_new": 12,
+   "dedup_duplicates": 39,
+   "dedup_invalid": 0,
+   "dedup_cross_source": 0,
+   "request_id": null,
+   "saved_configuration_name": null,
+   "query": "\"diffusion model\"",
+   "keywords": [
+    "\"diffusion model\""
+   ],
+   "repositories": [
+    "arxiv"
+   ],
+   "total_results": 51,
+   "new_results": 12,
+   "restarted_into": []
+  }
+ ]
+}

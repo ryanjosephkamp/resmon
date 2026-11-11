@@ -1,0 +1,211 @@
+"""OAPEN book/chapter metadata, under its CC0 metadata dedication — RETIRED.
+
+**This module is not loaded.** It was removed from
+``api_registry._CLIENT_MODULES`` and from the repository catalog in October
+2026, and importing it registers nothing that a sweep can reach.
+
+The reason is an access block on OAPEN's side, not its terms and not any
+defect here. Its search API answered HTTP 403, with a body saying the caller's
+address is not allowed to access the API, to GitHub's hosted runners in the
+live run and to a workstation, when the library's website root answered
+200.
+``api_registry.RETIRED_REPOSITORIES`` holds the sentence a user is shown.
+
+Kept on disk because nothing here was found wrong: if OAPEN lifts the block,
+the source can return with ``OapenClient`` unchanged.
+
+Contract: https://www.oapen.org/article/8185269-search-using-a-rest-api
+Pagination/date syntax: https://oapen.o172i.upcloudobjects.com/151b0a45669f429381cb46fe441f23b6.pdf
+Metadata terms: https://www.oapen.org/oapen/posi-self-audit
+"""
+
+import logging
+import re
+import time
+
+from .api_base import (
+    BaseAPIClient, NormalizedResult, RateLimiter, note_filtered,
+    note_parse_failure, note_parse_failure_unless_transport,
+    note_unanswerable, safe_request,
+)
+# These helpers preserve partial-date precision and select only whole years.
+# OAPEN's indexed timestamps often originate from year-only dc.date.issued;
+# asking for days would turn an index default into a publication-date claim.
+from .api_openlibrary import _date_interval, _search_year_bounds
+
+logger = logging.getLogger(__name__)
+_URL = "https://library.oapen.org/rest/search"
+# No numerical limit in OAPEN's REST guide; two seconds spaces concurrent sweeps.
+_RATE_LIMITER = RateLimiter(requests_per_second=0.5)
+_PAGE_SIZE = 100
+_MIN_SCAN_BUDGET = 10000
+_SEARCH_BUDGET_SECONDS = 45.0
+# Twenty seconds, not ten, because ten was shorter than the provider's own
+# replies. Under the 30 s default the dated live case passed on 2026-09-17 in
+# ~1.6 s and again in ~23.8 s of whole-test time. OAPEN's HTTP 500 error page
+# takes ~11.7 s to its first byte. A 10 s timeout cannot wait for a reply that
+# slow, so a slow answer, or the error page itself, was recorded as a timeout
+# instead of as what it was. Twenty lets a reply that arrives between 10 and
+# 20 s be read. The worst case, two timeouts, is 20 + 1 s backoff + 20 = 41 s,
+# inside the 45 s budget and well inside pytest's 120 s watchdog.
+#
+# This does not fix a genuine 500. From 2026-09-18 OAPEN's DSpace server has
+# intermittently answered HTTP 500 (a JDBC "Could not open connection" error)
+# to GitHub runners and to a workstation alike. No client setting changes
+# that. The timeout only makes the 500 legible as a 500.
+_REQUEST_TIMEOUT_SECONDS = 20.0
+_MAX_REQUEST_RETRIES = 1
+_HANDLE = re.compile(r"^\d+(?:\.\d+)*/[A-Za-z0-9._~-]+$")
+
+
+class OapenClient(BaseAPIClient):
+    """Search metadata, retaining the source's publication-year precision."""
+
+    def get_name(self) -> str:
+        return "OAPEN Library"
+
+    def search(
+        self, query: str, date_from: str | None = None,
+        date_to: str | None = None, max_results: int = 100, **kwargs: object,
+    ) -> list[NormalizedResult]:
+        if max_results <= 0:
+            return []
+        bounds = _search_year_bounds(date_from, date_to)
+        if bounds is None:
+            note_unanswerable("year_granularity")
+            return []
+        lower, upper, _, _ = bounds
+        deadline = time.monotonic() + _SEARCH_BUDGET_SECONDS
+        start = f"{lower:04d}-01-01T00:00:00Z" if lower else "*"
+        end = f"{upper:04d}-12-31T23:59:59.999Z" if upper else "*"
+        results: list[NormalizedResult] = []
+        seen: set[str] = set()
+        offset = 0
+        incomplete = 0
+        page_size = min(max_results, _PAGE_SIZE)
+        # The scan budget is independent of how many rows survive normalization.
+        # This bounds streams of distinct records with missing required dates.
+        scan_budget = max(max_results, _MIN_SCAN_BUDGET)
+        while len(results) < max_results and offset < scan_budget:
+            params = {
+                "query": query, "expand": "metadata", "limit": page_size,
+                "offset": offset, "sort": "dc.date.issued_dt|desc",
+            }
+            if lower or upper:
+                params["fq"] = f"dc.date.issued_dt:[{start} TO {end}]"
+            try:
+                response = safe_request(
+                    "GET", _URL,
+                    params=params,
+                    headers={"Accept": "application/json"},
+                    rate_limiter=_RATE_LIMITER,
+                    timeout=_REQUEST_TIMEOUT_SECONDS,
+                    max_retries=_MAX_REQUEST_RETRIES,
+                    deadline=deadline,
+                )
+                if response.status_code != 200:
+                    logger.error("OAPEN returned HTTP %d", response.status_code)
+                    return results
+                records = response.json()
+            except Exception as exc:
+                logger.warning("OAPEN request failed (%s)", type(exc).__name__)
+                note_parse_failure_unless_transport(exc)
+                return results
+            if not isinstance(records, list) or len(records) > page_size:
+                logger.error("OAPEN returned an invalid page")
+                note_parse_failure()
+                return results
+            duplicates = 0
+            for record in records:
+                parsed = self._parse_record(record)
+                if parsed is None:
+                    incomplete += 1
+                    continue
+                if parsed.external_id in seen:
+                    duplicates += 1
+                    continue
+                seen.add(parsed.external_id)
+                year = int(parsed.publication_date) if parsed.publication_date else None
+                if (lower or upper) and year is None:
+                    incomplete += 1
+                    continue
+                if year is not None and ((lower and year < lower) or (upper and year > upper)):
+                    # The fq response contradicts the source's own issued year.
+                    # Do not present a page that did not obey its query as empty.
+                    logger.error("OAPEN returned a publication year outside its requested filter")
+                    note_parse_failure()
+                    return results
+                results.append(parsed)
+                if len(results) == max_results:
+                    return results
+            offset += len(records)  # Raw rows, not the number we could retain.
+            if len(records) < page_size:
+                if incomplete and not results:
+                    note_filtered(offset, 0, "records_unusable", rights=0, incomplete=incomplete)
+                return results
+            if duplicates == len(records):
+                # Repeating an entire page cannot establish an end or make
+                # progress. Malformed rows instead consume the scan budget.
+                logger.error("OAPEN pagination made no identifiable progress")
+                note_parse_failure()
+                return results
+        logger.warning("oapen metadata scan budget reached after %d rows; retained %d", offset, len(results))
+        if not results and incomplete:
+            note_filtered(offset, 0, "records_unusable", rights=0, incomplete=incomplete)
+        return results
+
+    @staticmethod
+    def _parse_record(record: object) -> NormalizedResult | None:
+        if not isinstance(record, dict):
+            logger.warning("Skipping non-object OAPEN record")
+            return None
+        handle = record.get("handle")
+        title = record.get("name")
+        metadata = record.get("metadata")
+        if (not isinstance(handle, str) or not _HANDLE.fullmatch(handle)
+                or not isinstance(title, str) or not title.strip()
+                or not isinstance(metadata, list) or record.get("type") != "item"):
+            logger.warning("Skipping OAPEN record with incomplete identity or metadata")
+            return None
+        if record.get("withdrawn") not in (False, "false"):
+            logger.warning("Skipping OAPEN record not established as non-withdrawn")
+            return None
+        fields: dict[str, list[str]] = {}
+        for field in metadata:
+            if not isinstance(field, dict):
+                continue
+            key, value = field.get("key"), field.get("value")
+            if isinstance(key, str) and isinstance(value, str) and value.strip():
+                fields.setdefault(key, []).append(value.strip())
+        issued = fields.get("dc.date.issued", [])
+        # Year precision is deliberate, even when an item supplies a full date.
+        years = {v[:4] for v in issued if _date_interval(v) is not None}
+        year = next(iter(years)) if len(years) == 1 else None
+        return NormalizedResult(
+            source_repository="oapen", external_id=handle, doi=None,
+            title=title.strip(), authors=fields.get("dc.contributor.author", []),
+            abstract="\n\n".join(fields.get("dc.description.abstract", [])) or None,
+            publication_date=year, url=f"https://library.oapen.org/handle/{handle}",
+            categories=(fields.get("dc.subject.classification", []) + fields.get("dc.subject.other", []))[:10],
+        )
+
+
+# ---------------------------------------------------------------------------
+# Registry auto-registration
+# ---------------------------------------------------------------------------
+# Deliberately does not self-register. This source is retired
+# (api_registry.RETIRED_REPOSITORIES says why), and every other api_*.py calls
+# register_client() at import time. Leaving that call here would mean any
+# import of this module — a test, a debug session — silently put the source
+# back into the process-wide registry where a sweep could reach it. The
+# registry refuses a retired slug as well; this is the other half of that.
+#
+# To revive the source: drop its entry from RETIRED_REPOSITORIES, restore the
+# module to _CLIENT_MODULES and its entry to repo_catalog.REPOSITORY_CATALOG,
+# and restore the call below.
+#
+#     def _register() -> None:
+#         from .api_registry import register_client
+#         register_client("oapen", OapenClient)
+#
+#     _register()

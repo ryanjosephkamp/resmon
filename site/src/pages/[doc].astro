@@ -1,0 +1,40 @@
+---
+/**
+ * The reference documents from `docs/*.md`, at `/resmon/backup/`,
+ * `/resmon/source-landscape/` and the rest.
+ *
+ * The Markdown is read from `docs/` in place — it is not copied into this
+ * directory — because several of those files are linked by repository path from
+ * the README and CONTRIBUTING.md, and a second copy would be a second thing to
+ * keep in step.
+ */
+import { getCollection, type CollectionEntry } from 'astro:content';
+import Document from '../layouts/Document.astro';
+import { renderMarkdown } from '../lib/markdown';
+import { readDocument } from '../lib/documents';
+import { referenceRail } from '../lib/rails';
+
+export async function getStaticPaths() {
+  const docs = await getCollection('docs');
+  return docs.map((entry) => ({ params: { doc: entry.id }, props: { entry } }));
+}
+
+interface Props {
+  entry: CollectionEntry<'docs'>;
+}
+
+const { entry } = Astro.props as Props;
+const head = readDocument(entry.body ?? '', entry.id);
+const { html, headings } = await renderMarkdown(head.body, { from: 'docs' });
+---
+
+<Document
+  title={head.title}
+  description={head.description}
+  path={`/${entry.id}/`}
+  section="Reference"
+  rail={await referenceRail()}
+  meta={`docs/${entry.id}.md`}
+  html={html}
+  headings={headings}
+/>

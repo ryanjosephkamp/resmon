@@ -1,0 +1,234 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Selected-evidence answers · resmon</title><meta name="description" content="A project can send an explicit selection of retained file versions, physical PDF pages, complete canonical text pages or exact Unicode codepoint passages to an existing CLI/API co…"><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/api-contract/selected-evidence/"><link rel="icon" href="/resmon/favicon.png" type="image/png" sizes="64x64"><link rel="apple-touch-icon" href="/resmon/apple-touch-icon.png"><link rel="preload" href="/resmon/static/geist-latin-wght-normal.BgDaEnEv.woff2" as="font" type="font/woff2" crossorigin><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="Selected-evidence answers · resmon"><meta property="og:description" content="A project can send an explicit selection of retained file versions, physical PDF pages, complete canonical text pages or exact Unicode codepoint passages to an existing CLI/API co…"><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/api-contract/selected-evidence/"><meta property="og:image" content="https://ryanjosephkamp.github.io/resmon/media/resmon-og.png"><meta name="twitter:card" content="summary_large_image"><script>
+      // A theme and color chosen on an earlier visit, set before the page paints. The top bar's
+      // appearance control (src/scripts/appearance.ts) keeps them; only its own names and colors are read.
+      // `scripted` lets a page hold room for what its scripts will draw.
+      document.documentElement.classList.add('scripted');
+      try {
+        const kept = JSON.parse(localStorage.getItem('resmon:appearance') || 'null');
+        if (kept) {
+          const root = document.documentElement;
+          if (kept.theme === 'light' || kept.theme === 'dark') root.dataset.theme = kept.theme;
+          for (const [name, value] of Object.entries(kept.tones || {})) {
+            if (/^--dial-(light|dark)-[a-z]+$/.test(name) && /^#[0-9a-f]{6}$/i.test(value)) root.style.setProperty(name, value);
+          }
+        }
+      } catch {}
+    </script><link rel="stylesheet" href="/resmon/static/_doc_.CrUxPVYO.css">
+<style>.cartouche[data-astro-cid-vyumnbmr]{margin-bottom:var(--space-6);padding:var(--space-5) var(--space-5) var(--space-4);background:var(--color-canvas);border:var(--border-width) solid var(--color-border-strong);box-shadow:inset 0 0 0 var(--space-1) var(--color-canvas),inset 0 0 0 calc(var(--space-1) + var(--border-width)) var(--color-border)}h1[data-astro-cid-vyumnbmr]{margin:0;font-size:var(--text-3xl);line-height:var(--leading-display)}.meta[data-astro-cid-vyumnbmr]{display:flex;flex-direction:column;gap:var(--space-1) var(--space-3);margin:var(--space-3) 0 0;max-width:var(--measure);color:var(--color-text-muted);font-size:var(--text-sm)}.section[data-astro-cid-vyumnbmr]{font-weight:var(--weight-semibold);color:var(--color-text)}@media(min-width:40rem){.meta[data-astro-cid-vyumnbmr]{flex-direction:row;flex-wrap:wrap}.section[data-astro-cid-vyumnbmr]:after{content:"·";margin-inline-start:var(--space-3);color:var(--color-text-faint)}}
+.doc[data-astro-cid-c2uqhu5p]{display:grid;gap:var(--space-6);padding-block:var(--space-6) var(--space-8)}.doc-body[data-astro-cid-c2uqhu5p]{min-width:0;max-width:var(--measure-wide)}.rail[data-astro-cid-c2uqhu5p]{order:2;font-size:var(--text-sm);border-top:var(--border-width) solid var(--color-border);padding-top:var(--space-4)}.rail-head[data-astro-cid-c2uqhu5p]{display:block;margin-bottom:var(--space-2);font-weight:var(--weight-semibold);color:var(--color-text);text-decoration:none}.rail[data-astro-cid-c2uqhu5p] ol[data-astro-cid-c2uqhu5p]{margin:0;padding:0;list-style:none;columns:2 11rem;column-gap:var(--space-5)}.rail[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:0}.rail[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p]{display:flex;align-items:center;gap:var(--space-2);padding-block:var(--space-1);color:var(--color-text-muted);text-decoration:none;break-inside:avoid;transition:color var(--duration-fast) var(--ease)}.rail[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p]:before{content:"";flex-shrink:0;width:var(--space-1);height:var(--space-1);border-radius:50%;background:var(--color-border-strong)}.rail[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p]:hover{color:var(--color-text)}.rail[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p][aria-current=page]{color:var(--color-text);font-weight:var(--weight-semibold)}.rail[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p][aria-current=page]:before{background:var(--color-accent-mark);outline:var(--border-width) solid var(--color-accent-mark);outline-offset:var(--border-width-heavy)}.contents[data-astro-cid-c2uqhu5p]{max-width:var(--measure);margin-bottom:var(--space-6);padding-block:var(--space-3);border-block:var(--border-width) solid var(--color-border)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-sm);font-weight:var(--weight-semibold);color:var(--color-text);border:0;padding:0}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm);columns:2 14rem;column-gap:var(--space-6)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}.contents[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p]{color:var(--color-text-muted)}.contents[data-astro-cid-c2uqhu5p] a[data-astro-cid-c2uqhu5p]:hover{color:var(--color-text)}@media(min-width:64rem){.doc[data-astro-cid-c2uqhu5p].has-rail{grid-template-columns:var(--rail) minmax(0,1fr);gap:var(--space-7)}.rail[data-astro-cid-c2uqhu5p]{order:0;position:sticky;top:var(--space-5);align-self:start;border-top:0;padding-top:0}.rail[data-astro-cid-c2uqhu5p] ol[data-astro-cid-c2uqhu5p]{columns:auto}}@media(min-width:84rem){.doc[data-astro-cid-c2uqhu5p].has-rail.has-contents .doc-body[data-astro-cid-c2uqhu5p]{display:grid;grid-template-columns:minmax(0,var(--measure)) var(--rail);column-gap:var(--space-7);max-width:none;align-items:start}.doc[data-astro-cid-c2uqhu5p].has-rail.has-contents .doc-body[data-astro-cid-c2uqhu5p]>.cartouche{grid-column:1 / -1}.doc[data-astro-cid-c2uqhu5p].has-rail.has-contents .contents[data-astro-cid-c2uqhu5p]{grid-column:2;grid-row:2 / span 2;position:sticky;top:var(--space-5);border-block:0;border-inline-start:var(--border-width) solid var(--color-border);padding:0 0 0 var(--space-4)}.doc[data-astro-cid-c2uqhu5p].has-rail.has-contents .contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{columns:auto;padding-inline-start:0;list-style:none}.doc[data-astro-cid-c2uqhu5p].has-rail.has-contents .prose[data-astro-cid-c2uqhu5p],.doc[data-astro-cid-c2uqhu5p].has-rail.has-contents .doc-body[data-astro-cid-c2uqhu5p]>:not(.cartouche):not(.contents){grid-column:1}}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="lockup" href="/resmon/" aria-label="resmon, research monitor: home" data-astro-cid-5hce7sga> <img class="mark" src="/resmon/mark.webp" width="96" height="96" alt="" decoding="async" data-astro-cid-iifiznic>  <span class="lockup-words" aria-hidden="true" data-astro-cid-5hce7sga><b data-astro-cid-5hce7sga>res</b>earch <b data-astro-cid-5hce7sga>mon</b>itor</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/#sources" data-astro-cid-5hce7sga> Sources </a> </li><li class="nav-wide" data-astro-cid-5hce7sga> <a href="/resmon/#tour" data-astro-cid-5hce7sga> Tour </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" data-astro-cid-5hce7sga> Guide </a> </li><li class="nav-wide" data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li> <li class="nav-wide" data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>Source code</a> </li> </ul> </nav> <div class="mast-end" data-astro-cid-5hce7sga> <div class="appearance" data-appearance hidden data-astro-cid-5hce7sga> <button type="button" class="appearance-button" aria-expanded="false" aria-controls="appearance-panel" data-astro-cid-5hce7sga> <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" data-astro-cid-5hce7sga> <path d="M8 1.75s-4.25 4.6-4.25 7.6a4.25 4.25 0 0 0 8.5 0c0-3-4.25-7.6-4.25-7.6Z" data-astro-cid-5hce7sga></path> </svg> <span class="visually-hidden" data-astro-cid-5hce7sga>Theme and color</span> </button> <div class="appearance-panel" id="appearance-panel" hidden data-astro-cid-5hce7sga> <fieldset class="themes" data-astro-cid-5hce7sga> <legend data-astro-cid-5hce7sga>Theme</legend> <div class="seg" data-astro-cid-5hce7sga> <label data-astro-cid-5hce7sga> <input class="visually-hidden" type="radio" name="theme" value="system" data-astro-cid-5hce7sga> <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" data-astro-cid-5hce7sga><rect x="1.75" y="2.75" width="12.5" height="8.5" rx="1.5" /><path d="M5.5 14h5M8 11.25V14" /></svg> <span data-astro-cid-5hce7sga>Follow the system</span> </label><label data-astro-cid-5hce7sga> <input class="visually-hidden" type="radio" name="theme" value="light" data-astro-cid-5hce7sga> <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" data-astro-cid-5hce7sga><circle cx="8" cy="8" r="3" /><path d="M8 1.5v1.5M8 13v1.5M14.5 8H13M3 8H1.5M12.6 3.4l-1.06 1.06M4.46 11.54 3.4 12.6M12.6 12.6l-1.06-1.06M4.46 4.46 3.4 3.4" /></svg> <span data-astro-cid-5hce7sga>Light</span> </label><label data-astro-cid-5hce7sga> <input class="visually-hidden" type="radio" name="theme" value="dark" data-astro-cid-5hce7sga> <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" data-astro-cid-5hce7sga><path d="M13.5 9.6A5.75 5.75 0 0 1 6.4 2.5a5.75 5.75 0 1 0 7.1 7.1Z" /></svg> <span data-astro-cid-5hce7sga>Dark</span> </label> </div> </fieldset> <div class="dial" data-astro-cid-5hce7sga> <label for="hue" data-astro-cid-5hce7sga><i data-astro-cid-5hce7sga>Its color:</i> <span class="hue-name" data-astro-cid-5hce7sga>amber</span></label> <div class="dial-row" data-astro-cid-5hce7sga> <input id="hue" type="range" min="0" max="359" step="1" value="51" data-astro-cid-5hce7sga> <button type="button" class="hue-reset" data-astro-cid-5hce7sga>Use the default</button> </div> <p class="dial-note" data-astro-cid-5hce7sga>
+Only the hue turns. As in the app, each tone is then drawn light or deep enough to read on this
+                  page, in either theme.
+</p> </div> </div> </div> <a class="mast-action" href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Download</a> </div> </div> </header> <main id="main" class="shell main main-full" data-astro-cid-5hce7sga>  <div class="doc has-rail has-contents" data-astro-cid-c2uqhu5p> <nav class="rail" aria-label="The API contract" data-astro-cid-c2uqhu5p> <a class="rail-head" href="/resmon/api-contract/" data-astro-cid-c2uqhu5p> The API contract </a> <ol data-astro-cid-c2uqhu5p> <li data-astro-cid-c2uqhu5p> <a href="/resmon/api-contract/assistant-choices/" data-astro-cid-c2uqhu5p> Assistant choices (schema 15) </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/api-contract/evidence/" data-astro-cid-c2uqhu5p> Evidence workspace </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/api-contract/library/" data-astro-cid-c2uqhu5p> Library: owned copies and bounded text </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/api-contract/assistant-conversations/" data-astro-cid-c2uqhu5p> Saved conversations: browse, snapshot, export </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/api-contract/selected-evidence/" aria-current="page" data-astro-cid-c2uqhu5p> Selected-evidence answers </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/api-contract/http/" data-astro-cid-c2uqhu5p> The HTTP surface, by journey </a> </li><li data-astro-cid-c2uqhu5p> <a href="/resmon/api-contract/mcp/" data-astro-cid-c2uqhu5p> The resmon MCP tool surface — contract 1.1 </a> </li> </ol> </nav> <article class="doc-body" data-astro-cid-c2uqhu5p> <header class="cartouche" data-astro-cid-vyumnbmr> <h1 data-astro-cid-vyumnbmr>Selected-evidence answers</h1> <p class="meta" data-astro-cid-vyumnbmr> <span class="section" data-astro-cid-vyumnbmr>Contract</span> <span data-astro-cid-vyumnbmr>docs/api-contract/selected-evidence.md</span> </p>  </header>  <nav class="contents" aria-labelledby="contents-heading" data-astro-cid-c2uqhu5p> <h2 id="contents-heading" class="contents-heading" data-astro-cid-c2uqhu5p>
+On this page
+</h2> <ul data-astro-cid-c2uqhu5p> <li data-astro-cid-c2uqhu5p> <a href="#selection-and-consent" data-astro-cid-c2uqhu5p>Selection and consent</a> </li><li data-astro-cid-c2uqhu5p> <a href="#seven-routes" data-astro-cid-c2uqhu5p>Seven routes</a> </li><li data-astro-cid-c2uqhu5p> <a href="#runtime-and-output" data-astro-cid-c2uqhu5p>Runtime and output</a> </li><li data-astro-cid-c2uqhu5p> <a href="#durable-state-and-export" data-astro-cid-c2uqhu5p>Durable state and export</a> </li><li data-astro-cid-c2uqhu5p> <a href="#portable-html-selected-answer-htmlv1" data-astro-cid-c2uqhu5p>Portable HTML, selected-answer-html/v1</a> </li> </ul> </nav> <div class="prose" data-astro-cid-c2uqhu5p><p>A project can send an explicit selection of retained file versions, physical PDF
+pages, complete canonical text pages or exact Unicode codepoint passages to an
+existing CLI/API connection. A manual briefing is the same bounded operation with
+a different requested output mode. It is never scheduled. Opening a preview or
+saved answer does not invoke a model. Each explicit Send admits one new domain
+answer; it does not adopt or append to an ordinary Ask session.</p>
+<h2 id="selection-and-consent">Selection and consent</h2>
+<p>Select 1–5 current file/version memberships, at most 12 distinct selected or
+passage-note-anchor-checked pages and 24 distinct segments. Identical segments
+collapse; overlapping or repeated occurrences remain distinct. Page text retains
+the existing LF extraction contract. Passage offsets are global Unicode
+codepoints with an exclusive end, never UTF-16 indices or fuzzy matches.</p>
+<p>Optional owner-note bodies start unselected: at most 8 individually selected
+notes, 2,000 codepoints each and 8 KiB total. A passage selection does not include
+its note body. Note provenance means a saved local note, not authenticated
+identity or document evidence. Note references cannot substitute for citations.</p>
+<p>Source text has both a 48 KiB UTF-8 and 24,000-codepoint ceiling. The instruction
+has 1–4,000 codepoints and a 16 KiB ceiling. The complete app user payload has a
+96 KiB ceiling; the separately versioned application system payload has a 16 KiB
+ceiling. Missing, corrupt, encrypted, unsupported, image-only or over-limit
+selections refuse the entire preview. There is no silent truncation or omission.
+Digest verification reads the selected retained file bytes; reaching a PDF page
+examines its structure. Those reads do not establish whole-paper understanding.</p>
+<p>The preview displays the exact source and note text, filenames, versions, page
+coverage, public requested settings, limitations, system/user bytes and hashes.
+Canonical JSON uses sorted keys, compact separators, literal Unicode, no
+NaN/duplicate keys/lone surrogates. The request hash covers the payload without
+its own digest. The user prompt is <code>{request_sha256,payload}</code>. Source hashes omit
+only <code>source_id</code> and <code>source_sha256</code>; sources have deterministic S01–S24 IDs.</p>
+<p>The backend owns previews: one assembly at a time, 120 seconds maximum, four live
+previews, 512 KiB resident total, 600-second expiry. Send requires the exact
+vault/runtime/preview/request hash plus <code>confirmed:true</code>; it re-extracts and
+rechecks the selected SQL facts, route and rules before transactional admission.
+An identical repeated consent returns the existing answer without another call.
+An expired or restart-lost preview cannot be revived. Source strings are literal
+untrusted data; there is no automatic secret-removal guarantee.</p>
+<h2 id="seven-routes">Seven routes</h2>
+<p>Every route uses the existing Evidence origin/<code>X-Resmon-Library: 1</code> guards,
+explicit vault identity, bounded request bodies and <code>Cache-Control: no-store</code>.
+There is no selected-answer MCP tool. Paths below begin with
+<code>/api/evidence/projects/{project_id}</code>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Method and suffix</th><th>Purpose</th></tr></thead><tbody><tr><td>POST <code>/answer-previews</code></td><td>Explicit selections/notes/instruction/mode/choices with expected project revision and runtime</td></tr><tr><td>POST <code>/answers</code></td><td>Hash-bound consent; returns the admitted or replayed saved answer</td></tr><tr><td>GET <code>/answers</code></td><td>Project-scoped ascending history, fixed ID ceiling, at most 50 rows per page</td></tr><tr><td>GET <code>/answers/{answer_id}</code></td><td>Durable answer plus immutable request, selected excerpts and public reports</td></tr><tr><td>GET <code>/answers/{answer_id}/events</code></td><td>One owned SSE subscriber; expected runtime required</td></tr><tr><td>POST <code>/answers/{answer_id}/cancel</code></td><td>Cancel the exact owner/runtime operation</td></tr><tr><td>GET <code>/answers/{answer_id}/export?format=zip</code> or <code>format=html</code></td><td>One explicit saved-answer ZIP or separate static HTML document</td></tr></tbody></table>
+<p>SSE frames carry answer/request/project/vault/runtime identities and monotonic
+sequence numbers. Initial state is a full saved snapshot, followed by bounded
+progress/partial/report/terminal events. A subscriber must attach within 30
+seconds. Disconnect/navigation, queue overflow or Stop requests cancellation.
+Queued events are bounded to 16 frames and 256 KiB; there is no reconnect/resume
+or automatic retry. Renderer responses are rejected on stale identities.</p>
+<h2 id="runtime-and-output">Runtime and output</h2>
+<p>The <code>selected_evidence_v1</code> profile is optional in the two existing runtimes;
+ordinary Ask rules and permissions retain their defaults. The CLI receives a
+fresh native UUID, empty working directory, empty tools/MCP configuration, no
+history/resume/slash commands/settings sources and the separate system asset.
+Observed startup must report that exact UUID and explicit empty tools/MCP lists.
+The three existing API families send one request with no tool declarations or
+history, using existing configured authentication. Requested model/effort and
+literal reported model observations remain separate; API effort is unsupported.
+Offline fixtures establish these wire contracts, not native/live compatibility.</p>
+<p>Operations have a 300-second publication deadline. CLI lines are limited to
+256 KiB, aggregate stdout to 1 MiB and stderr to 16 KiB. API response bodies are
+limited to 1 MiB with 10-second connect/write/pool and 60-second read-inactivity
+timeouts; redirects, compression and retries are refused. Accepted model text is
+limited to 64 KiB. Stop immediately prevents further publication; owned local
+cleanup may take up to 65 seconds and keeps admission blocked until confirmed.
+Unknown prior-owner cleanup remains a refusal. Local cancellation does not prove
+remote cancellation, provider retention, billed cost or hidden native context.</p>
+<p>Output is one strict JSON object: version, matching request hash/mode, status
+<code>answer</code> or <code>insufficient_evidence</code>, sections and limitations. At most 6 sections,
+36 items, 72 citations, 1,000 codepoints per quote, 20,000 visible codepoints and
+nesting depth 8 are allowed. Section kinds are summary/details/limitations/questions.
+Item kinds are source_statement/interpretation/note_summary/question. Source
+statements and interpretations require exact selected citations; note summaries
+require selected note IDs and cannot cite document sources. Unknown fields,
+unsupported wrappers, invalid citations or missing explicit runtime completion
+produce failed, unvalidated output without a model repair request.</p>
+<p>A citation proves its selected text identity only. It never proves that the quote
+supports a claim. The UI renders literal text and first shows the saved excerpt;
+opening the existing reader requires an exact current version/hash/extraction/
+codepoint check. Missing originals never cause a latest-version or fuzzy fallback.</p>
+<h2 id="durable-state-and-export">Durable state and export</h2>
+<p>Schema 17→18 adds exactly <code>evidence_answers</code> and
+<code>idx_evidence_answers_project_order</code> (plus SQLite’s implicit UNIQUE indexes).
+There is no historical backfill or rewrite. The immutable request and private
+owner binding are inserted at admission. Admitted/running rows have one terminal
+CAS winner: <code>succeeded</code>/<code>refused</code>/<code>failed</code>/<code>cancelled</code>/<code>interrupted</code>. Checkpoints and ordered
+reports are bounded; terminal updates preserve the final available prefix. A
+restarted backend preserves the last durable prefix, records interrupted and
+unknown completion/cleanup, and never automatically extracts, invokes or resumes.</p>
+<p>There is a 1,000-answer project cap; refusal does not delete any answer. History
+and export validate saved records without original-file or model access. Corrupt
+rows are explicit unreadable refusals and are not repaired. Public projections
+exclude route digests, configured paths, native session IDs and credentials.
+Usage contains only reported token counts with provenance; billing stays unknown.</p>
+<p>The ZIP contains exactly <code>answer.json</code>, <code>answer.md</code>, <code>evidence.json</code>, each at most
+1 MiB and 4 MiB total uncompressed. It is one SQL snapshot with safe constant
+paths, literal fenced Markdown and selected excerpts/notes/coverage. Partial and
+terminal failures stay explicitly unvalidated. The download checks exact identity
+headers, length and SHA256 before the browser flow; owned spools and object URLs
+are cleaned. It is not a full-paper archive, encrypted backup or restore format.</p>
+<h2 id="portable-html-selected-answer-htmlv1">Portable HTML, selected-answer-html/v1</h2>
+<p><code>format=html</code> extends that same guarded endpoint; omitted and unknown formats
+refuse. Schema is 18, with 207 app routes (19 Evidence routes, including the same
+seven selected-answer routes) and the 25-tool MCP inventory. Export reads exactly one validated <code>selected_evidence.detail</code> public
+snapshot, using its existing single read transaction. No originals, runtime,
+private binding or native-session history is consulted.</p>
+<p>The response is <code>text/html; charset=utf-8</code>, with fixed attachment filename
+<code>selected-answer.html</code>, no-store, nosniff and the restrictive document CSP. Headers:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Header</th><th>Value</th></tr></thead><tbody><tr><td><code>X-Resmon-Evidence-Contract</code></td><td><code>selected-answer-html/v1</code></td></tr><tr><td><code>X-Resmon-Vault</code> / <code>X-Resmon-Project</code></td><td>Exact selected vault/project UUIDs</td></tr><tr><td><code>X-Resmon-Bundle</code></td><td>Saved answer UUID</td></tr><tr><td><code>X-Resmon-Version</code></td><td>Saved request SHA256</td></tr><tr><td><code>Content-Length</code> / <code>X-Resmon-SHA256</code></td><td>Final UTF-8 byte count / SHA256</td></tr></tbody></table>
+<p>The final document, after escaping, is at most 4,194,304 bytes; app-authored CSS
+is at most 65,536 bytes. Oversize returns <code>export_limit</code>/413 before advertising a
+download. Cancelable render/write work uses the existing owned spool/chunks and
+cleanup; a failure does not mutate saved rows or claim a complete file.</p>
+<p>The renderer escapes every untrusted value as text, retaining CR codepoints with
+character references. It emits only index-derived IDs and fragment links, native
+details, semantic headings and wrapping system-font CSS with ligatures off. There are no scripts,
+active resources, forms, interpreted Markdown, auto-linked URLs or embedded PDFs.
+CSP is early in the file and also in HTTP: default/script/connect/image/media/
+object/frame/font sources are none; base-uri and form-action are none; style-src
+permits only the SHA256 of the exact authored CSS. Browser support for CSP is
+additional defense, not the basis for accepting untrusted markup.</p>
+<p>All seven saved states retain their validation, cleanup, timestamps and unknowns.
+Structured results appear only after existing validation; other available text
+is explicitly incomplete/unvalidated. Each citation targets its exact saved
+source/quote/codepoint range and has a distinct return link. Selected notes,
+source identities, coverage basis, requested settings, literal observations and
+reported usage remain separate. No source URL becomes an external link.</p>
+<p>The frontend validates exact headers/identities, bounded bytes, SHA256, UTF-8,
+document envelope and owned cancellation before creating a download object URL.
+It never inserts export HTML into the app DOM. Changing the answer/project/vault
+retires the prior export and its status. The three-argument
+<code>downloadSelectedAnswer(project, answer, signal)</code> selects ZIP. For an identical
+saved snapshot, ZIP bytes, member order/names and public JSON/Markdown are the
+same whether or not an HTML export is made; HTML is not inserted into the ZIP.</p>
+<p>Checks: <code>test_portable_briefing.py</code>, the selected export/boundary suites and
+renderer download/view suites, and <code>e2e/portable-briefing.spec.ts</code>.
+The latter uses real HTTP and scripted download destinations, then a separate
+file reader after app shutdown with request observation/cancellation installed
+before loading. It does not establish physical Android, human native Save/Cancel
+or live-model acceptance. See <a href="/resmon/portable-briefing/">the reading guide</a>.</p></div>   </article> </div>  </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell footer-inner" data-astro-cid-5hce7sga> <p class="footer-line" data-astro-cid-5hce7sga> <img class="mark" src="/resmon/mark.webp" width="96" height="96" alt="" decoding="async" data-astro-cid-iifiznic>  <span data-astro-cid-5hce7sga>
+resmon is free and open source under the MIT license. What it collects stays on your
+            computer unless you switch on summaries, delivery, or a backup, and then goes only where
+            you point it.
+</span> </p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source code</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/" data-astro-cid-5hce7sga>Guide</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/reference/" data-astro-cid-5hce7sga>Reference</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> </ul> <div class="credit" data-astro-cid-if6ord5i> <p class="made" data-astro-cid-if6ord5i>Made by <a href="https://ryanjosephkamp.github.io/" data-astro-cid-if6ord5i>Ryan Kamp</a></p> <ul class="social" aria-label="Ryan Kamp online" data-astro-cid-if6ord5i> <li data-astro-cid-if6ord5i> <a href="https://ryanjosephkamp.github.io/" aria-label="Ryan Kamp’s website" title="Website" data-astro-cid-if6ord5i> <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.2"/><path d="M2.8 12h18.4M12 2.8c2.6 2.6 3.9 5.7 3.9 9.2s-1.3 6.6-3.9 9.2c-2.6-2.6-3.9-5.7-3.9-9.2S9.4 5.4 12 2.8Z"/></g> </svg> </a> </li><li data-astro-cid-if6ord5i> <a href="https://github.com/ryanjosephkamp/" aria-label="Ryan Kamp on GitHub" title="GitHub" data-astro-cid-if6ord5i> <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <path fill="currentColor" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/> </svg> </a> </li><li data-astro-cid-if6ord5i> <a href="https://www.linkedin.com/in/rjk1999" aria-label="Ryan Kamp on LinkedIn" title="LinkedIn" data-astro-cid-if6ord5i> <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <path fill="currentColor" d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/> </svg> </a> </li><li data-astro-cid-if6ord5i> <a href="https://x.com/ryanjosephkamp" aria-label="Ryan Kamp on X" title="X" data-astro-cid-if6ord5i> <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <path fill="currentColor" d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"/> </svg> </a> </li><li data-astro-cid-if6ord5i> <a href="https://m.youtube.com/@RyanJosephKamp" aria-label="Ryan Kamp on YouTube" title="YouTube" data-astro-cid-if6ord5i> <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <path fill="currentColor" d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/> </svg> </a> </li> </ul> <a class="sponsor" href="https://github.com/sponsors/ryanjosephkamp" data-astro-cid-if6ord5i> <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false" data-astro-cid-if6ord5i> <path d="M10 16.8S3 12.6 3 7.6A3.6 3.6 0 0 1 10 6a3.6 3.6 0 0 1 7 1.6c0 5-7 9.2-7 9.2Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" data-astro-cid-if6ord5i></path> </svg>
+Sponsor on GitHub
+</a> </div>  </div> </footer> <script type="module" src="/resmon/static/Base.astro_astro_type_script_index_0_lang.nXCB1RqC.js"></script> </body> </html>  

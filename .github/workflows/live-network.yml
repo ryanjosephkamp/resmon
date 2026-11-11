@@ -1,0 +1,111 @@
+name: Live network
+
+# The live suite, minus the part no runner can run.
+#
+# **Why this exists.** `live_network` is deselected by default, so a live test
+# that contradicts the shipped MCP contract can sit red on `main` unheard. The
+# guarantees this project makes about its sources, its tool surface and its
+# packaging rest on these tests. It runs when started by hand (Actions › Live
+# network › Run workflow) and on no schedule, because it asks real third-party
+# services, and a source's bad day would otherwise turn it red. Run it before a
+# release.
+#
+# **What it does not run.** The tests that need an agent CLI the *person*
+# installed and signed into. A runner has no such CLI and cannot be given one,
+# so those carry `needs_agent_cli` and the summary below names every one of them
+# by node id. A green tick here is not a statement about them — the same rule
+# the two UI-smoke jobs follow with their NOT VERIFIED lines.
+#
+# **The selection lives in the code, not here.** `verification_scripts/live_suite.py`
+# owns the marker expression and this workflow asks it for one;
+# `test_live_suite.py` fails if a copy is ever pasted in, and fails if the two
+# halves stop partitioning the live suite exactly.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-network-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  live:
+    name: Live network tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Runs only here — see README.md in this directory.
+    if: github.repository == 'ryanjosephkamp/resmon'
+
+    env:
+      # No OS keyring on a runner; without this every credential read pays the
+      # timeout. Same reason as CI's backend job.
+      PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
+      RESMON_KEYRING_TIMEOUT: '2.0'
+      RESMON_DISABLE_SCHEDULER: '1'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Work out what this machine can run
+        id: selection
+        run: |
+          SELECTION="$(python resmon_scripts/verification_scripts/live_suite.py --selection)"
+          echo "Selection: $SELECTION"
+          echo "selection=$SELECTION" >> "$GITHUB_OUTPUT"
+
+      - name: Run the live tests that need only a network
+        # -v rather than -q for the same reason CI's backend job uses it: a
+        # timeout dump does not name the item it killed, and the last line
+        # printed is then the last test that finished.
+        env:
+          RESMON_LIVE_EVIDENCE_DIR: ${{ github.workspace }}/live-evidence
+          RESMON_LIVE_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RESMON_LIVE_CHECKOUT_SHA: ${{ github.sha }}
+          RESMON_LIVE_SELECTION: ${{ steps.selection.outputs.selection }}
+        run: |
+          mkdir -p "$RESMON_LIVE_EVIDENCE_DIR"
+          set +e
+          set -o pipefail
+          pytest -v -m "$RESMON_LIVE_SELECTION" 2>&1 | tee "$RESMON_LIVE_EVIDENCE_DIR/pytest.log"
+          pytest_status=${PIPESTATUS[0]}
+          set -e
+          exit "$pytest_status"
+
+      - name: Validate durable live evidence
+        if: always()
+        env:
+          RESMON_LIVE_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RESMON_LIVE_CHECKOUT_SHA: ${{ github.sha }}
+          RESMON_LIVE_SELECTION: ${{ steps.selection.outputs.selection }}
+        run: python resmon_scripts/verification_scripts/live_suite.py --validate-evidence "${{ github.workspace }}/live-evidence"
+
+      - name: Say what this run did not cover
+        # Always, because a failed run is exactly when someone reads the summary
+        # and needs to know how much of the suite the failure is about.
+        if: always()
+        run: |
+          python resmon_scripts/verification_scripts/live_suite.py --evidence-summary "${{ github.workspace }}/live-evidence" >> "$GITHUB_STEP_SUMMARY"
+          python resmon_scripts/verification_scripts/live_suite.py --summary >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload durable live evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: live-network-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ github.workspace }}/live-evidence
+          if-no-files-found: error
+          retention-days: 30

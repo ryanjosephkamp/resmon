@@ -1,0 +1,94 @@
+{
+  "valid_structure": {
+    "version": 1,
+    "request_sha256": "71d0bc1f29e9a36c86b373637d2777916afc8ea7eb09aa06a14db3f886f2feb5",
+    "mode": "question",
+    "status": "answer",
+    "sections": [
+      {
+        "kind": "summary",
+        "items": [
+          {
+            "kind": "source_statement",
+            "text": "The authored fixture states that 12 participants were enrolled.",
+            "citations": [
+              {
+                "source_id": "S01",
+                "start_codepoint": 18,
+                "end_codepoint": 65,
+                "quote": "This authored fixture enrolled 12 participants."
+              }
+            ],
+            "note_ids": []
+          }
+        ]
+      }
+    ],
+    "limitations": [
+      "Synthetic excerpt only; no scientific validity is asserted."
+    ]
+  },
+  "matching_quote_but_contradicted_claim": {
+    "version": 1,
+    "request_sha256": "71d0bc1f29e9a36c86b373637d2777916afc8ea7eb09aa06a14db3f886f2feb5",
+    "mode": "question",
+    "status": "answer",
+    "sections": [
+      {
+        "kind": "summary",
+        "items": [
+          {
+            "kind": "source_statement",
+            "text": "The fixture establishes that 99 participants were enrolled.",
+            "citations": [
+              {
+                "source_id": "S01",
+                "start_codepoint": 18,
+                "end_codepoint": 65,
+                "quote": "This authored fixture enrolled 12 participants."
+              }
+            ],
+            "note_ids": []
+          }
+        ]
+      }
+    ],
+    "limitations": [
+      "Synthetic excerpt only; no scientific validity is asserted."
+    ]
+  },
+  "invalid_exact_quote": {
+    "version": 1,
+    "request_sha256": "71d0bc1f29e9a36c86b373637d2777916afc8ea7eb09aa06a14db3f886f2feb5",
+    "mode": "question",
+    "status": "answer",
+    "sections": [
+      {
+        "kind": "summary",
+        "items": [
+          {
+            "kind": "source_statement",
+            "text": "The authored fixture states that 12 participants were enrolled.",
+            "citations": [
+              {
+                "source_id": "S01",
+                "start_codepoint": 18,
+                "end_codepoint": 65,
+                "quote": "This authored fixture enrolled 99 participants."
+              }
+            ],
+            "note_ids": []
+          }
+        ]
+      }
+    ],
+    "limitations": [
+      "Synthetic excerpt only; no scientific validity is asserted."
+    ]
+  },
+  "expected": {
+    "valid_structure": "mechanical validation may pass; semantic support unchecked",
+    "matching_quote_but_contradicted_claim": "mechanical validation may pass; must NEVER label fact verified",
+    "invalid_exact_quote": "failed/unvalidated, no repair request"
+  }
+}

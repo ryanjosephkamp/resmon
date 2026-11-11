@@ -1,0 +1,5 @@
+{
+  "schema": "resmon.live-quarantine.v1",
+  "policy": "A quarantined live case still runs and still asserts. Its failure is excused only when the case recorded that its source's last call failed and that the search's failure history contains the entry's signature. Any other failure counts. A pass is reported as a recovery. An expired entry is ignored. At most 2 entries, each lasting at most 30 days after first observed, each admitted on the excused status captured from two vantage points. Rules and checks: live_evidence.py and test_live_suite.py.",
+  "entries": []
+}

@@ -1,0 +1,451 @@
+"""Database connections must not be shared across threads.
+
+One process-wide ``sqlite3.Connection`` used from FastAPI request threads and
+from every execution worker thread with no serialization is a race, because
+sqlite3 connections are not safe for concurrent use. Python
+3.10 and 3.11 mostly hid it because their sqlite3 module holds the GIL across
+most operations; 3.12 releases it far more aggressively, so the race is lost
+reliably there and only occasionally on 3.10/3.11.
+
+It shows up as, variously:
+
+    sqlite3.InterfaceError: bad parameter or other API misuse
+    sqlite3.ProgrammingError: Cannot operate on a closed database
+    sqlite3.OperationalError: cannot start a transaction within a transaction
+
+These tests exercise the concurrency head-on rather than waiting for it to
+show up by luck.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+import sys
+import threading
+from pathlib import Path
+
+import pytest
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
+
+import resmon as resmon_mod  # noqa: E402
+from implementation_scripts import database  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _fresh_db():
+    """Give each test a clean database, and hand the module back as it was.
+
+    One test in here repoints ``_db_path`` at a temp file, so the previous value
+    is restored on the way out -- otherwise later test modules inherit a path
+    into a directory pytest has already deleted.
+    """
+    previous_path = resmon_mod._db_path
+    resmon_mod.close_db()
+    resmon_mod._db_path = ":memory:"
+    resmon_mod._shared_conn = None
+    resmon_mod._db_initialized = False
+    resmon_mod._get_db()
+    yield
+    resmon_mod.close_db()
+    resmon_mod._db_path = previous_path
+
+
+def test_each_thread_gets_its_own_connection():
+    """_get_db() must never hand the same object to two threads."""
+    # The connections themselves, not their ids: a thread's connection can be
+    # freed once that thread ends, and CPython may then give the next thread's
+    # connection the same id, which read as two threads sharing one. Holding
+    # every connection keeps each id unique for as long as the check runs.
+    seen: dict[str, object] = {}
+    lock = threading.Lock()
+
+    def worker(name: str) -> None:
+        conn = resmon_mod._get_db()
+        with lock:
+            seen[name] = conn
+
+    threads = [threading.Thread(target=worker, args=(f"t{i}",)) for i in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(seen) == 8
+    assert len({id(conn) for conn in seen.values()}) == 8, (
+        f"threads shared connection objects: { {name: id(conn) for name, conn in seen.items()} }"
+    )
+
+
+def test_same_thread_reuses_its_connection():
+    """A thread should not open a new connection on every call."""
+    first = resmon_mod._get_db()
+    for _ in range(20):
+        assert resmon_mod._get_db() is first
+
+
+def test_threads_see_each_others_committed_rows():
+    """Per-thread connections must still address one shared database.
+
+    An in-memory database is private to its connection unless opened through a
+    shared-cache URI, so this is the property that makes per-thread connections
+    viable at all: isolation of the *handle*, not of the data.
+    """
+    written: list[int] = []
+
+    def writer() -> None:
+        conn = resmon_mod._get_db()
+        exec_id = database.insert_execution(conn, {
+            "execution_type": "deep_dive",
+            "parameters": "{}",
+            "start_time": "2026-01-01T00:00:00",
+        })
+        conn.commit()
+        written.append(exec_id)
+
+    t = threading.Thread(target=writer)
+    t.start()
+    t.join()
+
+    assert written, "writer thread did not insert"
+    row = database.get_execution_by_id(resmon_mod._get_db(), written[0])
+    assert row is not None, "row written on one thread is invisible on another"
+    assert row["execution_type"] == "deep_dive"
+
+
+def test_concurrent_writes_do_not_corrupt_the_connection(tmp_path):
+    """The regression proper: hammer the database from many threads at once.
+
+    A single shared connection raises
+    ``cannot start a transaction within a transaction`` and friends. Each thread
+    holding its own connection makes the pattern legal, with SQLite's own
+    locking arbitrating between them.
+
+    Deliberately run against a **file** database rather than the in-memory one
+    the other tests use. Production is always a file, and ``_open_connection``
+    gives file databases WAL plus a busy timeout -- one writer and many readers
+    concurrently. The shared-cache in-memory database used elsewhere in this
+    module takes coarser table-level locks that no busy timeout applies to, so
+    stressing it would be testing a configuration resmon never ships.
+    """
+    resmon_mod.close_db()
+    resmon_mod._db_path = str(tmp_path / "resmon.db")
+    resmon_mod._shared_conn = None
+    resmon_mod._db_initialized = False
+    resmon_mod._get_db()
+
+    errors: list[BaseException] = []
+    n_threads, per_thread = 12, 15
+    barrier = threading.Barrier(n_threads)
+
+    def worker(n: int) -> None:
+        try:
+            barrier.wait(timeout=30)  # maximize overlap
+            conn = resmon_mod._get_db()
+            for i in range(per_thread):
+                database.insert_execution(conn, {
+                    "execution_type": "deep_dive",
+                    "parameters": f'{{"n": {n}, "i": {i}}}',
+                    "start_time": "2026-01-01T00:00:00",
+                })
+                conn.commit()
+                database.get_executions(conn)
+        except BaseException as exc:  # noqa: BLE001 - reported on the main thread
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(n,)) for n in range(n_threads)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=120)
+
+    assert not errors, f"concurrent database access raised: {errors[:3]}"
+    # get_executions paginates at 50 by default, so count directly.
+    total = resmon_mod._get_db().execute(
+        "SELECT COUNT(*) FROM executions"
+    ).fetchone()[0]
+    assert total == n_threads * per_thread, (
+        f"expected {n_threads * per_thread} rows, found {total} -- "
+        "writes were lost under concurrency"
+    )
+
+
+def test_close_db_closes_every_connection():
+    """close_db() must not leave per-thread connections open.
+
+    An in-memory database survives while any connection to it is open, so
+    closing only the anchor would leak one test's rows into the next.
+    """
+    opened: list[sqlite3.Connection] = []
+
+    def worker() -> None:
+        opened.append(resmon_mod._get_db())
+
+    threads = [threading.Thread(target=worker) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(opened) == 4
+    resmon_mod.close_db()
+
+    for conn in opened:
+        with pytest.raises(sqlite3.ProgrammingError):
+            conn.execute("SELECT 1")
+
+
+def test_worker_thread_does_not_reuse_the_request_connection():
+    """_launch_execution's worker must rebind to its own connection.
+
+    The endpoint returns as soon as the worker thread starts, so the request
+    thread and the worker overlap by construction. If the worker kept the
+    connection it was handed, per-thread connections would not apply on the path where the
+    race is most exposed.
+    """
+    from implementation_scripts.progress import progress_store
+
+    request_conn = resmon_mod._get_db()
+    exec_id = database.insert_execution(request_conn, {
+        "execution_type": "deep_dive",
+        "parameters": "{}",
+        "start_time": "2026-01-01T00:00:00",
+    })
+    request_conn.commit()
+    progress_store.register(exec_id)
+
+    observed: dict = {}
+    done = threading.Event()
+
+    class _Engine:
+        db = request_conn
+
+        def run_prepared(self, _exec_id):
+            observed["worker_conn_id"] = id(resmon_mod._get_db())
+            observed["engine_db_id"] = id(self.db)
+            done.set()
+
+    # _apply_ai_settings_to_engine expects a real SweepEngine; neutralize it so
+    # this test is about connection ownership and nothing else.
+    import unittest.mock as _mock
+    with _mock.patch.object(resmon_mod, "_apply_ai_settings_to_engine", lambda *a, **k: None):
+        resmon_mod._launch_execution(_Engine(), exec_id, request_conn)
+        done.wait(timeout=30)
+
+    assert observed, "worker never ran"
+    assert observed["worker_conn_id"] != id(request_conn), (
+        "worker thread reused the request thread's connection"
+    )
+    assert observed["engine_db_id"] == observed["worker_conn_id"], (
+        "engine.db was not rebound to the worker's own connection"
+    )
+
+
+# ---------------------------------------------------------------------------
+# close_db must not close a connection out from under a live thread
+# ---------------------------------------------------------------------------
+#
+# Closing a connection while an execution worker is still using it kills the
+# process with SIGSEGV inside close_db (seen during fixture teardown, about
+# once in twenty-five runs), which is precisely why the guarantee belongs in
+# close_db rather than in the harness that joins the workers -- a join that
+# times out fails silently, and daemon.py calls close_db on shutdown without
+# joining anything at all.
+#
+# The race cannot be reproduced by waiting for it, so these tests force the
+# exact interleaving with an event.
+
+def test_close_db_leaves_a_live_threads_connection_open():
+    """A connection whose owner is still running must survive close_db().
+
+    Closing it is not an error that raises -- sqlite3 is handed a connection
+    another thread may be mid-statement on, and the process dies. So the
+    assertion is that the connection is still *usable* afterwards.
+    """
+    opened: list[sqlite3.Connection] = []
+    ready = threading.Event()
+    release = threading.Event()
+    still_usable: list[bool] = []
+
+    def worker() -> None:
+        conn = resmon_mod._get_db()
+        opened.append(conn)
+        ready.set()
+        release.wait(10)
+        try:
+            conn.execute("SELECT 1").fetchone()
+            still_usable.append(True)
+        except Exception:
+            still_usable.append(False)
+
+    thread = threading.Thread(target=worker, name="exec-close-db-race")
+    thread.start()
+    assert ready.wait(10), "worker never opened its connection"
+
+    # The worker is parked and alive; this is the window in which closing segfaults.
+    resmon_mod.close_db()
+
+    release.set()
+    thread.join(10)
+    assert not thread.is_alive()
+
+    assert still_usable == [True], (
+        "close_db closed a connection belonging to a running thread"
+    )
+
+
+def test_a_deferred_connection_is_closed_by_the_next_call():
+    """Deferring must not leak: the next close_db() collects it."""
+    opened: list[sqlite3.Connection] = []
+    ready = threading.Event()
+    release = threading.Event()
+
+    def worker() -> None:
+        opened.append(resmon_mod._get_db())
+        ready.set()
+        release.wait(10)
+
+    thread = threading.Thread(target=worker, name="exec-deferred-close")
+    thread.start()
+    assert ready.wait(10)
+
+    resmon_mod.close_db()          # defers the worker's connection
+    release.set()
+    thread.join(10)
+    assert not thread.is_alive()
+
+    resmon_mod.close_db()          # owner is gone; must collect it now
+
+    with pytest.raises(sqlite3.ProgrammingError):
+        opened[0].execute("SELECT 1")
+
+
+def test_close_db_still_closes_the_calling_threads_own_connection():
+    """The guard is about *other* threads; our own connection always closes."""
+    conn = resmon_mod._get_db()
+    resmon_mod.close_db()
+    with pytest.raises(sqlite3.ProgrammingError):
+        conn.execute("SELECT 1")
+
+
+# ---------------------------------------------------------------------------
+# A finished thread's connection does not outlive it
+# ---------------------------------------------------------------------------
+#
+# ``_db_conns`` kept every connection ever opened, so a long-running process
+# leaked two file handles per thread that had touched the database. The
+# background service hit launchd's 256-file limit after about twenty minutes of
+# use and refused every connection. These run threads one after another, the
+# way a service sees request and execution threads over a day.
+
+
+def _run_in_a_thread(fn) -> None:
+    t = threading.Thread(target=fn)
+    t.start()
+    t.join()
+
+
+def test_a_finished_threads_connection_is_closed_when_another_opens():
+    handed_out: list[sqlite3.Connection] = []
+
+    def worker() -> None:
+        handed_out.append(resmon_mod._get_db())
+
+    for _ in range(50):
+        _run_in_a_thread(worker)
+
+    # Every worker but the last finished before the next one opened, so each
+    # of those connections is closed; the last waits for the next open.
+    for conn in handed_out[:-1]:
+        with pytest.raises(sqlite3.ProgrammingError):
+            conn.execute("SELECT 1")
+    # Counted by owner rather than in total: threads other tests left running
+    # own connections too, and those are rightly kept. What must not survive
+    # is a finished thread's connection -- the last worker's waits for the next
+    # open, and the anchor is kept whoever opened it.
+    with resmon_mod._db_lock:
+        orphaned = [
+            conn for conn, owner in resmon_mod._db_conns
+            if not owner.is_alive() and conn is not resmon_mod._shared_conn
+        ]
+    assert len(orphaned) <= 1, f"{len(orphaned)} finished threads still hold a connection"
+
+
+def test_a_live_threads_connection_is_left_open():
+    """Closing another thread's connection mid-statement segfaults, so a live
+    owner keeps its connection however many others come and go."""
+    holding = threading.Event()
+    release = threading.Event()
+    result: dict[str, object] = {}
+
+    def holder() -> None:
+        conn = resmon_mod._get_db()
+        holding.set()
+        release.wait(timeout=30)
+        result["value"] = conn.execute("SELECT 1").fetchone()[0]
+
+    t = threading.Thread(target=holder)
+    t.start()
+    assert holding.wait(timeout=10)
+    for _ in range(20):
+        _run_in_a_thread(resmon_mod._get_db)
+    release.set()
+    t.join(timeout=30)
+    assert result.get("value") == 1
+
+
+def test_the_anchor_survives_its_opener_finishing():
+    """An in-memory database lives only while a connection to it is open."""
+    resmon_mod.close_db()
+    resmon_mod._shared_conn = None
+    resmon_mod._db_initialized = False
+
+    def first_use() -> None:
+        resmon_mod._get_db().execute(
+            "INSERT INTO app_settings (key, value) VALUES ('anchor_probe', 'kept')")
+        resmon_mod._get_db().commit()
+
+    _run_in_a_thread(first_use)  # this thread opened the anchor, and has ended
+    for _ in range(10):
+        _run_in_a_thread(resmon_mod._get_db)
+    row = resmon_mod._get_db().execute(
+        "SELECT value FROM app_settings WHERE key = 'anchor_probe'").fetchone()
+    assert row is not None and row[0] == "kept"
+
+
+@pytest.mark.skipif(not Path("/dev/fd").is_dir(), reason="no /dev/fd to count")
+def test_open_file_handles_stay_flat_across_many_threads(tmp_path):
+    """The defect, measured as the service met it: file handles, not objects."""
+    resmon_mod.close_db()
+    resmon_mod._db_path = str(tmp_path / "resmon.db")
+    resmon_mod._shared_conn = None
+    resmon_mod._db_initialized = False
+    resmon_mod._get_db()
+
+    def worker() -> None:
+        resmon_mod._get_db().execute("SELECT 1").fetchone()
+
+    for _ in range(10):
+        _run_in_a_thread(worker)
+    before = len(list(Path("/dev/fd").iterdir()))
+    for _ in range(200):
+        _run_in_a_thread(worker)
+    after = len(list(Path("/dev/fd").iterdir()))
+    # 200 leaked connections would be 400 more handles.
+    assert after - before <= 4, f"{after - before} file handles gained over 200 threads"
+
+
+def test_the_service_raises_its_open_file_limit():
+    resource = pytest.importorskip("resource")
+    from implementation_scripts import daemon
+
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    try:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (256, hard))
+        daemon._raise_open_file_limit(1024)
+        raised, _ = resource.getrlimit(resource.RLIMIT_NOFILE)
+        expected = 1024 if hard == resource.RLIM_INFINITY else min(1024, hard)
+        assert raised == expected
+    finally:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))

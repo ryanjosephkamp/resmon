@@ -1,0 +1,549 @@
+# resmon_scripts/implementation_scripts/scheduler.py
+"""APScheduler-based task scheduler for automated sweep routines."""
+
+import json
+import logging
+from datetime import datetime, timedelta
+from typing import Any, Callable, Optional
+
+from apscheduler.events import EVENT_JOB_MAX_INSTANCES
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.base import BaseTrigger
+from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
+from dateutil.relativedelta import relativedelta
+
+try:
+    from tzlocal import get_localzone  # type: ignore
+except Exception:  # pragma: no cover
+    get_localzone = None  # type: ignore
+
+from .config import DEFAULT_DB_PATH
+
+logger = logging.getLogger(__name__)
+
+_DEFAULT_DB_URL = f"sqlite:///{DEFAULT_DB_PATH}"
+
+# ---------------------------------------------------------------------------
+# Dispatcher indirection (IMPL-R3)
+#
+# The scheduler module is deliberately decoupled from FastAPI and SweepEngine.
+# resmon.py installs the real dispatcher via ``set_dispatcher`` at startup
+# (IMPL-R4); tests install a no-op or recording dispatcher. When no
+# dispatcher is installed, a routine fire logs an error and returns so the
+# APScheduler thread does not raise.
+# ---------------------------------------------------------------------------
+
+_dispatcher: Optional[Callable[[int, str], None]] = None
+
+
+def set_dispatcher(fn: Optional[Callable[[int, str], None]]) -> None:
+    """Install the callable invoked on each routine fire.
+
+    The callable receives ``(routine_id: int, parameters: str)``. Passing
+    ``None`` clears the dispatcher (used in test teardown).
+    """
+    global _dispatcher
+    _dispatcher = fn
+
+
+# ---------------------------------------------------------------------------
+# Overlap-skipped fires
+#
+# ``max_instances=1`` means a fire that comes due while that routine's previous
+# run is still going is refused by APScheduler's executor, which raises
+# ``MaxInstancesReachedError`` on its own thread and emits
+# ``EVENT_JOB_MAX_INSTANCES``. Until this listener existed nothing was
+# subscribed to any APScheduler event, so the drop produced a warning in
+# APScheduler's own logger and nothing else -- no row, no screen, no record a
+# user could reach. A routine whose sweep takes longer than its interval
+# therefore ran at a fraction of the cadence its owner set, and looked
+# identical to a routine that ran on time and found nothing. That is the one
+# thing resmon exists not to do.
+#
+# The recorder is installed the same way the dispatcher is, and for the same
+# reason: this module knows nothing about the database or FastAPI, and the
+# process that owns the scheduler installs the real one at startup. The
+# refusal itself is unchanged -- one run per routine is the invariant, and this
+# only makes the refusal legible.
+# ---------------------------------------------------------------------------
+
+_overlap_recorder: Optional[Callable[[int, "datetime"], None]] = None
+
+
+def set_overlap_recorder(fn: Optional[Callable[[int, "datetime"], None]]) -> None:
+    """Install the callable invoked for each fire dropped as an overlap.
+
+    The callable receives ``(routine_id: int, due_at: datetime)`` -- the time
+    the fire was scheduled for, not the time it was refused. Passing ``None``
+    clears it (used in test teardown).
+    """
+    global _overlap_recorder
+    _overlap_recorder = fn
+
+
+def _on_max_instances(event) -> None:
+    """Route ``EVENT_JOB_MAX_INSTANCES`` to the installed recorder.
+
+    One call per scheduled run time in the event. With ``coalesce=True`` that
+    is a single time, but the field is a list in APScheduler's own event and
+    reading it as one keeps this correct if coalescing is ever turned off for
+    a routine.
+
+    Listeners run on the scheduler's thread. Nothing here may raise: an
+    exception escaping a listener is swallowed by APScheduler, which would
+    turn a silent skip into a silent failure to record a silent skip.
+    """
+    recorder = _overlap_recorder
+    job_id = getattr(event, "job_id", None)
+    run_times = getattr(event, "scheduled_run_times", None) or []
+    if recorder is None:
+        logger.warning(
+            "Routine fire skipped because the previous run was still going, "
+            "and no recorder is installed to write it down: routine_id=%s",
+            job_id,
+        )
+        return
+    try:
+        routine_id = int(job_id)
+    except (TypeError, ValueError):
+        logger.warning(
+            "Overlap-skipped fire for a job id that is not a routine id: %r",
+            job_id,
+        )
+        return
+    # The iteration is inside the ``try``, not only the recorder call. A
+    # ``scheduled_run_times`` that is not iterable would otherwise raise a
+    # ``TypeError`` out of the listener and past the one promise this function
+    # makes. APScheduler 3.11.2 -- the pinned version, and the only producer
+    # of this event -- always passes a list, so this is hardening rather than
+    # a reachable bug; the promise is worth more than the branch costs.
+    try:
+        for due in run_times:
+            try:
+                recorder(routine_id, due)
+            except Exception:
+                logger.exception(
+                    "Failed to record an overlap-skipped fire: routine_id=%d "
+                    "due=%s", routine_id, due,
+                )
+    except Exception:
+        logger.exception(
+            "Overlap-skipped fire event for routine_id=%d carried run times "
+            "this listener could not read: %r", routine_id, run_times,
+        )
+
+
+def _parse_cron(cron_expr: str) -> dict:
+    """Parse a 5-field cron expression into CronTrigger keyword arguments.
+
+    Format: ``minute hour day month day_of_week``
+
+    Note on day-of-week: standard cron numbers Sunday=0 (and accepts 7 as
+    a Sunday alias), but APScheduler's ``day_of_week`` field numbers
+    Monday=0. To preserve the user-facing standard-cron semantics
+    (e.g. ``0 8 * * 1-5`` means Monday-Friday at 08:00, not Tuesday-
+    Saturday), numeric tokens in the day-of-week field are rewritten to
+    the equivalent named-day tokens APScheduler interprets correctly.
+    """
+    parts = cron_expr.strip().split()
+    if len(parts) != 5:
+        raise ValueError(
+            f"Expected 5-field cron expression, got {len(parts)} fields: '{cron_expr}'"
+        )
+    return {
+        "minute": parts[0],
+        "hour": parts[1],
+        "day": parts[2],
+        "month": parts[3],
+        "day_of_week": _normalize_dow(parts[4]),
+    }
+
+
+# Standard-cron → APScheduler named-day translation. Standard cron:
+# 0/7 = Sun, 1 = Mon, ..., 6 = Sat. APScheduler accepts ``mon``, ``tue``,
+# ..., ``sun`` and resolves them unambiguously regardless of its own
+# Mon=0 internal numbering.
+_DOW_NAMES = {
+    "0": "sun", "1": "mon", "2": "tue", "3": "wed",
+    "4": "thu", "5": "fri", "6": "sat", "7": "sun",
+}
+
+
+def _normalize_dow(field: str) -> str:
+    """Rewrite numeric day-of-week tokens to APScheduler-safe names.
+
+    Handles single values, comma lists, and ``A-B`` ranges. Leaves the
+    ``*``, ``?``, step (``*/N``), and already-named tokens untouched.
+    """
+    field = field.strip()
+    if not field or field in ("*", "?"):
+        return field
+
+    def _name(tok: str) -> str:
+        tok = tok.strip().lower()
+        return _DOW_NAMES.get(tok, tok)
+
+    out_parts = []
+    for piece in field.split(","):
+        piece = piece.strip()
+        # Step expression like ``*/2`` or ``mon/2`` — leave as-is.
+        if "/" in piece:
+            out_parts.append(piece.lower())
+            continue
+        if "-" in piece:
+            a, b = piece.split("-", 1)
+            out_parts.append(f"{_name(a)}-{_name(b)}")
+        else:
+            out_parts.append(_name(piece))
+    return ",".join(out_parts)
+
+
+# ---------------------------------------------------------------------------
+# Structured "every N <unit>" schedule support.
+#
+# Cron's ``*/N`` semantics restart at every period boundary (month, day,
+# year), which produces alternating short / correct intervals for
+# cadences like "every 5 days" or "every 3 weeks". For these custom
+# cadences the routine carries a structured ``_schedule`` block inside
+# its ``parameters`` JSON, and we trigger from that instead of the cron
+# string. The cron field stays present for backward-compat / display.
+#
+# Schedule shape:
+#   {"type": "interval", "unit": "hours|days|weeks|months|years",
+#    "every": N, "hour": H, "minute": M}
+# ---------------------------------------------------------------------------
+
+_INTERVAL_UNITS = ("minutes", "hours", "days", "weeks", "months", "years")
+
+
+def _local_tz():
+    if get_localzone is None:
+        return None
+    try:
+        return get_localzone()
+    except Exception:
+        return None
+
+
+def _extract_schedule(parameters: Any) -> Optional[dict]:
+    """Pull the optional ``_schedule`` block out of a routine's parameters."""
+    if parameters is None:
+        return None
+    if isinstance(parameters, str):
+        try:
+            parameters = json.loads(parameters)
+        except (json.JSONDecodeError, TypeError):
+            return None
+    if not isinstance(parameters, dict):
+        return None
+    sched = parameters.get("_schedule")
+    if not isinstance(sched, dict):
+        return None
+    if sched.get("type") != "interval":
+        return None
+    unit = sched.get("unit")
+    every = sched.get("every")
+    if unit not in _INTERVAL_UNITS:
+        return None
+    try:
+        every = int(every)
+    except (TypeError, ValueError):
+        return None
+    if every < 1:
+        return None
+    hour = int(sched.get("hour", 0) or 0)
+    minute = int(sched.get("minute", 0) or 0)
+    return {"unit": unit, "every": every, "hour": hour, "minute": minute}
+
+
+class _CalendarIntervalTrigger(BaseTrigger):
+    """APScheduler trigger that advances by N months or N years.
+
+    Used for custom cadences cron cannot express cleanly
+    (e.g. "every 5 months", "every 2 years").
+    """
+
+    __slots__ = ("unit", "every", "hour", "minute", "timezone")
+
+    def __init__(self, *, unit: str, every: int, hour: int, minute: int, timezone) -> None:
+        if unit not in ("months", "years"):
+            raise ValueError(f"_CalendarIntervalTrigger: unsupported unit {unit!r}")
+        self.unit = unit
+        self.every = max(1, int(every))
+        self.hour = int(hour)
+        self.minute = int(minute)
+        self.timezone = timezone
+
+    def _anchor(self, now):
+        return now.replace(hour=self.hour, minute=self.minute, second=0, microsecond=0)
+
+    def get_next_fire_time(self, previous_fire_time, now):
+        if self.timezone is not None:
+            now_local = now.astimezone(self.timezone)
+        else:
+            now_local = now
+        if previous_fire_time is not None:
+            prev_local = previous_fire_time.astimezone(self.timezone) if self.timezone else previous_fire_time
+            delta = relativedelta(months=self.every) if self.unit == "months" else relativedelta(years=self.every)
+            cand = prev_local + delta
+        else:
+            cand = self._anchor(now_local)
+            if cand <= now_local:
+                # Bump forward until we pass now.
+                step = relativedelta(months=self.every) if self.unit == "months" else relativedelta(years=self.every)
+                while cand <= now_local:
+                    cand = cand + step
+        return cand
+
+
+def _build_trigger(routine_dict: dict):
+    """Return a (trigger, description) pair for a routine.
+
+    Prefers the structured ``_schedule`` block if present; falls back to
+    the legacy 5-field cron string otherwise.
+    """
+    sched = _extract_schedule(routine_dict.get("parameters"))
+    tz = _local_tz()
+    if sched is not None:
+        unit = sched["unit"]
+        every = sched["every"]
+        hour = sched["hour"]
+        minute = sched["minute"]
+        if unit in ("minutes", "hours", "days", "weeks"):
+            kwargs: dict = {}
+            if unit == "minutes":
+                kwargs["minutes"] = every
+            elif unit == "hours":
+                kwargs["hours"] = every
+            elif unit == "days":
+                kwargs["days"] = every
+            else:
+                kwargs["weeks"] = every
+            # Anchor at today's H:M local; if that's already past, the
+            # IntervalTrigger will pick the next slot relative to start_date.
+            now = datetime.now(tz) if tz is not None else datetime.now()
+            anchor = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if unit in ("minutes", "hours"):
+                anchor = now.replace(minute=minute, second=0, microsecond=0)
+            # If anchor is in the past, walk it forward by one period so
+            # the first fire is in the future.
+            step = timedelta(**kwargs)
+            while anchor <= now:
+                anchor = anchor + step
+            return IntervalTrigger(start_date=anchor, timezone=tz, **kwargs), f"interval every {every} {unit}"
+        # months / years
+        return _CalendarIntervalTrigger(
+            unit=unit, every=every, hour=hour, minute=minute, timezone=tz
+        ), f"interval every {every} {unit}"
+    # Legacy cron path.
+    cron_kwargs = _parse_cron(routine_dict["schedule_cron"])
+    return CronTrigger(**cron_kwargs), routine_dict["schedule_cron"]
+
+
+class ResmonScheduler:
+    """Wrapper around APScheduler's ``BackgroundScheduler``.
+
+    The scheduler persists jobs to SQLite via the SQLAlchemy job store so
+    routines survive application restarts.
+    """
+
+    def __init__(self, db_url: str | None = None) -> None:
+        url = db_url or _DEFAULT_DB_URL
+        # SQLAlchemy is imported here, by the one process that runs the
+        # scheduler: it takes most of a tenth of a second to import, and an
+        # engine started with the scheduler off never needs it.
+        from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore  # noqa: PLC0415
+
+        # Kept as an attribute, not only handed to the scheduler, so
+        # ``persisted_next_run_times`` can read the store before ``start()``.
+        self._jobstore = SQLAlchemyJobStore(url=url)
+        jobstores = {"default": self._jobstore}
+        self._scheduler = BackgroundScheduler(jobstores=jobstores)
+        # Registered before ``start()`` so a fire refused on the scheduler's
+        # first wakeup is already being listened for. This is resmon's only
+        # APScheduler event subscription.
+        self._scheduler.add_listener(_on_max_instances, EVENT_JOB_MAX_INSTANCES)
+        self._running = False
+        logger.info("ResmonScheduler initialized (job store: %s)", url)
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def start(self) -> None:
+        """Start the background scheduler."""
+        if not self._running:
+            self._scheduler.start(paused=False)
+            self._running = True
+            logger.info("Scheduler started.")
+
+    def shutdown(self) -> None:
+        """Gracefully shut down the scheduler, waiting for running jobs."""
+        if self._running:
+            self._scheduler.shutdown(wait=True)
+            self._running = False
+            logger.info("Scheduler shut down.")
+
+    # ------------------------------------------------------------------
+    # Routine management
+    # ------------------------------------------------------------------
+
+    def add_routine(self, routine_dict: dict) -> str:
+        """Register a routine as a cron-triggered job.
+
+        *routine_dict* must contain at least ``id``, ``name``,
+        ``schedule_cron`` (5-field), and ``parameters`` (JSON string or
+        dict).
+
+        Returns the APScheduler job ID (string form of the routine id).
+        """
+        routine_id = str(routine_dict["id"])
+        trigger, description = _build_trigger(routine_dict)
+
+        # Ensure parameters is a string for storage
+        params = routine_dict.get("parameters", "{}")
+        if isinstance(params, dict):
+            params = json.dumps(params)
+
+        job = self._scheduler.add_job(
+            _routine_callback,
+            trigger=trigger,
+            id=routine_id,
+            name=routine_dict.get("name", f"routine-{routine_id}"),
+            kwargs={"routine_id": int(routine_dict["id"]), "parameters": params},
+            replace_existing=True,
+            coalesce=True,
+            # A 1-hour grace window prevents missed fires when the daemon
+            # briefly restarts (launchd respawn, OS sleep/wake) or when a
+            # renderer-spawned scheduler dies without a clean shutdown. The
+            # APScheduler default of 1 second silently drops any fire whose
+            # nominal time is more than a second in the past, which makes
+            # routines appear to never fire after the app closes.
+            misfire_grace_time=3600,
+            # One run per routine. This is APScheduler's default and has
+            # always been in force; it is written out because it is a
+            # deliberate product invariant -- the manual path answers 409 for
+            # the same reason -- and a default that is never stated is a
+            # default that gets changed by accident. ``_on_max_instances``
+            # records every fire this refuses.
+            max_instances=1,
+        )
+        logger.info("Routine added: id=%s, name=%s, schedule=%s",
+                     routine_id, routine_dict.get("name"), description)
+        return job.id
+
+    def remove_routine(self, routine_id: int) -> None:
+        """Remove a scheduled routine by its ID."""
+        job_id = str(routine_id)
+        try:
+            self._scheduler.remove_job(job_id)
+            logger.info("Routine removed: id=%s", job_id)
+        except Exception:
+            logger.warning("Routine not found for removal: id=%s", job_id)
+
+    def update_routine(self, routine_id: int, routine_dict: dict) -> str:
+        """Reschedule an existing routine with updated parameters.
+
+        Internally removes the old job and adds a new one.
+        """
+        self.remove_routine(routine_id)
+        routine_dict.setdefault("id", routine_id)
+        return self.add_routine(routine_dict)
+
+    def reconcile_jobstore(self, active_routine_ids: set[str]) -> list[str]:
+        """Drop persisted jobs whose id is not in ``active_routine_ids``.
+
+        APScheduler's SQLAlchemy jobstore persists jobs in the
+        ``apscheduler_jobs`` table. If a routine row was deleted while
+        no scheduler was attached (e.g., the renderer-spawned backend
+        served the DELETE but did not own the scheduler), the
+        corresponding ``apscheduler_jobs`` row can survive as an
+        orphan. On daemon startup we call this method with the current
+        set of active routine ids (as strings) and any persisted job
+        not in that set is removed. Returns the list of removed job
+        ids (for logging / tests).
+
+        Idempotent: running it twice in a row removes nothing the
+        second time. Tolerant of remove failures (logs and continues).
+        """
+        removed: list[str] = []
+        for job in self._scheduler.get_jobs():
+            if job.id not in active_routine_ids:
+                try:
+                    self._scheduler.remove_job(job.id)
+                    removed.append(job.id)
+                except Exception:
+                    logger.exception(
+                        "reconcile_jobstore: failed to remove orphan job id=%s",
+                        job.id,
+                    )
+        if removed:
+            logger.info(
+                "reconcile_jobstore: removed %d orphan job(s): %s",
+                len(removed), removed,
+            )
+        return removed
+
+    def persisted_next_run_times(self) -> dict[str, "datetime"]:
+        """What the jobstore says each job's next fire *was*, before we touch it.
+
+        Read-only, and it has to be called **before** ``start()`` and before any
+        ``add_routine``. Both rewrite the answer: ``add_routine`` passes
+        ``replace_existing=True``, which recomputes ``next_run_time`` from now
+        and writes it back, and a started scheduler wakes up and processes due
+        jobs on its own. By the time either has run, the fact that a fire was
+        due at 07:00 while the laptop was shut is gone from the only place it
+        was ever written down.
+
+        Reading the store directly rather than through the scheduler is the
+        point: ``BackgroundScheduler.get_jobs()`` before ``start()`` returns the
+        jobs added in this process, which on a fresh start is none of them.
+
+        Jobs whose ``next_run_time`` is NULL (a paused job) are left out --
+        "paused" is not "missed".
+        """
+        self._jobstore.start(self._scheduler, "default")
+        out: dict[str, "datetime"] = {}
+        for job in self._jobstore.get_all_jobs():
+            if getattr(job, "next_run_time", None) is not None:
+                out[str(job.id)] = job.next_run_time
+        return out
+
+    def get_active_jobs(self) -> list[dict]:
+        """Return a list of dicts describing all active scheduled jobs."""
+        jobs = self._scheduler.get_jobs()
+        result: list[dict] = []
+        for job in jobs:
+            result.append({
+                "id": job.id,
+                "name": job.name,
+                "next_run_time": str(job.next_run_time) if job.next_run_time else None,
+                "trigger": str(job.trigger),
+            })
+        return result
+
+
+# ---------------------------------------------------------------------------
+# Job callback — delegates to the installed dispatcher (IMPL-R3).
+# ---------------------------------------------------------------------------
+
+def _routine_callback(routine_id: int, parameters: str) -> None:
+    """Execute a scheduled routine fire via the installed dispatcher.
+
+    When no dispatcher is installed this logs an error and returns; the
+    APScheduler worker thread must never raise out of a job.
+    """
+    if _dispatcher is None:
+        logger.error(
+            "Routine fire dropped — no dispatcher installed: routine_id=%d",
+            routine_id,
+        )
+        return
+    try:
+        _dispatcher(routine_id, parameters)
+    except Exception:
+        logger.exception(
+            "Dispatcher raised for routine_id=%d; fire is lost",
+            routine_id,
+        )

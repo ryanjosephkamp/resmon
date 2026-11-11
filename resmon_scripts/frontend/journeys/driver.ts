@@ -1,0 +1,1822 @@
+/**
+ * The seam.
+ *
+ * A journey spec says what a person does and what they must then be able to
+ * see. It never says which element that is. Everything below is written in the
+ * words of the register's journeys — "run a dive", "read the coverage
+ * sentence", "back up now" — and a driver behind it maps those onto the
+ * renderer: `drivers/atlas.ts` for Atlas's screens, and `drivers/screenless.ts`
+ * for what has no screen. A renderer can change under a spec without the spec
+ * being rewritten.
+ *
+ * That is the whole point of the suite, so it is enforced rather than asked
+ * for: `register.spec.ts` greps every spec file in this directory for a
+ * renderer call and for an import of anything but this module, and fails on a
+ * hit. A spec that reaches the renderer directly is a spec that will have to be
+ * rewritten, and the cost of rewriting forty-five of them is the reason the
+ * suite has a register at all.
+ *
+ * **Backend facts do not come off the screen.** `resmon.backend` reads them
+ * over the app's own local HTTP API, with the app's own token, because the API
+ * is the contract a change of renderer does not touch and a database file is not
+ * a user journey. Reading SQLite directly would also make the suite unable to
+ * run against an installed app.
+ */
+import { test as base, expect } from '@playwright/test';
+import { createDriver } from './drivers';
+import { armExitProbe } from './fixtures/exit-probe';
+import type { SourceReply } from './fixtures/source-endpoint';
+import type { SelectedPrompt } from './fixtures/selected-answer-endpoint';
+
+export { expect };
+
+/** Where a person is in the app, named as the sidebar names it. */
+export type Place =
+  | 'Deep Dive'
+  | 'Deep Sweep'
+  | 'Routines'
+  | 'Explorer'
+  | 'Results'
+  | 'Monitor'
+  | 'Calendar'
+  | 'Saved configurations'
+  | 'Storage settings'
+  // — settings and tools ------------------------------------------------------
+  // Each is a place a person reaches; `drivers/atlas.ts` maps each to Atlas's
+  // screen for it.
+  | 'Analytics'
+  | 'Watchdog'
+  | 'Watch Profiles'
+  | 'Repositories'
+  | 'AI settings'
+  | 'Email settings'
+  | 'Notification settings'
+  | 'Advanced settings'
+  | 'Tutorials'
+  // — chats and the library ---------------------------------------------------
+  | 'Chats'
+  | 'Library'
+  | 'Evidence'
+  | 'Source Wall'
+  // — Today and appearance ----------------------------------------------------
+  | 'Today'
+  | 'Appearance settings'
+  | 'Look Up a Paper'
+  | 'Collections settings';
+
+/** One run, as the app and the API both identify it. */
+export interface RunHandle {
+  readonly id: number;
+}
+
+export interface DiveRequest {
+  /** A source slug, as the Repositories page names it. */
+  source: string;
+  keywords: string[];
+  /** How far back to look. Omitted means the form's own default. */
+  days?: number;
+  /** The result cap. Omitted means the form's own default. */
+  cap?: number;
+  /**
+   * Tick "Enable AI Summarization" on the form before running.
+   *
+   * Optional and defaulting to off, so a spec that omits it means exactly what
+   * it always meant.
+   */
+  summarize?: boolean;
+}
+
+export interface SweepRequest {
+  sources: string[];
+  query: string;
+  cap?: number;
+}
+
+/** What a screen says about one source of one run. */
+export interface SourceOutcome {
+  /** The source slug the screen attributes the line to. */
+  source: string;
+  /** The short verdict — "answered", "did not answer", "no API key configured". */
+  label: string;
+  /** The sentence underneath it, where the screen shows one. */
+  note: string;
+}
+
+export interface RunFacts {
+  status: string;
+  /** The reason a stopped run gives for stopping, where it has one. */
+  interruptedReason: string | null;
+}
+
+export interface RoutineFacts {
+  name: string;
+  active: boolean;
+  desktopNotification: boolean;
+}
+
+/** The "Why am I seeing this?" panel, read as a person reads it. */
+export interface WhyPanel {
+  /** Every keyword the panel says matched, with the field it says it matched in. */
+  matches: { keyword: string; field: string }[];
+  /** Everything the panel says resmon cannot see. */
+  cannotSee: string[];
+  /** The whole panel's text, for an assertion no structured read covers. */
+  text: string;
+}
+
+/** One upcoming fire the calendar holds. */
+export interface UpcomingFire {
+  /** The routine the event names. */
+  routine: string;
+  /** When the calendar says it fires, in the machine's own timezone. */
+  when: Date;
+  title: string;
+  /** Whether the month currently on screen actually draws this one. */
+  drawn: boolean;
+}
+
+/** An interrupted run's row, as Results renders it. */
+export interface InterruptedRow {
+  badge: string;
+  /** The sentence under the badge: why it stopped and when it was last seen. */
+  note: string;
+}
+
+export interface BackupResult {
+  /** The bundle directory the app reports writing. */
+  directory: string;
+  /** The manifest, as the app wrote it. */
+  manifest: Record<string, unknown>;
+}
+
+/*
+ * **An export verb returns the file, not only what was in it.**
+ *
+ * `backUpNow` above is the shape: it returns the bundle it wrote, and
+ * `restoreIntoFreshState` takes that bundle back. Artifact in, artifact out.
+ * The export verbs below used to return only the text they read out of the file
+ * they had written, and keep the file's path to themselves — so the journey
+ * that hands an export back to an import could not be written. J21 was written
+ * anyway: it imported a JSON string the spec built, for a *different*
+ * configuration from the one it had exported, and stayed green for as long as
+ * Import refused the file Export Selected writes. The step that broke for a real
+ * person was the one the interface had no way to express.
+ *
+ * So every export returns where the app put the file as well as what is in it,
+ * and the one import that exists takes an export, not a string. A spec cannot
+ * write a file of its own — `register.spec.ts` lets it import nothing but this
+ * module — so the only path it can hand an import is one the app wrote.
+ */
+
+/** A file an export wrote, as it is on the disk. */
+export interface ExportedFile {
+  /** Where the file is — the path a person would find, and could hand back. */
+  path: string;
+  /** Its contents, read off the disk as text. */
+  text: string;
+}
+
+/** The archive Export Selected wrote, and what is inside it. */
+export interface ConfigurationExport {
+  /** Where the app says it wrote the archive. */
+  path: string;
+  /**
+   * One entry per member, keyed by the member's own name, read out of that
+   * archive. The bytes on disk are compressed, so a search of them for a secret
+   * would pass for the wrong reason; the members are what can be searched.
+   */
+  members: Record<string, string>;
+}
+
+/** What Import did with the file it was handed. */
+export interface ImportOutcome {
+  /** How many saved configurations the app holds now that it did not hold before. */
+  arrived: number;
+  /** What the page said it imported — `Imported 2 configuration(s).` — or ''. */
+  said: string;
+  /** What the page said it would not import, or ''. Either half may be set alone. */
+  refusal: string;
+  /**
+   * The file types the page told the chooser to offer: the `accept` list the
+   * native dialog filters by.
+   *
+   * Read because the dialog itself cannot be. Nothing automated can operate a
+   * native file dialog, so the chooser is answered with the file instead — and
+   * a file the dialog would have grayed out is exactly the file a person could
+   * never have picked. This is the closest the suite can come to that dialog.
+   */
+  chooserAccepts: string;
+}
+
+/** The one-time card a restored app shows about what it did not bring back. */
+export interface RestoreCard {
+  text: string;
+  /** The credential entries the card says the user must re-enter. */
+  keyringEntries: string[];
+}
+
+/** The counts a person would compare across a restore. */
+export interface CorpusCounts {
+  documents: number;
+  executions: number;
+  routines: number;
+}
+
+/**
+ * Facts read over the app's own local API with the app's own token.
+ *
+ * Named methods rather than a URL a spec passes in: a spec that could name a
+ * path could name a renderer route, and then the seam has a hole in it.
+ */
+export interface BackendFacts {
+  /** The port the app's own backend answers on. Never the daemon's. */
+  port(): Promise<string>;
+  health(): Promise<Record<string, any>>;
+  execution(run: RunHandle): Promise<Record<string, any>>;
+  executions(): Promise<Record<string, any>[]>;
+  /** The reproducible search record — per-source outcomes and zero reasons. */
+  searchRecord(run: RunHandle): Promise<Record<string, any>>;
+  routines(): Promise<Record<string, any>[]>;
+  /** Documents, executions and routines: what a person compares over a restore. */
+  corpusCounts(): Promise<CorpusCounts>;
+  /**
+   * Every zero reason the build under test knows, from its own source.
+   *
+   * This is the denominator for "the recorded reason is one of the zero
+   * reasons": a list read out of the build being measured, not a list typed
+   * into a spec that would go stale the first time somebody adds a reason.
+   */
+  zeroReasonVocabulary(): Promise<string[]>;
+  /**
+   * Whether the backend answering this window is a child of this window's own
+   * Electron process — the difference between "a resmon" and "this resmon".
+   * `null` where the machine cannot be asked (no `ps`).
+   */
+  ownedByThisApp(): Promise<boolean | null>;
+
+  // — the backend's surface ----------------------------------------------------
+
+  /**
+   * Every route the backend under test actually serves, from its own OpenAPI
+   * document.
+   *
+   * The denominator for "the app does not offer X at all". A grep of the
+   * repository would answer a question about a checkout; this answers the
+   * question about the process that is running, which is the one a person
+   * meets.
+   */
+  routeInventory(): Promise<string[]>;
+  /** What the app says about the daemon service it could install. */
+  serviceStatus(): Promise<Record<string, any>>;
+  /**
+   * What the app finds when it actually looks for a running daemon.
+   *
+   * Independent of `serviceStatus()` on purpose: that one answers "is a unit
+   * installed for this user", which is a fact about the machine, and this one
+   * answers "is one listening for this state directory", which is the fact the
+   * rule never to touch port 8742 depends on.
+   */
+  daemonStatus(): Promise<Record<string, any>>;
+  /** Every source the catalog holds, as the Repositories page is served it. */
+  sourceCatalog(): Promise<Record<string, any>[]>;
+  /** What the backend says about the semantic index: present, and why not when absent. */
+  embeddingsStatus(): Promise<Record<string, any>>;
+  /** The watchdog's findings, as the Watchdog page is served them. */
+  watchdogFindings(): Promise<Record<string, any>>;
+  /** The saved watch profiles. */
+  profiles(): Promise<Record<string, any>[]>;
+  /** Every stored credential, as the Repositories page is told about them. */
+  credentials(): Promise<Record<string, any>>;
+  /** The onboarding card's state: whether it is still owed, and what retired it. */
+  onboarding(): Promise<Record<string, any>>;
+  /** The saved AI settings — which lane is on, and which model. */
+  aiSettings(): Promise<Record<string, any>>;
+  /** The near-duplicate link scan's state and what it has found. */
+  linkStatus(): Promise<Record<string, any>>;
+  /**
+   * Every saved configuration, with its `parameters` as an object.
+   *
+   * The record a round trip is compared against: "the configuration that came
+   * back is the one that was saved" is a claim about what the app stored, and
+   * a row on screen shows only its name.
+   */
+  configurations(): Promise<Record<string, any>[]>;
+  /**
+   * Ask the backend to erase the corpus with this word.
+   *
+   * The Danger Zone's refusal has to be the backend's rather than the screen's:
+   * a disabled button is a courtesy, and an endpoint that erased a corpus for
+   * anybody who asked would pass a journey that only watched the button.
+   */
+  eraseCorpus(word: string): Promise<Record<string, any>>;
+}
+
+// Every name below is what the *person* does or reads; where the app has no
+// user path for a step, the method says so in its comment and the spec's header
+// records it.
+
+/** What the Advanced tab says about the background service. */
+export interface DaemonPanel {
+  /** The status sentence, as the panel writes it. */
+  status: string;
+  /** Whether the control that installs and removes the service is on screen at all. */
+  controlPresent: boolean;
+  /** Whether that control is currently set to "installed". */
+  controlOn: boolean;
+  /** The whole panel, for an assertion no structured read covers. */
+  text: string;
+}
+
+/** One labeled figure on a screen — a tile, a bar, a row. */
+export interface Figure {
+  label: string;
+  value: string;
+}
+
+/** What the Analytics page draws. */
+export interface AnalyticsView {
+  /** Every card's heading, in the order the page stacks them. */
+  headings: string[];
+  /** The corpus tiles: `Papers`, `Authors`, `Sources used`, `DOI coverage`. */
+  tiles: Figure[];
+  /** Per-source contribution, as the bars label it. */
+  sources: Figure[];
+  /** Every card that says it has not enough data to draw yet. */
+  notEnoughYet: string[];
+}
+
+/** One thing the Watchdog says. */
+export interface WatchdogFinding {
+  /** The severity chip: `Broken`, `Looks unusual` or `Advice`. */
+  severity: string;
+  /** `Source · arxiv`, as the card writes it. */
+  scope: string;
+  title: string;
+  muted: boolean;
+}
+
+export interface WatchdogView {
+  /** The single verdict card's heading. */
+  verdict: string;
+  findings: WatchdogFinding[];
+  /** Every scope the page says it cannot judge yet, with its reason. */
+  notEnoughHistory: string[];
+  /** The Muted section's own heading, or '' when there is none. */
+  mutedHeading: string;
+}
+
+/** A watch profile as the editor previews it and the list shows it. */
+export interface ProfileCreation {
+  id: number;
+  /** The sentence the editor showed about what its matches will mean. */
+  warningAtCreation: string;
+  /** The chip the saved profile carries in the list, or '' when it carries none. */
+  chipInList: string;
+}
+
+/** What a profile's own page says about the papers it matched. */
+export interface ProfileMatches {
+  /** `3 paper(s): 1 ORCID match, 2 name only`, as the page writes it. */
+  counts: string;
+  /** Per paper: the basis chip and the author string the match recorded. */
+  items: { basis: string; author: string; title: string }[];
+}
+
+/** The Explorer's own account of a page of papers. */
+export interface ExplorerList {
+  /** The sentence above the list: `2 papers in your corpus`. */
+  countSentence: string;
+  /** One entry per row on screen. */
+  rows: {
+    title: string;
+    /** Every "also appears in …" label the row carries. */
+    alsoAppearsAs: string[];
+    /** The distance the row shows when the list is ranked, or ''. */
+    distance: string;
+  }[];
+  /** The note the page prints when rows have been folded together, or ''. */
+  collapseNote: string;
+}
+
+/** What the Explorer says about a ranked list. */
+export interface RankedList {
+  /**
+   * `Closest to: … — using … · N ranked, M not embedded yet and listed last`.
+   * Where the controls are absent, what the page says instead about why it
+   * cannot rank, or '' where it says nothing.
+   */
+  note: string;
+  /** Whether the semantic controls are on screen at all. */
+  controlsPresent: boolean;
+  list: ExplorerList;
+}
+
+/** What choosing an embedding provider did, before anything was saved. */
+export interface EmbeddingProviderChoice {
+  /** Whether the provider was refused at the moment it was chosen. */
+  refused: boolean;
+  /** The reason given for the refusal, or ''. */
+  reason: string;
+}
+
+/** Embedding the papers that have no vector for the model set, from start to end. */
+export interface EmbeddingBackfill {
+  /** The backend's coverage before anything was sent. */
+  before: { embedded: number; total: number };
+  /** What the app said about the papers without a vector, before anything was sent. */
+  missing: string;
+  /** The estimate, as it was given before the backfill started. */
+  estimate: string;
+  /** How the app said the backfill ended. */
+  outcome: string;
+  /** The backend's coverage after it ended. */
+  after: { embedded: number; total: number };
+}
+
+/** The coverage audit panel, read as a person reads it. */
+export interface CoverageAudit {
+  /** `Comparing against …` plus what the panel says about that choice. */
+  intent: string;
+  /** The reason the panel gives for having nothing to show, or ''. */
+  reason: string;
+  /** The `Showing 25 of N.` line under each list, or '' where the list is short enough. */
+  offTargetShowing: string;
+  missedShowing: string;
+  /** What the panel says it cannot see. */
+  cannotSee: string;
+  /** The whole panel. */
+  text: string;
+}
+
+/** What a stored credential looks like when it is read back. */
+export interface KeyField {
+  /** The catalog name of the source the field belongs to. */
+  source: string;
+  /** What the field shows when it is not being edited — the mask, where one is shown. */
+  shown: string;
+  /** What the field's value actually is. A stored key must never be here. */
+  value: string;
+}
+
+/** The card a fresh install shows about what it has not been given yet. */
+export interface FirstRunCard {
+  present: boolean;
+  /** One entry per step, with the mark the card draws beside it. */
+  steps: { id: string; mark: string; text: string }[];
+  /** The whole card. */
+  text: string;
+}
+
+/** One turn with the assistant, as the panel shows it. */
+export interface AssistantTurn {
+  /** Everything the assistant said, bubble by bubble. */
+  said: string[];
+  /** The tool rows the panel drew, by the short name it printed. */
+  toolCalls: string[];
+  /** The approval card's exact call line, or '' when no card is being held. */
+  approvalCall: string;
+  /** What the approval card says the call would do, in a sentence. */
+  approvalTitle: string;
+  /** The error banner, or ''. */
+  error: string;
+}
+
+/** The result of running an existing gate as a subprocess. */
+export interface GateRun {
+  /** The command, as it was run. */
+  command: string;
+  exitCode: number | null;
+  output: string;
+}
+
+/**
+ * Everything a journey does.
+ *
+ * Every method is one thing a person does or one thing they read. Adding a
+ * method is fine; adding a selector to a spec is not.
+ */
+export interface JourneyDriver {
+  /** Which driver is driving: `candidate (Atlas)`. */
+  readonly name: string;
+
+  // — where the person is ----------------------------------------------------
+  open(place: Place): Promise<void>;
+  /** Close the window and open it again over the same state, as a person would. */
+  reopenTheApp(): Promise<void>;
+  /** A picture of what is on screen now, into the run's artifact directory. */
+  takePicture(name: string): Promise<void>;
+
+  // — the shell --------------------------------------------------------------
+  /** What the header says about the backend this window is talking to. */
+  readConnectedIdentity(): Promise<{ status: string; details: string }>;
+
+  // — running ----------------------------------------------------------------
+  runDive(request: DiveRequest): Promise<RunHandle>;
+  runSweep(request: SweepRequest): Promise<RunHandle>;
+  waitForRunToSettle(run: RunHandle): Promise<RunFacts>;
+  /**
+   * Per-source outcomes as the live run panel shows them. With
+   * `{ settled: true }`, wait until no source is still pending or being
+   * queried — the panel a person is left looking at when the run is over.
+   */
+  readRunPanelOutcomes(run: RunHandle, options?: { settled?: boolean }): Promise<SourceOutcome[]>;
+  /** Stop a running sweep from the Monitor, as the row's button does. */
+  cancelRunFromMonitor(run: RunHandle): Promise<void>;
+  /** Let a held authored source answer. */
+  releaseTheSource(): void;
+
+  // — reports ----------------------------------------------------------------
+  openReport(run: RunHandle): Promise<void>;
+  /** The report's one-line account of who answered and who could not. */
+  readCoverageSentence(run: RunHandle): Promise<string>;
+  /** Per-source outcomes as the report's own table shows them. */
+  readReportOutcomes(run: RunHandle): Promise<SourceOutcome[]>;
+  /** The tabs the report viewer offers, in the order it offers them. */
+  readReportTabs(): Promise<string[]>;
+  /** Does this run have a report at all, and does it have content? */
+  reportExists(run: RunHandle): Promise<boolean>;
+  /** Select these runs in Results and export their references in this format: the file, and what it says. */
+  exportReferences(runs: RunHandle[], format: 'bibtex' | 'ris' | 'csv'): Promise<ExportedFile>;
+
+  // — routines ---------------------------------------------------------------
+  createRoutine(routine: { name: string; cron: string; sources: string[]; keywords: string[] }): Promise<number>;
+  activateRoutine(name: string): Promise<void>;
+  deactivateRoutine(name: string): Promise<void>;
+  /** Fire the routine now, and return the execution it produced. */
+  fireRoutineNow(name: string): Promise<RunHandle>;
+  /** Flip the desktop-notification switch on the routine's own row. */
+  toggleDesktopNotification(name: string): Promise<void>;
+  readRoutine(name: string): Promise<RoutineFacts>;
+  /** Do the routines still exist, by name? */
+  listRoutineNames(): Promise<string[]>;
+
+  // — the corpus -------------------------------------------------------------
+  /** Open the first paper the Explorer lists, and return its title. */
+  openFirstPaper(): Promise<string>;
+  /** Open "Why am I seeing this?" for the paper that is open, and read it. */
+  readWhyPanel(): Promise<WhyPanel>;
+
+  // — the calendar -----------------------------------------------------------
+  readUpcomingFires(): Promise<UpcomingFire[]>;
+
+  // — saved configurations ---------------------------------------------------
+  /**
+   * Fill in Deep Sweep's form and press its Save Configuration button, naming
+   * the configuration this; return the id the app stored it under.
+   */
+  saveConfiguration(name: string, from: { sources: string[]; query: string }): Promise<number>;
+  /**
+   * Tick every saved configuration of one kind and press Export Selected.
+   *
+   * One kind per archive, because that is what the page allows: it clears the
+   * selection whenever its tab changes, so routine and manual configurations
+   * cannot be ticked together. Returns the archive the app wrote and what is in it.
+   */
+  exportConfigurations(kind: 'manual' | 'routine'): Promise<ConfigurationExport>;
+  /**
+   * Press Import and hand the chooser the archive an export wrote — that file,
+   * at that path, unopened and unchanged — then read what the page says.
+   *
+   * There is deliberately no form of this that takes text. That form is how J21
+   * came to import a file it had built itself and never the one it exported.
+   *
+   * The chooser is the page's own and so is everything after it; the native
+   * dialog is not. No automated suite can operate one, so the chooser is
+   * answered with the file rather than a person picking it, and the spec's
+   * header records that. What the dialog would have offered is reported as
+   * `chooserAccepts`.
+   */
+  importConfigurations(exported: ConfigurationExport): Promise<ImportOutcome>;
+
+  // — storage ----------------------------------------------------------------
+  /**
+   * Choose the folder Google Drive for desktop keeps as where backups go, on
+   * the screen that says where they go. A folder of this session's, shaped as
+   * that client lays its own out (`CloudStorage/GoogleDrive-…/My Drive`),
+   * stands in for it, and the folder dialog is answered with it: no automated
+   * suite can operate a native one. Returns the folder, once the app has
+   * stored it.
+   */
+  chooseGoogleDrivesFolderForBackups(): Promise<string>;
+  backUpNow(options: { reports: boolean }): Promise<BackupResult>;
+  /**
+   * Restore this bundle into a fresh state directory, and start the app over
+   * it. The start is a real one, and the start is what moves the bytes.
+   */
+  restoreIntoFreshState(bundle: BackupResult): Promise<void>;
+  readRestoreCard(): Promise<RestoreCard>;
+
+  // — a run whose process died ----------------------------------------------
+  /** Kill the backend the app spawned, as a force-quit would. */
+  killTheBackend(): Promise<void>;
+  readInterruptedRow(run: RunHandle): Promise<InterruptedRow>;
+  /** Press Restart on that row, and return the run it started. */
+  restartRun(run: RunHandle): Promise<RunHandle>;
+
+  // — facts ------------------------------------------------------------------
+  readonly backend: BackendFacts;
+
+  // — what a place says --------------------------------------------------------
+
+  /** Everything the place a person is looking at actually says. */
+  readWhatThisPlaceSays(): Promise<string>;
+  /** Every place the sidebar offers, in the order it offers them. */
+  readSidebarPlaces(): Promise<string[]>;
+  /** The tabs the place a person is on offers, in order. */
+  readTabsHere(): Promise<string[]>;
+  /** Open this page's own help block and read it. */
+  readTheHelpOnThisPage(): Promise<string>;
+
+  /** What Settings → Advanced says about the background service. Installs nothing. */
+  readDaemonPanel(): Promise<DaemonPanel>;
+
+  /** What the Analytics page draws for the corpus it has. */
+  readAnalytics(): Promise<AnalyticsView>;
+  /**
+   * Press the button that measures keyword yield, and read what the card then
+   * draws — either the per-keyword bars, or the sentence it prints when the
+   * corpus is too small for a share to mean anything.
+   */
+  measureKeywordYield(): Promise<{ bars: Figure[]; notEnoughYet: string }>;
+  /**
+   * Follow the link a chart offers into the Explorer, and report where it
+   * landed and what it filtered to.
+   */
+  followTheChartIntoTheExplorer(): Promise<{ hash: string; list: ExplorerList }>;
+
+  /** What the Watchdog says right now. */
+  readWatchdog(): Promise<WatchdogView>;
+  /** Press Mute on the finding whose title contains this. */
+  muteTheFinding(titleFragment: string): Promise<void>;
+  /** Make the authored source fail every request from now on, as an outage does. */
+  theSourceGoesDown(): void;
+  /** Make the authored source answer again. */
+  theSourceComesBack(): void;
+
+  /** Fill in the new-profile editor and save it, reading its live warning first. */
+  createWatchProfile(profile: { name: string; orcid?: string }): Promise<ProfileCreation>;
+  /** Open a profile and read what it says about the papers it matched. */
+  readProfileMatches(name: string): Promise<ProfileMatches>;
+  /** The basis chips the Explorer draws beside its papers. */
+  readBasisBadgesInTheExplorer(): Promise<string[]>;
+
+  /** The Explorer's list, as it stands. */
+  readExplorerList(): Promise<ExplorerList>;
+  /** Turn ranking by meaning on, against a deterministic model on loopback. */
+  enableRankingByMeaning(): Promise<string>;
+  /**
+   * Choose this provider for embeddings, and read whether it is refused there
+   * and then, with the reason. Nothing is saved for a provider that is refused.
+   */
+  chooseAnEmbeddingProvider(provider: string): Promise<EmbeddingProviderChoice>;
+  /** Embed every paper with no vector for the model set: the estimate first, then the run, read until it ends. */
+  embedThePapersStillMissing(): Promise<EmbeddingBackfill>;
+  /** Sort the Explorer by how close each paper is to this phrase, using the control. */
+  rankTheExplorerBy(phrase: string): Promise<RankedList>;
+  /** Scan the corpus for papers that look like the same work, and wait for it. */
+  scanForNearDuplicates(): Promise<{ links: number; byMethod: Record<string, number> }>;
+  /** Tick or untick "Collapse duplicates". */
+  collapseDuplicates(on: boolean): Promise<void>;
+
+  /** Write the sentence saying what a routine is really for. */
+  writeRoutineIntent(name: string, intent: string): Promise<void>;
+  /** Open "Is this finding what I meant?" on a routine and read it. */
+  readCoverageAudit(name: string): Promise<CoverageAudit>;
+
+  /** Save a key for a source, through the field a person types into. */
+  saveKeyFor(source: string, value: string): Promise<void>;
+  /** Read back every key field on the Repositories page. */
+  readKeyFields(): Promise<KeyField[]>;
+  /** One source's details, as the Repositories page opens them. */
+  readSourceDetails(source: string): Promise<Record<string, string>>;
+  /** The credits the page shows unconditionally, because their sources require them. */
+  readRequiredAttributions(): Promise<string[]>;
+
+  /**
+   * Point the assistant at an authored agent command, the way Settings → AI
+   * points it at a real one, and reopen the window so the panel re-reads it.
+   *
+   * The command is the repository's own `fake_claude.py`, which speaks the
+   * agent-CLI protocol and makes real tool calls into this app's own backend
+   * over real HTTP. What it replaces is the model; the permission round trip,
+   * the MCP call, the SQLite write and everything the panel draws are the app's.
+   */
+  useAnAuthoredAgentCommand(): Promise<void>;
+  /** Open the assistant, send this, and read what the panel shows. */
+  askTheAssistant(text: string): Promise<AssistantTurn>;
+  /** Answer the approval card the assistant is holding, and read the panel again. */
+  answerTheApprovalCard(allow: boolean): Promise<AssistantTurn>;
+  /** Every saved conversation the assistant's own drawer lists. */
+  readSavedConversations(): Promise<string[]>;
+
+  /** The card a fresh install shows on the Dashboard, or its absence. */
+  readTheFirstRunCard(): Promise<FirstRunCard>;
+  /** Press Skip on it, and wait for the app to have saved that. */
+  skipTheFirstRunCard(): Promise<void>;
+
+  /** Type the Danger Zone's word into this action and confirm it. */
+  eraseWith(action: string, word: string): Promise<{ status: number; body: string }>;
+
+  /** Every frame this place embeds. The expected answer is none. */
+  framesHere(): Promise<number>;
+  /** Every external link this place offers, with where it points. */
+  readExternalLinks(): Promise<{ text: string; href: string }[]>;
+  /**
+   * Every recording this place shows that ships with the app: its name, whether
+   * its picture came from the app's own origin, and whether it was drawn.
+   */
+  readTheRecordingsHere(): Promise<{ title: string; fromTheApp: boolean; drawn: boolean }[]>;
+
+  /**
+   * Run one of the repository's own gates as a subprocess, under the
+   * interpreter the build under test runs its backend with.
+   *
+   * The row's evidence stays the real gate. Re-implementing it here would be a
+   * second thing to keep in step, and the one that drifted would be this one.
+   */
+  runTheGate(args: string[]): Promise<GateRun>;
+
+  /** Every connection the run's guard refused. The expected answer is none. */
+  refusedConnections(): { host: string; port: number }[];
+}
+
+export interface JourneyOptions {
+  /** How the authored source answers this journey. Defaults to one record. */
+  sourceReply: SourceReply;
+}
+
+export interface JourneyFixtures {
+  resmon: JourneyDriver;
+}
+
+interface JourneyWorkerFixtures {
+  /**
+   * Nothing during the run; after the worker's last case, a probe that says
+   * what is still holding the worker open if it fails to exit. Auto, because a
+   * worker that hangs is a property of the suite rather than of one spec.
+   */
+  exitProbe: void;
+}
+
+/**
+ * The test object every journey spec uses.
+ *
+ * Test-scoped rather than worker-scoped, unlike `e2e/`: three of these rows
+ * kill a backend, restore over a state directory or relaunch the window, and a
+ * shared app would make the rest of the suite depend on the order those ran in.
+ * A launch costs seconds; a suite whose failures depend on ordering costs an
+ * afternoon each time.
+ */
+export const journey = base.extend<JourneyOptions & JourneyFixtures, JourneyWorkerFixtures>({
+  sourceReply: ['paper', { option: true }],
+
+  exitProbe: [async ({}, use) => {
+    await use();
+    armExitProbe();
+  }, { scope: 'worker', auto: true }],
+
+  resmon: async ({ sourceReply }, use, testInfo) => {
+    const driver = await createDriver({ sourceReply, testInfo });
+    try {
+      await use(driver.api);
+    } finally {
+      await driver.close();
+    }
+  },
+});
+
+/* ========================================================================== *
+ *  The reading queue, the local API's own boundary, and the two rows whose
+ *  journey is a gate rather than a screen.
+ * ========================================================================== */
+
+/** One paper in the reading queue, as the queue names it. */
+export interface QueuedPaper {
+  /** The document id the row carries — the same id the local API uses. */
+  id: number;
+  title: string;
+  /** What the queue says its state is: `To Read` or `Read`. */
+  state: string;
+}
+
+/**
+ * An answer to a request made **from outside the app**, over a plain socket.
+ *
+ * This is the one place the suite deliberately does not go through the app's
+ * own transport. J42's journey is precisely that somebody other than this
+ * renderer cannot get an answer, and a request sent with the app's own helper
+ * would carry the app's own credentials and prove the opposite of the point.
+ */
+export interface RawAnswer {
+  status: number;
+  /** The `detail.reason` the guard names, where it names one. */
+  reason: string | null;
+  body: string;
+}
+
+/** A request the app made for itself, as a watcher outside the page sees it. */
+export interface ObservedRequest {
+  url: string;
+  /** The `Authorization` header, or null where the request carried none. */
+  authorization: string | null;
+}
+
+/** What an external MCP harness finds when it points itself at this app. */
+export interface McpAnswer {
+  /** `serverInfo` from the server's own `initialize`. */
+  server: { name: string; version: string };
+  /** The tools the server publishes over `tools/list`. */
+  toolNames: string[];
+  /** The tools in `mcp_server.TOOLS` a harness is offered, in the build under test — the denominator. */
+  declaredToolCount: number;
+  /** The `health` tool's own answer, as a harness receives it. */
+  health: Record<string, any>;
+}
+
+/** One destination a routine's report goes to. */
+export interface DeliveryDestination {
+  id: number;
+  channel: 'folder' | 'feed' | 'webhook';
+  /** The folder or address the target was given. */
+  destination: string;
+}
+
+/** One delivery, as the routine's own "Where did this go?" record shows it. */
+export interface DeliveryRecord {
+  id: number;
+  channel: string;
+  /** What the screen calls the state, in the words a person reads. */
+  state: string;
+  /**
+   * The state the backend recorded, in its own vocabulary — `delivered`,
+   * `awaiting_review`, `skipped`, `failed`.
+   *
+   * Both, because the row is "whether it got there" and the two halves are
+   * different claims: a screen label a spec asserted on would be a renderer
+   * coupling, and a stored token alone would not establish that anybody can
+   * see it.
+   */
+  recorded: string;
+  /** What the row says in its detail column — a timestamp, or an error. */
+  detail: string;
+}
+
+export interface JourneyDriver {
+  // — the reading queue (J28) ------------------------------------------------
+  /** Save every paper this run found, from the run's own Papers tab. */
+  savePapersFromRun(run: RunHandle): Promise<QueuedPaper[]>;
+  /** The queue as the page shows it under one of its own filters. */
+  readReadingQueue(filter: 'to read' | 'read' | 'all'): Promise<QueuedPaper[]>;
+  /** Mark this paper read, from its row. */
+  markPaperRead(paper: QueuedPaper): Promise<void>;
+  /** Take this paper out of the queue, from its row. */
+  removeFromReadingQueue(paper: QueuedPaper): Promise<void>;
+  /** Tick these papers in the queue and export them in this format: the file, and what it says. */
+  exportReadingQueue(papers: QueuedPaper[], format: 'bibtex' | 'ris' | 'csv'): Promise<ExportedFile>;
+  /** Every paper title the Explorer lists — what the corpus still holds. */
+  readExplorerTitles(): Promise<string[]>;
+
+  // — the local API's own boundary (J42) -------------------------------------
+  /**
+   * Ask this app's backend from outside the app, over a plain socket.
+   *
+   * `token: 'none'` sends nothing; `'this app'` reads the token file this
+   * instance published. `host` overrides the `Host` header, which is how a
+   * rebound hostname is tried.
+   */
+  askOverTheRawSocket(request: {
+    route: string; token: 'none' | 'this app'; host?: string;
+  }): Promise<RawAnswer>;
+  /** Go to this place and report every backend request the app made getting there. */
+  observeOwnRequests(place: Place): Promise<ObservedRequest[]>;
+
+  // — delivery (J40) ---------------------------------------------------------
+  /**
+   * Give this routine somewhere to send its report.
+   *
+   * A `folder` or `feed` destination with no `destination` gets a fresh
+   * directory of this session's own, because those two channels refuse a
+   * directory that does not already exist — resmon does not create folders
+   * inside somebody's Dropbox — and the answer says which directory it used.
+   */
+  addDeliveryTarget(routine: string, target: {
+    channel: 'folder' | 'feed' | 'webhook';
+    destination?: string;
+    mode?: 'automatic' | 'review';
+  }): Promise<DeliveryDestination>;
+  /**
+   * The routine's own delivery record, from its "Where did this go?" panel,
+   * once every delivery has stopped moving.
+   */
+  readDeliveryRecord(routine: string): Promise<DeliveryRecord[]>;
+  /** Press Skip on this delivery's row. */
+  skipDelivery(routine: string, delivery: DeliveryRecord): Promise<void>;
+  /** Every file under a folder destination, by path relative to it. */
+  readDeliveredFiles(destination: string): Promise<string[]>;
+  /** The Atom file a feed destination holds, as bytes on disk. */
+  readFeedFile(destination: string): Promise<{ path: string; text: string }>;
+
+  // — an external harness (J44) ----------------------------------------------
+  /**
+   * Start the build's own MCP server against this app's state directory, as a
+   * harness would, and ask it who it found and what it can do.
+   */
+  askTheMcpServer(): Promise<McpAnswer>;
+}
+
+/**
+ * The two rows whose journey is a gate rather than a screen (J43 and J16).
+ *
+ * Re-exported from the seam because a spec may import this module and nothing
+ * else — `register.spec.ts` enforces that, and it is what stops a spec reaching
+ * for `child_process` and building its own idea of what the gate is. There is
+ * no renderer in this path and therefore no driver: a build under test runs
+ * exactly the same gate out of its own checkout.
+ */
+export { runGate } from './fixtures/gates';
+export type { GateOutcome } from './fixtures/gates';
+
+/* ========================================================================== *
+ *  Routines run now, chats, AI lanes, and the launch-time levers two of those
+ *  journeys need.
+ * ========================================================================== */
+
+/**
+ * What the app answered when it was asked to run a routine now.
+ *
+ * Both halves, because the row is "one run per routine" and the two halves are
+ * different claims. A refusal a person can read is not the same fact as a
+ * backend that started only one run, and a journey that watched only the first
+ * would pass over an app that refused on screen and ran twice underneath.
+ */
+export interface RunNowAnswer {
+  /** The run it started, or null when it refused. */
+  run: RunHandle | null;
+  /** The refusal in the words the app would show a person, or ''. */
+  refusal: string;
+  /**
+   * What the app called the refusal, in its own vocabulary, or ''.
+   *
+   * The backend publishes this as a response header, and a renderer reading its
+   * own backend cross-origin is given only the safelisted headers unless the
+   * server exposes more — which this one does not. So this is '' from inside
+   * the app, and the row asserts the sentence a person actually reads. The
+   * header's own evidence stays `test_duplicate_protection.py`, which asks over
+   * a transport that can see it.
+   */
+  refusalKind: string;
+}
+
+export interface JourneyDriver {
+  // — one run per routine (J39) ----------------------------------------------
+  /**
+   * Ask for this routine to run now, without waiting for any run already in
+   * flight — the second half of "press Run Now twice".
+   */
+  askForThisRoutineToRunNow(name: string): Promise<RunNowAnswer>;
+  /**
+   * Whether the `Run Now` control is on this routine's row at all.
+   *
+   * The journey is a person pressing a button, and in this suite
+   * that button is not reachable: it appears only on a routine that has missed
+   * a fire, and the app spawns its backend with the scheduler disabled, so
+   * nothing here can miss one. The spec asks, reports the answer, and says what
+   * it therefore did not establish rather than implying it clicked.
+   */
+  runNowControlIsOnTheRow(name: string): Promise<boolean>;
+
+  // — the summarization lanes (J17) ------------------------------------------
+  /**
+   * Point Settings → AI at an authored `claude` that reports it is not signed
+   * in, the way a person points it at a real one.
+   *
+   * This is the summarization lane's CLI, not the assistant's: a different
+   * protocol, a different double. What it replaces is the sign-in — the
+   * discovery, the argv, the exit handling, the classification of the failure
+   * and everything the lane then does about it are the app's own. What no
+   * double can see is a real CLI's own behavior, and the spec says so.
+   */
+  useAnAuthoredSummarizerThatIsNotSignedIn(): Promise<void>;
+  /** What Settings → AI says about the lane it would use. */
+  readAiLaneStatus(): Promise<string>;
+  /** The run's own log, as the report viewer's Log tab shows it. */
+  readRunLog(run: RunHandle): Promise<string>;
+  /** The report itself, as the report viewer's Report tab shows it. */
+  readTheReport(run: RunHandle): Promise<string>;
+
+  // — notifications and email (J23) ------------------------------------------
+  /** Fill in Settings → Email and save it, storing the password separately. */
+  configureEmail(settings: EmailSettings, password: string): Promise<void>;
+  /** Read Settings → Email back, field by field, as the page shows it. */
+  readEmailSettings(): Promise<EmailSettings>;
+  /** Press Send Test Email and return the sentence the page then shows. */
+  sendATestEmail(): Promise<string>;
+  /** Set the notification preferences and save them. */
+  setNotificationPreferences(preferences: NotificationPreferences): Promise<void>;
+  /** Read them back, as the tab shows them. */
+  readNotificationPreferences(): Promise<NotificationPreferences>;
+  /**
+   * A loopback address with nothing listening on it.
+   *
+   * Not a thing a person does — but a journey that wants "the server is not
+   * answering" needs somewhere that genuinely refuses a connection, and a port
+   * number written into a spec would be somebody's real service one day. The
+   * driver takes a port from the operating system and gives it back, which is
+   * the closest thing to a fact rather than a guess.
+   */
+  anAddressThatRefusesConnections(): Promise<{ host: string; port: number }>;
+
+  // — saved chats (J32) ------------------------------------------------------
+  /** Every saved chat the Chats page lists, by title, in the order it lists them. */
+  readTheChatsPage(): Promise<string[]>;
+  /** Open the saved chat whose title contains this, and read its transcript. */
+  openTheSavedChat(titleFragment: string): Promise<SavedTranscript>;
+  /**
+   * Export the open chat, and return the file the app wrote and what is in it.
+   *
+   * A real download with only the destination picker replaced: the request, the
+   * bytes and the serializer are the app's own, the same seam
+   * `exportReferences` uses.
+   */
+  exportTheOpenChat(format: 'json' | 'markdown'): Promise<ExportedFile>;
+
+  // — the Ask panel, read as a person reads it (J31) --------------------------
+  /**
+   * Open the assistant the way somebody who does not use a mouse opens it, and
+   * report whether the keyboard alone got there.
+   */
+  openTheAssistantWithTheKeyboard(): Promise<boolean>;
+  /** What the assistant panel offers a person, and whether it all fits. */
+  readTheAssistantPanel(): Promise<AssistantPanelFacts>;
+
+  // — the assistant on a key (J14) -------------------------------------------
+  /**
+   * Point the assistant at a model provider of the person's own — a key they
+   * pasted in and an endpoint they named — the way Settings → AI does.
+   *
+   * The provider is an authored one on loopback; what it replaces is the model.
+   * The key is stored through the app's own credential route into the same
+   * in-memory credential store every journey uses, and it is the app's own code
+   * that reads it back out when it builds the request.
+   */
+  useAnAuthoredProviderOnAKey(options: { answer: string; key: string; model: string }): Promise<void>;
+  /** Every request the authored provider received, headers included. */
+  readWhatTheProviderReceived(): Promise<ProviderRequest[]>;
+  /** What the app will show about the assistant's own settings. */
+  readAssistantSettings(): Promise<Record<string, any>>;
+}
+
+/** One request the app made of the authored provider. */
+export interface ProviderRequest {
+  path: string;
+  /** The `Authorization` header, verbatim, or null. */
+  authorization: string | null;
+  model: string;
+  /** The body, as the provider received it. */
+  body: Record<string, any>;
+}
+
+/** The Ask panel as somebody reading it — or hearing it read — meets it. */
+export interface AssistantPanelFacts {
+  /** The panel is on screen at all. */
+  open: boolean;
+  /** The composer carries a name assistive technology can announce. */
+  composerIsNamed: string;
+  /** The composer can be typed into. */
+  composerIsUsable: boolean;
+  /** The panel is entirely inside the window, at the size the window is now. */
+  insideTheWindow: boolean;
+  /** The panel and the window, for a failure that has to say by how much. */
+  geometry: { panel: { x: number; y: number; width: number; height: number };
+    window: { width: number; height: number } };
+  /**
+   * The roles the panel's own error region carries, if it is showing one.
+   *
+   * An error a sighted person can see and a screen reader never announces is
+   * half a feature, so the row asks for the role rather than for the text.
+   */
+  errorRoles: string[];
+}
+
+/** A saved chat as the Chats page shows it when it is open. */
+export interface SavedTranscript {
+  title: string;
+  /** Every bubble in the transcript, in order. */
+  said: string[];
+  /** The whole panel, for the sentences no structured read covers. */
+  text: string;
+}
+
+/** Settings → Email, in the words the page uses for each field. */
+export interface EmailSettings {
+  server: string;
+  port: string;
+  username: string;
+  sender: string;
+  recipients: string;
+}
+
+/** Settings → Notifications, as a person sets it. */
+export interface NotificationPreferences {
+  /** "Notify me when a manual execution completes". */
+  whenIRunSomethingMyself: boolean;
+  /** Which automatic routines may notify. */
+  forAutomaticRoutines: 'all' | 'selected' | 'none';
+}
+
+/* ========================================================================== *
+ *  The assistant composer, the library, and the managed vault.
+ * ========================================================================== */
+
+/**
+ * What the composer is set to, read back from the panel a person is looking at.
+ *
+ * The panel has two states and the row is about the difference between them.
+ * Before a conversation starts, the controls are there and `stillChangeable` is
+ * true. Once it has started they are gone — not disabled, gone — and the panel
+ * shows a sentence in their place instead. Reporting only the controls would
+ * make the second state unreadable, and reporting only the sentence would make
+ * the first one.
+ */
+export interface ComposerChoice {
+  /** Whether the controls are on screen and taking input. */
+  stillChangeable: boolean;
+  /** The connection, as the control labels the option it is on, or '' once fixed. */
+  connection: string;
+  /** The model the composer holds, exactly as it was typed, or '' once fixed. */
+  model: string;
+  /**
+   * The effort the composer holds — or, where the chosen adapter has no such
+   * thing, the sentence the composer prints instead. Both are answers to "what
+   * effort will this turn use"; only one of them is a value. '' once fixed.
+   */
+  effort: string;
+  /**
+   * What the panel says in place of the controls once the conversation has
+   * fixed its choices, and '' while they are still changeable.
+   */
+  fixedAs: string;
+}
+
+/**
+ * One turn's account of what was asked for and what answered.
+ *
+ * Two fields rather than one, because they are two different claims and the
+ * app keeps them apart on purpose: `requested` is what the person chose, and
+ * `reported` is what the runtime said about itself. A row that read only one of
+ * them could not tell a pinned choice from a substitution.
+ */
+export interface TurnChoiceFacts {
+  /** The `Requested: …` line, as the transcript writes it. */
+  requested: string;
+  /** Every runtime-reported model this turn lists, in the order it lists them. */
+  reported: string[];
+  /** The whole disclosure, for the sentences no structured read covers. */
+  text: string;
+}
+
+export interface JourneyDriver {
+  // — the composer's own choices (J33) ---------------------------------------
+  /**
+   * Point the assistant at the authored agent command, as
+   * `useAnAuthoredAgentCommand` does, and keep every argument list the command
+   * is handed.
+   *
+   * The recording is a shim in front of the same double, not a different
+   * double: what the app spawns, what it passes and what comes back are
+   * unchanged. It exists because "the model a person chose is the model that
+   * was asked for" is a claim about the command line, and a transcript can only
+   * report what the app believes it sent.
+   */
+  useAnAuthoredAgentCommandThatRecordsItsArguments(): Promise<void>;
+  /** Every invocation of that command so far, in order, argument by argument. */
+  readWhatTheAgentCommandReceived(): Promise<string[][]>;
+  /** Fix this conversation's model and effort in the composer, before it starts. */
+  fixTheChoicesForThisConversation(choice: { model: string; effort?: string }): Promise<ComposerChoice>;
+  /** What the composer shows now — the same read, without changing anything. */
+  readTheComposerChoices(): Promise<ComposerChoice>;
+  /**
+   * What the transcript currently on screen says each of its turns asked for
+   * and what answered — the live Ask panel or an opened saved chat, whichever
+   * is in front. One verb for both, because it is the same disclosure and a
+   * person reads it the same way in either place.
+   */
+  readTheTurnsChoices(): Promise<TurnChoiceFacts[]>;
+  /** Change the app-wide assistant defaults on Settings → AI, and save them. */
+  setTheAppWideAssistantDefaults(defaults: { model: string; effort?: string }): Promise<void>;
+}
+
+/** One item the Library lists, as the page and its own detail show it. */
+export interface LibraryItem {
+  /** The name the file had when it was imported. */
+  name: string;
+  /** `application/pdf`, `text/markdown` — as the row labels the retained format. */
+  mediaType: string;
+  /** The hash the detail shows for the bytes that were imported. */
+  sha256: string;
+  fileId: string;
+  versionId: string;
+  /** Every local paper the detail says is associated, in its own words. */
+  associations: string[];
+}
+
+/**
+ * The managed vault as it exists on the disk.
+ *
+ * Read off the filesystem rather than out of the API, because the row is that
+ * the person owns a directory they could open in a file manager after resmon
+ * is gone. An API that described a layout it had not written would pass a
+ * journey that only asked the API.
+ */
+export interface VaultOnDisk {
+  /** The directory the app created, by name only. */
+  directory: string;
+  /** `vault.json`'s bytes, exactly as they are on disk. */
+  marker: string;
+  /** Every path under the vault, relative to it, sorted. */
+  entries: string[];
+  /**
+   * The SHA256 of every retained file's bytes as they are on the disk now,
+   * keyed by the same relative path.
+   *
+   * Taken here rather than asserted from the screen: "the hash the detail
+   * shows is the hash of what is in the folder" is the whole of *owned*, and
+   * a page that showed a hash it had stored would satisfy a row that only
+   * compared the page with itself.
+   */
+  hashes: Record<string, string>;
+}
+
+export interface JourneyDriver {
+  // — the owned Library (J34) ------------------------------------------------
+  /**
+   * Choose a parent folder for the vault, through the app's own picker.
+   *
+   * The native chooser is scripted, exactly as `e2e/atlas-files.spec.ts` scripts
+   * it and for the same reason: nothing in an automated suite can operate a
+   * macOS file dialog. The production IPC handler is untouched — only its OS
+   * dependency answers — so the request, the validation and the creation are
+   * the app's. What no suite can see is a person's own Finder.
+   */
+  chooseAParentFolderForTheLibrary(): Promise<string>;
+  /** Press Create managed vault, and return the vault's directory on disk. */
+  createTheManagedVault(): Promise<string>;
+  /** Import these files through the page's own file control, and read its notice. */
+  importIntoTheLibrary(files: { name: string; content: string }[]): Promise<string>;
+  /** Every item the Library lists, each read from its own detail. */
+  readTheLibraryItems(): Promise<LibraryItem[]>;
+  /** Associate the item with this name with an existing paper, by its id. */
+  associateTheLibraryItemWithPaper(name: string, paperId: number): Promise<string>;
+  /** The vault as it exists on the disk, independently of what the app says. */
+  readTheVaultOnDisk(): Promise<VaultOnDisk>;
+}
+
+/* ========================================================================== *
+ *  The Evidence rows and the Source Wall.
+ * ========================================================================== */
+
+/**
+ * A PDF whose pages say exactly these sentences, as text a journey can hand to
+ * `importIntoTheLibrary`.
+ *
+ * Re-exported from the seam for the reason `runGate` is: a spec may import this
+ * module and nothing else, and a document whose pages say something known is
+ * the only way to hold the reader's text against a sentence rather than against
+ * whatever the reader produced.
+ */
+export { authoredPdf } from './fixtures/authored-pdf';
+
+/** One page of one file, as the Evidence reader shows it. */
+export interface EvidencePageView {
+  /** The reader's own heading — the file's name. */
+  file: string;
+  page: number;
+  /** The canonical text pane, character for character. */
+  text: string;
+  /** What the PDF image region says — `Page 1 of 2 rendered · PDF.js …` — or '' for a text file. */
+  image: string;
+  /** The reader's sentence about how much of the document text extraction looked at. */
+  examined: string;
+}
+
+/** One saved record, as the Notes and passages panel lists it. */
+export interface SavedEvidenceNote {
+  file: string;
+  /** `passage` or `note`, as the panel heads the record. */
+  kind: string;
+  page: number | null;
+  /** The quote a passage keeps, or null for a plain note. */
+  quote: string | null;
+  body: string;
+  noteId: string;
+  versionId: string;
+}
+
+/** A saved passage opened again: what the reader selected, and what it said about the match. */
+export interface ReopenedPassage {
+  file: string;
+  page: number;
+  /** The text the reader highlighted in the canonical pane, or ''. */
+  highlighted: string;
+  /** The reader's sentence about whether the saved anchor still matches. */
+  resolution: string;
+}
+
+/** The ZIP Export Selected Evidence wrote, and what is inside it. */
+export interface EvidenceBundle {
+  path: string;
+  /** Every member's name, as the archive lists them. */
+  members: string[];
+  /** `manifest.json`, parsed — only the fields this suite reads. */
+  manifest: { files: { file_id: string; notes: { note_id: string }[] }[] } & Record<string, unknown>;
+  /** `notes.md`, as text. */
+  notesMarkdown: string;
+  /** Each member's SHA256, keyed by member name. */
+  hashes: Record<string, string>;
+}
+
+/** One explicit selection for an answer. */
+export interface SelectedEvidenceChoice {
+  file: string;
+  /** A PDF's physical page. A text file has one logical page and takes none. */
+  page?: number;
+}
+
+export interface SelectedAnswerRequest {
+  select: SelectedEvidenceChoice[];
+  /** Saved note bodies to include, by the body the dialog labels each one with. */
+  includeNotes?: string[];
+  format: 'question' | 'briefing';
+  instruction: string;
+  /** The explicit model ID the connection is asked for. */
+  model: string;
+}
+
+/** What the dialog discloses before Send — the exact content that will leave the app. */
+export interface SelectedAnswerPreview {
+  /** Each source as the preview heads it (`S01 · name · page 1`) and the text under it. */
+  sources: { id: string; file: string; page: number; text: string }[];
+  /** Every owner-note body the preview shows. */
+  notes: string[];
+  /** The whole disclosure. */
+  text: string;
+}
+
+/** A saved answer, as the Evidence page shows it. */
+export interface SelectedAnswerView {
+  id: string;
+  /** `succeeded`, `failed`, `refused` — the state the article prints. */
+  state: string;
+  /** Each structured item's text, and the citation controls under it. */
+  items: { text: string; citations: string[] }[];
+  /** The `Incomplete / unvalidated output` text, or null where the result validated. */
+  unvalidated: string | null;
+  text: string;
+}
+
+/** One citation of the open answer, opened. */
+export interface OpenedCitation {
+  /** The control's own label: `S01 · name · page 2 · exact quoted text`. */
+  label: string;
+  /** The frozen quote the answer saved. */
+  frozen: string;
+  /** The text the current reader highlights for it, or '' where it opened none. */
+  highlighted: string;
+  /** The reader's sentence about whether the citation matched the current text. */
+  resolution: string;
+}
+
+/** One request the authored model received. */
+export interface AuthoredModelRequest {
+  /** The body exactly as it arrived — the thing a search for an unselected string has to search. */
+  raw: string;
+  /** The app's user prompt, parsed: `{request_sha256, payload}`. */
+  userPayload: SelectedPrompt | null;
+}
+
+export type { SelectedPrompt };
+
+/**
+ * A saved-answer HTML file opened by a reader that is not resmon, with resmon
+ * closed and every request but the one for the file refused.
+ */
+export interface OfflineDocument {
+  /** Every request the reader refused. Anything here is the document reaching for something. */
+  refused: string[];
+  /** Every window it tried to open and every navigation away from itself. */
+  escapes: string[];
+  /** Scripts, images, frames, forms and the other elements that could run or fetch. */
+  activeElements: number;
+  /** Every link's `href`. */
+  hrefs: string[];
+  text: string;
+  /** Whether the document says its answer is incomplete and unvalidated. */
+  saysUnvalidated: boolean;
+  /** Each answer citation, followed by keyboard to its quote and back. */
+  citations: {
+    /** The link's id in the answer. */
+    reference: string;
+    /** Where the link says it goes, as a fragment. */
+    href: string;
+    /** Where following it landed, as a fragment. */
+    arrivedAt: string;
+    quote: string;
+    start: number;
+    end: number;
+    /** The frozen excerpt of the source the quote sits under, as the file prints it. */
+    excerpt: string;
+    /** Where that excerpt begins on its page, in codepoints, as the file records it. */
+    excerptStart: number;
+    /** Where the quote's own return link landed. */
+    returnedTo: string;
+    /** Whether focus came back to the citation that was followed. */
+    returnFocused: boolean;
+  }[];
+}
+
+/** One cell of the Source Wall, as the grid draws it. */
+export interface SourceWallCellView {
+  /** The state the cell is drawn as, in the backend's vocabulary. */
+  state: string;
+  /** The mark inside the cell. */
+  glyph: string;
+  /** The word the cell is announced with. */
+  label: string;
+}
+
+export interface SourceWallView {
+  verdict: { level: string; headline: string; detail: string[] };
+  /** `Showing N of M recorded runs`. */
+  window: string;
+  /** The key, in the order the page draws it. */
+  legend: { label: string; glyph: string; count: number }[];
+  /** One row per source, one cell per run, oldest run first. */
+  rows: { source: string; cells: SourceWallCellView[] }[];
+}
+
+/** What the reading pane says about one cell once a person has selected it. */
+export interface SourceWallReading {
+  head: string;
+  label: string;
+  note: string;
+}
+
+/**
+ * The app's own records behind those three pages — each only the fields the
+ * specs read, so the shape a spec depends on is written down rather than
+ * reached for through an `any`.
+ */
+export interface StoredEvidenceNote {
+  note_id: string;
+  kind: string;
+  file_id: string;
+  version_id: string;
+  page_number: number | null;
+  start_codepoint: number | null;
+  end_codepoint: number | null;
+  quote: string | null;
+}
+
+export interface StoredCitation {
+  source_id: string;
+  start_codepoint: number;
+  end_codepoint: number;
+  quote: string;
+}
+
+export interface StoredAnswer {
+  answer_id: string;
+  state: string;
+  cleanup_state: string;
+  request: { payload: { sources: { source_id: string; start_codepoint: number; text: string }[] } };
+  /** Null where the app refused to validate what the model returned. */
+  result: { sections: { items: { citations: StoredCitation[] }[] }[] } | null;
+}
+
+export interface StoredSourceWall {
+  runs: { execution_id: number }[];
+  sources: { slug: string; name: string; cells: { state: string; label: string; note: string }[] }[];
+  state_legend: { state: string; label: string }[];
+  verdict: { level: string; headline: string; detail: string[] };
+}
+
+export interface BackendFacts {
+  /** Every saved Evidence record of this project, as the app stored it — offsets included. */
+  evidenceNotes(project: string): Promise<StoredEvidenceNote[]>;
+  /** One saved selected-evidence answer, as the app stored it. */
+  selectedAnswer(project: string, answerId: string): Promise<StoredAnswer>;
+  /** The grid `GET /api/coverage/source-wall` serves the page. */
+  sourceWall(): Promise<StoredSourceWall>;
+}
+
+export interface JourneyDriver {
+  // — the Evidence workspace (J35) -------------------------------------------
+  /**
+   * From this Library item, follow Open in Evidence, create a project with this
+   * name, and add the item's exact version to it. Returns the page the reader
+   * then shows.
+   */
+  startAnEvidenceProjectFrom(item: string, project: string): Promise<EvidencePageView>;
+  /** Add these Library items to the open project, and return every file it now holds. */
+  addToTheEvidenceProject(items: string[]): Promise<string[]>;
+  /** Open Evidence and select this project. */
+  openTheEvidenceProject(project: string): Promise<void>;
+  /** Select this file of the open project and read one page of it. */
+  readTheEvidencePage(file: string, page?: number): Promise<EvidencePageView>;
+  /** Find this exact text on the page, use it as a passage, and save it with this body. */
+  saveAnEvidencePassage(passage: { file: string; page?: number; quote: string; body: string }): Promise<string>;
+  /** Save a plain note against this file. */
+  saveAnEvidenceNote(note: { file: string; body: string }): Promise<string>;
+  /** Every record the Notes and passages panel lists. */
+  readTheSavedEvidenceNotes(): Promise<SavedEvidenceNote[]>;
+  /** Press Reopen on the saved passage that keeps this quote. */
+  reopenTheSavedPassage(quote: string): Promise<ReopenedPassage>;
+  /** Tick these files in Export Selected Evidence and download the ZIP. */
+  exportSelectedEvidence(files: string[], options: { includeFiles: boolean }): Promise<EvidenceBundle>;
+
+  // — selected-evidence answers (J36) ----------------------------------------
+  /**
+   * Point the custom API connection at an authored model on loopback, and store
+   * a key for it the way the API Key field does.
+   *
+   * The model is authored; the request the app builds, the key it reads back
+   * out of its own credential store, the validation of what comes back and the
+   * saved answer are the app's.
+   */
+  useAnAuthoredModelForSelectedAnswers(): Promise<void>;
+  /** From now on it attributes this sentence to the first source it is sent — which does not say it. */
+  theAuthoredModelCitesTextItWasNotSent(quote: string): void;
+  /** Every request the authored model has received, in order. */
+  readWhatTheAuthoredModelReceived(): AuthoredModelRequest[];
+  /**
+   * New selected-evidence answer: make these selections, preview them, read the
+   * disclosure, press Send, and read the saved answer once it has finished.
+   */
+  askFromSelectedEvidence(request: SelectedAnswerRequest): Promise<{
+    preview: SelectedAnswerPreview; answer: SelectedAnswerView;
+  }>;
+  /** Open every citation of the answer on screen, one after another. */
+  openEachCitationOfTheAnswer(): Promise<OpenedCitation[]>;
+  /** Open this saved answer from the project's history. */
+  openTheSavedAnswer(answerId: string): Promise<SelectedAnswerView>;
+
+  // — the saved answer, portable (J37) ---------------------------------------
+  /** Press Export HTML on the open answer: the file the download wrote, and what is in it. */
+  exportTheOpenAnswerAsHtml(): Promise<ExportedFile>;
+  /** Quit resmon — window and backend — as a person closing it would. */
+  closeTheApp(): Promise<void>;
+  /**
+   * Open this file in a reader that is not resmon, with every request but the
+   * one for the file refused, and follow each citation by keyboard and back.
+   */
+  readTheFileOffline(file: ExportedFile): Promise<OfflineDocument>;
+
+  // — the Source Wall (J45) --------------------------------------------------
+  /** What the Source Wall draws for the recorded runs. */
+  readTheSourceWall(): Promise<SourceWallView>;
+  /** Select one cell — a source's row, a run's column counting from 0 — and read the pane. */
+  readTheSourceWallCell(source: string, column: number): Promise<SourceWallReading>;
+}
+
+// — Today, the collection map, and appearance: J46, J47, J48 -------------------
+
+/** What a person chooses for the theme: follow the system, or one of the two. */
+export type ThemeChoice = 'system' | 'light' | 'dark';
+
+/** What the window is drawn in, read off the page rather than the setting. */
+export interface DrawnAppearance {
+  theme: 'light' | 'dark';
+  /** The chosen accent as the page applies it, lowercase `#rrggbb`. */
+  accent: string;
+}
+
+/** What the plate's title block says, read as a person reads it. */
+export interface PlateReading {
+  /** "all 42 papers on the map": the papers the plate says it shows. */
+  papers: number;
+  /** The sentence saying what placed them, from "placed" to its end. */
+  basis: string;
+}
+
+/** Today's list, read as a person reads it. */
+export interface TodayReading {
+  /** The list's heading, without its count: "New Since Yesterday", "New This Week". */
+  heading: string;
+  /** The count beside the heading. */
+  total: number;
+  /** Each group in the list, as its heading names it, with the count it gives. */
+  groups: { name: string; count: number }[];
+  /** Each outcome a watch's last run is said to have had from its sources: "DBLP did not answer". */
+  notes: string[];
+  /** The number on every entry, in list order. */
+  numbers: number[];
+  /** What the list says when it has nothing in it, or null. */
+  empty: string | null;
+}
+
+/** The parts of `GET /api/map` a journey reads. */
+export interface StoredCollectionMap {
+  state: 'empty' | 'fitting' | 'failed' | 'ready';
+  basis: 'embeddings' | 'words' | null;
+  points: { id: number[] };
+  unplaced: { no_text: number; not_embedded: number };
+}
+
+/** The parts of `GET /api/today` a journey reads. */
+export interface StoredToday {
+  window: 'since_last_look' | 'first_look';
+  total: number;
+}
+
+export interface BackendFacts {
+  /** `GET /api/appearance`: the theme and accent the engine keeps. */
+  appearance(): Promise<{ theme: ThemeChoice; accent: string | null }>;
+  /** `GET /api/map`: where every paper sits, and on what basis. */
+  collectionMap(): Promise<StoredCollectionMap>;
+  /** `GET /api/today`: the papers since the last look, by watch. */
+  today(): Promise<StoredToday>;
+  /**
+   * Collect papers from the authored source over the app's own API, and wait
+   * for the run to finish. Setup for a journey that reads what was collected
+   * rather than for one about collecting it: J01 is the dive form's journey.
+   */
+  collectPapers(request: DiveRequest): Promise<RunHandle>;
+}
+
+export interface JourneyDriver {
+  // — appearance (J46) ---------------------------------------------------------
+  /** Choose the theme in Settings, and wait until the app has kept it. */
+  chooseTheme(theme: ThemeChoice): Promise<void>;
+  /** Type an accent color into Settings, and wait until the app has kept it. */
+  chooseAccent(hex: string): Promise<void>;
+  /** What the window is drawn in right now. */
+  readAppearance(): Promise<DrawnAppearance>;
+
+  // — the collection map (J47) -------------------------------------------------
+  /** Open Today, wait for the plate to draw, and read its title block. */
+  readThePlate(): Promise<PlateReading>;
+
+  // — Today (J48) --------------------------------------------------------------
+  /** Open Today and read its list once every number in it is lit. */
+  readToday(): Promise<TodayReading>;
+  /** Press Mark All Read, and wait until the app has recorded the look. */
+  markAllRead(): Promise<void>;
+}
+
+// — shared wording (J49) -------------------------------------------------------
+
+/** The kinds of pair the scan lists, and the two it sets aside. */
+export type SharedWordingGroup = 'different_authors' | 'same_authors' | 'authors_unknown' | 'same_work' | 'notice';
+
+/** What Search › Shared Wording says after a scan, read as a person reads it. */
+export interface SharedWordingReading {
+  /** The sentence saying what the scan compared and what it did not. */
+  compared: string;
+  /** Each group's count, as its heading gives it. */
+  groups: Record<SharedWordingGroup, number>;
+}
+
+/** One pair side by side, read off the screen. */
+export interface SharedWordingPairReading {
+  /** The papers on the left and the right, by their numbers. */
+  left: number;
+  right: number;
+  /** The pair's sentences. */
+  summary: string[];
+  /** "30 words". */
+  longest: string;
+  /** "40%". */
+  share: string;
+  /** The text marked as shared, passage by passage, on each side. */
+  marked: { left: string[]; right: string[] };
+  /** What the view says resmon cannot see. */
+  limits: string[];
+}
+
+/** The parts of `GET /api/shared-wording` a journey reads. */
+export interface StoredSharedWording {
+  state: 'never' | 'other_version' | 'ready';
+  job: { running: boolean };
+  scan: { compared: number; not_compared: { no_abstract: number; too_short: number } } | null;
+  groups: { category: SharedWordingGroup; count: number; pairs: { a: number; b: number }[] }[];
+}
+
+/** The parts of `GET /api/shared-wording/pairs/{a}/{b}` a journey reads. */
+export interface StoredSharedWordingPair {
+  longest: number;
+  share: number;
+  summary: string[];
+  limits: string[];
+  left: { id: number; text: string };
+  right: { id: number; text: string };
+  passages: { left: number[]; right: number[]; words: number }[];
+}
+
+export interface BackendFacts {
+  /** `GET /api/shared-wording`: the last scan and its pairs by group. */
+  sharedWording(): Promise<StoredSharedWording>;
+  /** `GET /api/shared-wording/pairs/{a}/{b}`: one pair, with both texts and the passages. */
+  sharedWordingPair(a: number, b: number): Promise<StoredSharedWordingPair>;
+}
+
+export interface JourneyDriver {
+  /** Open Search › Shared Wording, press its scan button, and read what it says once the engine has stored the scan. */
+  scanForSharedWording(): Promise<SharedWordingReading>;
+  /** Open the listed pair of these two papers and read it side by side. */
+  openTheSharedWordingPair(a: number, b: number): Promise<SharedWordingPairReading>;
+}
+
+// — finding one paper (J50), and collections (J51) ------------------------------
+
+export interface FindReading {
+  title: string;
+  details: string;
+  sources: { source: string; outcome: string; label: string; mark: string }[];
+  pdf: { canGet: boolean; canRead: boolean; words: string };
+}
+
+export interface StoredFind {
+  execution_id: number;
+  status: string;
+  query: { kind: string; value: string; typed: string };
+  reference_document_id: number | null;
+  counts: Record<string, number>;
+  sources: {
+    source: string; outcome: string; document_id: number | null; matched_by: string | null;
+    open_copy: { downloadable: boolean; license: string | null; license_words: string | null } | null;
+  }[];
+}
+
+export interface StoredFullText {
+  document_id: number;
+  downloadable: boolean;
+  why_not: string | null;
+  why_not_words: string | null;
+  download: { state: string; file_id: string | null; license: string | null; license_words: string | null } | null;
+  in_library: { file_id: string; version_id: string; byte_size: number } | null;
+}
+
+export interface StoredLibraryFile {
+  file_id: string;
+  version_id: string;
+  original_name: string;
+  sha256: string;
+  byte_size: number;
+  media_type: string;
+  paper_links: { document_id: number; title: string | null }[];
+}
+
+export interface StoredCollections {
+  current_id: number;
+  default_id: number;
+  collections: { id: number; name: string; papers: number; watches: number; is_default: boolean }[];
+}
+
+export interface CollectionPaper { id: number; title: string }
+
+export interface BackendFacts {
+  /** The find's saved question and each source's recorded answer. */
+  find(run: RunHandle): Promise<StoredFind>;
+  /** The engine's current PDF/download record for this paper. */
+  fullTextForPaper(paper: number): Promise<StoredFullText>;
+  /** Retained files and their paper links, through the Library's guarded API. */
+  libraryFiles(): Promise<StoredLibraryFile[]>;
+  /** Every collection and the one the engine remembers. */
+  collections(): Promise<StoredCollections>;
+  /** Papers in the named collection, independently of what the window shows. */
+  papersInCollection(collection: number): Promise<CollectionPaper[]>;
+  /** A paper's stored metadata and collection memberships. */
+  paper(paper: number): Promise<CollectionPaper & {
+    authors: string | null; publication_date: string | null; collections: { id: number; name: string }[];
+  }>;
+}
+
+export interface JourneyDriver {
+  /** Type a query in Look Up a Paper, and read what the page reads it as. */
+  readHowFindReads(query: string): Promise<{ kind: string; words: string }>;
+  /** Ask these Sources for this one paper, through Look Up a Paper. */
+  findPaper(query: string, sources: string[]): Promise<RunHandle>;
+  /** The reference paper, every source's words and mark, and its PDF controls. */
+  readTheFind(run: RunHandle): Promise<FindReading>;
+  /** Get the PDF from this find and wait for Read the PDF to replace it. */
+  getTheFoundPdf(run: RunHandle): Promise<void>;
+  /** Return to Look Up a Paper with no open run, and read its earlier finds. */
+  readEarlierFinds(): Promise<{ id: number; query: string }[]>;
+  /** Make a collection in Settings, and return its stored number. */
+  makeCollection(name: string): Promise<number>;
+  /** Every collection listed in Settings, including its stated counts. */
+  readCollections(): Promise<{ id: number; name: string; facts: string }[]>;
+  /** Choose this collection in the top bar's switch. */
+  switchCollection(name: string): Promise<void>;
+  /** The name on the top bar's collection switch. */
+  readShownCollection(): Promise<string>;
+  /** The papers Search lists for the collection this window shows. */
+  readPapersInThisCollection(): Promise<CollectionPaper[]>;
+  /** Copy one paper from its page into another collection. */
+  copyPaperToCollection(paper: number, name: string): Promise<void>;
+  renameCollection(name: string, renamed: string): Promise<void>;
+  /** Open the deletion question without confirming it, and read its consequences. */
+  askToDeleteCollection(name: string): Promise<string>;
+  /** Confirm the open deletion question and read what the app says it kept. */
+  confirmDeleteCollection(name: string): Promise<string>;
+}

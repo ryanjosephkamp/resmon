@@ -1,0 +1,378 @@
+name: CI
+
+on:
+  # A pull request's own run tests its branch merged into its base, so a push
+  # to a pull request's branch runs nothing more here. Pushes run only on the
+  # branches pull requests merge into, which tests each merged result once.
+  push:
+    branches: [main, docs/one-oh]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch cancels the previous run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    # Longest observed 22.5 min (Python 3.10, 2026-09-22) over 29 runs.
+    timeout-minutes: 40
+    # Runs only here — see README.md in this directory.
+    if: github.repository == 'ryanjosephkamp/resmon'
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.10 is the floor the README advertises. 3.12 is here as the
+        # acceptance test for per-thread database connections: sharing one
+        # sqlite3.Connection between request threads and execution worker
+        # threads is a race, and 3.12 releases the GIL around sqlite3 far more
+        # aggressively than 3.11, so it fails reliably there and
+        # intermittently everywhere else. Each thread opens its own
+        # connection. If this column goes red, suspect connection sharing
+        # first.
+        python-version: ['3.10', '3.11', '3.12']
+
+    env:
+      # No OS keyring exists on a CI runner. Without this, credential reads fall
+      # through to a backend that cannot work and every lookup pays the timeout.
+      PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
+      RESMON_KEYRING_TIMEOUT: '2.0'
+      # Deliberately NOT setting RESMON_DISABLE_SCHEDULER: thirteen tests in
+      # test_scheduler_lifecycle.py and test_routine_scheduler_sync.py assert on
+      # a live scheduler and fail when it is disabled.
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The pull request's merge commit and its base, for affected.sh.
+          fetch-depth: 2
+
+      - name: Decide whether this suite runs
+        id: scope
+        # On a pull request, 3.10 and 3.11 run only when it changes the engine;
+        # 3.12 always runs in full, since the suite also checks the repository
+        # as a whole. A skipped suite passes. A merge runs every leg. See affected.sh.
+        working-directory: .
+        run: |
+          if [ "${{ matrix.python-version }}" = "3.12" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Python 3.12 always runs the whole suite."
+          else
+            .github/scripts/affected.sh engine
+          fi
+
+      - name: Refuse committed symlinks and local paths
+        # Twice in one day a worker's `git add -A` swept a symlink (node_modules,
+        # .venv) pointing into a maintainer's home directory past .gitignore,
+        # because a trailing-slash pattern matches a directory and not a symlink.
+        # A public repository must never carry either. This runs before anything
+        # is installed so it is the first red a bad commit sees.
+        run: |
+          links=$(git ls-tree -r HEAD | awk '$1 == "120000" {print $4}')
+          if [ -n "$links" ]; then
+            echo "Committed symlinks are not allowed:"; echo "$links"; exit 1
+          fi
+          # Placeholder paths in UI copy (/Users/you/Sites…) are fine; a path into a
+          # maintainer's checkout or scratch space is not. The one placeholder this
+          # cannot tell apart is /Users/<anyone>/Documents/resmon-…, so never write it.
+          paths=$(git ls-files -z | xargs -0 grep -Il -E '/Users/[^/]+/Documents/resmon-|/private/tmp/claude-|/tmp/claude-' -- 2>/dev/null \
+                  | grep -v -E '^\.github/workflows/ci\.yml$' || true)
+          if [ -n "$paths" ]; then
+            echo "Tracked files carry a maintainer-machine path:"; echo "$paths"; exit 1
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.scope.outputs.run == 'true'
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        if: steps.scope.outputs.run == 'true'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Verify every module parses
+        if: steps.scope.outputs.run == 'true'
+        # Catches a syntax error hidden behind a missing dependency — a module
+        # nothing imports on the happy path can stay broken indefinitely otherwise.
+        run: python -m compileall -q resmon_scripts/
+
+      - name: Verify the backend imports from a clean install
+        if: steps.scope.outputs.run == 'true'
+        # requirements.txt shipped without python-dateutil, so a fresh clone
+        # could not start at all. This step fails immediately if that recurs.
+        run: |
+          PYTHONPATH=resmon_scripts python -c "import resmon; print('desktop backend OK')"
+
+      - name: Run the hermetic test suite
+        if: steps.scope.outputs.run == 'true'
+        # pytest.ini deselects the live_network marker by default, so this never
+        # touches a third-party API.
+        #
+        # -v rather than -q on purpose: pytest-timeout's dump does not name the
+        # item it killed, so a hang in quiet mode leaves only a row of dots to
+        # count. With -v the last line printed is the last test that finished,
+        # which names the culprit immediately.
+        #
+        # -v prints every parametrized id, so conftest.py's
+        # pytest_make_parametrize_id caps ids (longest in the whole suite: 188
+        # bytes). `gh run view --log` reads with Go's bufio.Scanner at its
+        # default 64 KiB and stops at the first longer line, which would hide
+        # the rest of the log and leave a last visible line that names an
+        # innocent test. The whole log is also available through
+        #   gh api --allow-escape-sequences /repos/<owner>/<repo>/actions/jobs/<id>/logs
+        #
+        # --durations=25 because nothing else watches the headroom. Two cases
+        # sit at 90% and 93% of pytest.ini's 120 s, and timeout_method = thread
+        # expires by calling os._exit(1), so the run that crosses the line
+        # reports nothing at all. Twenty-five lines at the end of a readable
+        # log is the cheapest standing watch there is, and it makes the next
+        # case to approach the limit visible before it arrives.
+        #
+        # The status is captured and re-raised rather than left to the shell, and
+        # it is echoed as a notice because a job killed by a signal exits 128+N
+        # and that single number settles what happened: 137 is an OOM kill, 139 a
+        # segfault. /usr/bin/time -v alongside it records peak RSS, which is what
+        # turns "137" into a diagnosis rather than a guess. There is deliberately
+        # no pipe here: a pipeline would put pytest's exit code behind tee's,
+        # and a crashed run would report success.
+        run: |
+          set +e
+          # Probe the flag, not the file. `-x /usr/bin/time` is true for BSD
+          # time as well, which has no -v and would fail the step on a flag
+          # rather than on a test. Running it against `true` settles presence
+          # and -v support in one go: absent gives 127, BSD gives a usage
+          # error, GNU gives 0.
+          if /usr/bin/time -v true >/dev/null 2>&1; then
+            /usr/bin/time -v pytest -v --durations=25
+          else
+            echo "::warning title=Backend suite::/usr/bin/time -v is unavailable on this runner; no peak RSS recorded"
+            pytest -v --durations=25
+          fi
+          status=$?
+          set -e
+          echo "::notice title=Backend suite (Python ${{ matrix.python-version }})::pytest exited ${status}. Over 128 means a signal: 137 is an OOM kill, 139 a segfault, and the peak RSS above says which."
+          exit "${status}"
+
+  lint:
+    name: Lint (renderer)
+    runs-on: ubuntu-latest
+    # Both of these are house rules rather than this job's own needs: CI is
+    # free because the repository is public, and a private mirror running the
+    # same workflows is billed per minute.
+    if: github.repository == 'ryanjosephkamp/resmon'
+    timeout-minutes: 10
+
+    # ESLint reads the sources and never starts Electron. Skipping Electron's
+    # binary takes GitHub's release downloads, which answer 504 at times, out
+    # of this job.
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
+    defaults:
+      run:
+        working-directory: resmon_scripts/frontend
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The pull request's merge commit and its base, for affected.sh.
+          fetch-depth: 2
+
+      - name: Decide whether this suite runs
+        id: scope
+        # On a pull request that changes nothing the renderer is built from, the
+        # steps below skip and the check passes. A merge always runs it. See affected.sh.
+        working-directory: .
+        run: .github/scripts/affected.sh frontend
+
+      - uses: actions/setup-node@v4
+        if: steps.scope.outputs.run == 'true'
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: resmon_scripts/frontend/package-lock.json
+
+      - name: Install dependencies
+        if: steps.scope.outputs.run == 'true'
+        # `npm install`, not `npm ci`, for the reason spelled out in the
+        # Frontend job below: npm omits other platforms' optional
+        # dependencies from a lockfile generated on macOS.
+        run: npm install --no-audit --no-fund
+
+      - name: ESLint
+        if: steps.scope.outputs.run == 'true'
+        # Warnings do not fail this job, and that is the point of it. Every
+        # rule the renderer does not satisfy yet is a `warn` listed by name
+        # and count in eslint.config.mjs. The rules it does satisfy are errors
+        # and this step is what holds them, along with any `eslint-disable`
+        # left behind for a rule that reports nothing.
+        run: npm run lint
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    # Longest observed 1.5 min over the same 29 runs.
+    timeout-minutes: 10
+    # Runs only here — see README.md in this directory.
+    if: github.repository == 'ryanjosephkamp/resmon'
+
+    # Jest, the typecheck, and the build use the electron package's types and
+    # mocks, never its binary. Skipping the binary takes GitHub's release
+    # downloads, which answer 504 at times, out of this job.
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
+    defaults:
+      run:
+        working-directory: resmon_scripts/frontend
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The pull request's merge commit and its base, for affected.sh.
+          fetch-depth: 2
+
+      - name: Decide whether this suite runs
+        id: scope
+        # On a pull request that changes nothing the renderer is built from, the
+        # steps below skip and the check passes. A merge always runs it. See affected.sh.
+        working-directory: .
+        run: .github/scripts/affected.sh frontend
+
+      - uses: actions/setup-node@v4
+        if: steps.scope.outputs.run == 'true'
+        with:
+          # 22, matching package.json's engines and .nvmrc. 20 is
+          # @playwright/test@1.62.1's declared floor, and sitting exactly on a
+          # dependency's floor is not a place to stay.
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: resmon_scripts/frontend/package-lock.json
+
+      - name: Install dependencies
+        if: steps.scope.outputs.run == 'true'
+        # `npm install`, not `npm ci`. npm omits other platforms' optional
+        # dependencies from the lockfile - the @emnapi/* WASM fallbacks - so a
+        # lockfile generated on macOS makes `npm ci` fail on the Linux runner
+        # with "Missing: @emnapi/core from lock file".
+        #
+        # The chain is jest-resolve -> unrs-resolver ->
+        # @unrs/resolver-binding-wasm32-wasi -> @napi-rs/wasm-runtime ->
+        # @emnapi/*, every link a devDependency of jest. That family
+        # (@emnapi/*, @unrs/*, @napi-rs/*) is 27 lockfile entries, so
+        # `npm install` stays.
+        #
+        # The lockfile is still committed and still honored for everything it
+        # does pin; this only relaxes the strict-equality check that npm itself
+        # cannot satisfy across platforms.
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck
+        if: steps.scope.outputs.run == 'true'
+        run: npm run typecheck
+
+      - name: Jest (Atlas, Electron, and the build scripts)
+        if: steps.scope.outputs.run == 'true'
+        run: npm test
+
+      - name: Build renderer and Electron main
+        if: steps.scope.outputs.run == 'true'
+        run: npm run build
+
+  site:
+    name: Site (docs/ is what site/ builds)
+    runs-on: ubuntu-latest
+    # Runs only here — see README.md in this directory.
+    if: github.repository == 'ryanjosephkamp/resmon'
+    # The site build is ~4s and the verifier ~2s; the install dominates.
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: site
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # 22, matching the other Node jobs in this workflow.
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install dependencies
+        # `npm install` rather than `npm ci`, for the same cross-platform
+        # reason the Frontend job documents at length: the lockfile is
+        # generated on macOS and omits other platforms' optional dependencies,
+        # which `npm ci` treats as a mismatch.
+        #
+        # **If this job goes red on a pull request that touched nothing to do
+        # with the site, look here first.** This job's whole assertion is that
+        # the built bytes match the committed ones, and `npm install` resolves
+        # some of the tree rather than taking it all from the lockfile. A
+        # transitive bump in Astro's or remark's dependency graph that changes
+        # one character of rendered HTML reddens this gate on a diff that
+        # cannot explain it. The fix in that case is to rebuild and commit
+        # `docs/` — the gate is right, the output really has changed — not to
+        # relax the gate. `npm ci` would remove the possibility, and cannot be
+        # used until the lockfile problem above is solved for every platform.
+        run: npm install --no-audit --no-fund
+
+      - name: Design values live in tokens.css, and text clears WCAG AA
+        run: node scripts/check-tokens.mjs
+
+      - name: The published output verifies
+        # Bare, with no `--dir`: the documented command has to be the command
+        # that passes, and it verifies `docs/`, the directory GitHub Pages
+        # serves, not Astro's `dist/`.
+        run: npm run verify
+
+      - name: docs/ is what these sources build
+        # The gate this job exists for.
+        #
+        # `docs/` is the published site and it is committed output, not a
+        # build step on a runner: GitHub Pages serves the files as they are.
+        # So a pull request that edits a Markdown file under `docs/` and does
+        # not rebuild leaves the published page showing the old text, with
+        # nothing to notice it.
+        #
+        # `git status --porcelain` rather than `git diff`, so a page that
+        # should newly exist counts too, and rather than `git add -A`, which
+        # is a house rule: it can sweep a symlinked node_modules into a public
+        # branch.
+        #
+        # `--ignored=matching` because plain `git status` does not report an
+        # ignored file, and `docs/` is not exempt from the root `.gitignore`.
+        # A file at `docs/dist/page.html` would stay green: `.gitignore:35` is
+        # `dist/`. The rule that bites is not a planted file but the ordinary
+        # case — a document's slug becomes its
+        # directory, so `docs/build.md` publishes to `docs/build/index.html`,
+        # which `build/` ignores. The source commits, the page never does, and
+        # the gate reports byte-identical. `build/`, `dist/`, `out/`,
+        # `release/`, `logs/` and `coverage/` are all directory-only rules and
+        # all of them are plausible document slugs.
+        #
+        # `.gitignore` now also un-ignores everything under `docs/`, which is
+        # the other half: this makes the drift visible, that makes it fixable.
+        # Both are here because they fail independently — a later ignore rule
+        # could out-rank the negation, and this question would still be the
+        # right one to ask.
+        run: |
+          npm run build
+          changed="$(git status --porcelain --ignored=matching -- ../docs)"
+          if [ -n "$changed" ]; then
+            echo "::error::docs/ is not what site/ builds. Run 'npm run build' in site/ and commit the result."
+            echo "$changed"
+            echo "A '!!' row is a built page that .gitignore is hiding; see .gitignore's docs/ note."
+            git diff --stat -- ../docs
+            exit 1
+          fi
+          echo "docs/ is byte-identical to a fresh build of site/."

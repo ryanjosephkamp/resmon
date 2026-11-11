@@ -1,0 +1,1280 @@
+"""The MCP server — conformance to the tool contract.
+
+Tests speak the real JSON-RPC protocol at ``handle_message`` and stub the HTTP
+layer, because what matters is the surface a harness sees: the tool list, the
+shapes, and above all the guarantees the contract states as guarantees rather
+than defaults.
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+from unittest.mock import patch
+
+import httpx
+import pytest
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
+
+import mcp_server as mcp  # noqa: E402
+
+
+# The port this module's doubles answer on. An arbitrary high number, named by
+# the fixture below so that every test here starts from a *named* instance --
+# which is the only way the server finds one at all. It is deliberately not the
+# port resmon's background service uses: this suite neither binds nor addresses
+# that port, and the behavior under test is that the server never reaches for
+# it on its own.
+STUB_PORT = 9001
+STUB_BASE = f"http://127.0.0.1:{STUB_PORT}"
+
+
+@pytest.fixture(autouse=True)
+def _reset_backend(monkeypatch, tmp_path):
+    """A clean client, a named port, and token files for every port named here.
+
+    Discovery reads ``<state dir>/api-token-<port>`` before probing a port, so
+    each test gets its own state directory holding one for each port used
+    below. The HTTP doubles here do not check the header; that the header is
+    sent, and that a real backend refuses without it, is
+    ``test_local_api_auth.py``'s job, against a real process.
+
+    ``RESMON_PORT`` and ``RESMON_PORT_FILE`` are both set because the server
+    names no port of its own: with neither mechanism naming one, discovery
+    refuses, and every test below that goes through discovery would be
+    measuring that refusal instead of itself. The port file is pointed at a
+    path that does not exist for the second reason the suite already learned
+    once -- a ``resmon.port`` left in the checkout by a dev run would otherwise
+    add a candidate nobody mentioned, and change results under the test.
+    """
+    from implementation_scripts import api_auth
+
+    monkeypatch.setenv("RESMON_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("RESMON_PORT", str(STUB_PORT))
+    monkeypatch.setenv("RESMON_PORT_FILE", str(tmp_path / "absent.port"))
+    monkeypatch.setattr("implementation_scripts.config.PORT_FILE",
+                        tmp_path / "absent.port")
+    for port in (8791, 9001, 9002, 9999):
+        api_auth.write_token_file(port, api_auth.mint_token())
+    mcp.backend._base = None
+    mcp.backend._token = None
+    mcp.backend._tried = []
+    yield
+    mcp.backend._base = None
+    mcp.backend._token = None
+
+
+def _payload(result: dict) -> dict:
+    """Unwrap the MCP text-content envelope back into the tool's own JSON."""
+    return json.loads(result["content"][0]["text"])
+
+
+def _stub(routes: dict, base: str = STUB_BASE,
+          formats: tuple[str, ...] = ("bibtex", "ris", "csv", "json")):
+    """Serve canned JSON for exact paths; anything else 404s.
+
+    **This double honors the query string, and that is the point of it.**
+
+    It used to strip ``?...`` before matching, which made it structurally
+    incapable of observing the parameter a real bug lived in: the MCP server
+    asked the reference endpoint for ``format=json`` when no JSON renderer
+    existed, the stub discarded the parameter and returned canned JSON anyway,
+    and the suite stayed green while the tool failed for every execution in
+    production.
+
+    So *format* is validated here the way the backend validates it -- an
+    unknown one is HTTP 400 with the backend's own wording -- and *params*
+    passed to a request are recorded for assertion. A test double that cannot
+    fail the way the real dependency fails is not testing the integration.
+    """
+    mcp.backend._base = base
+    seen: list[dict] = []
+
+    def _request(method, url, **kwargs):
+        raw_path = url[len(base):]
+        path, _, query = raw_path.partition("?")
+        params = dict(kwargs.get("params") or {})
+        if query:
+            for pair in query.split("&"):
+                key, _, value = pair.partition("=")
+                params.setdefault(key, value)
+        seen.append({"method": method, "path": path, "params": params})
+
+        fmt = params.get("format")
+        if fmt is not None and fmt not in formats:
+            return httpx.Response(
+                400,
+                json={"detail": f"Unknown export format {fmt!r}. Expected one of: "
+                                f"{', '.join(sorted(formats))}."},
+                request=httpx.Request(method, url),
+            )
+
+        entry = routes.get((method, path)) or routes.get(path)
+        if entry is None:
+            return httpx.Response(404, json={"detail": "Not found"},
+                                  request=httpx.Request(method, url))
+        status, body = entry if isinstance(entry, tuple) else (200, entry)
+        if isinstance(body, str):
+            return httpx.Response(status, text=body,
+                                  request=httpx.Request(method, url))
+        return httpx.Response(status, json=body,
+                              request=httpx.Request(method, url))
+
+    patcher = patch.object(mcp.httpx, "request", side_effect=_request)
+    patcher.seen = seen  # type: ignore[attr-defined]
+    return patcher
+
+
+# ---------------------------------------------------------------------------
+# Protocol
+# ---------------------------------------------------------------------------
+
+def test_initialize_reports_the_contract_version():
+    resp = mcp.handle_message({"jsonrpc": "2.0", "id": 1, "method": "initialize"})
+    assert resp["result"]["serverInfo"]["name"] == "resmon"
+    assert resp["result"]["serverInfo"]["version"] == mcp.CONTRACT_VERSION
+
+
+def test_initialized_notification_gets_no_reply():
+    """A notification has no id; answering one is a protocol error."""
+    assert mcp.handle_message({"jsonrpc": "2.0", "method": "notifications/initialized"}) is None
+
+
+def test_tools_list_matches_the_contract():
+    resp = mcp.handle_message({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+    names = {t["name"] for t in resp["result"]["tools"]}
+    assert names == {
+        "health", "search_corpus", "find_similar", "list_sources", "list_routines",
+        "get_routine", "list_executions", "get_execution", "get_execution_results",
+        "get_search_record", "explain_match", "get_paper_lifecycle",
+        "get_analytics", "get_watchdog_findings", "export_references",
+        "run_sweep", "create_routine", "run_routine",
+        "activate_routine", "deactivate_routine", "update_settings",
+        "list_watch_profiles", "get_watch_profile", "get_profile_matches",
+        "create_watch_profile", "list_collections",
+    }
+    # Every write tool is marked ``requires_confirmation``, because a caller
+    # that ignores that flag is running writes the contract says a person
+    # approves first. The four watch-profile tools are among the 26.
+    assert len(names) == 26
+    # The version string is the contract's: a harness tells one server from
+    # another by what each accepts, so it moves with any observable change,
+    # including a narrowing such as the settings allowlist.
+    assert mcp.CONTRACT_VERSION == "1.1"
+
+
+def test_a_read_only_server_lists_the_reads_and_nothing_else(monkeypatch):
+    """``RESMON_MCP_READ_ONLY=1``: the list a client sees is ``READ_TOOLS`` exactly."""
+    monkeypatch.setenv(mcp.READ_ONLY_ENV, "1")
+    resp = mcp.handle_message({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+    listed = {t["name"] for t in resp["result"]["tools"]}
+    # Outside an Ask conversation with attached files, the tool that reads them is not offered.
+    assert listed == set(mcp.READ_TOOLS) - mcp.CONVERSATION_TOOLS
+    assert not listed & mcp.WRITE_TOOLS
+    with mcp.in_conversation(1):
+        inside = mcp.handle_message({"jsonrpc": "2.0", "id": 3, "method": "tools/list"})
+    assert {t["name"] for t in inside["result"]["tools"]} == set(mcp.READ_TOOLS)
+    assert all(t["requires_confirmation"] is False for t in resp["result"]["tools"])
+
+
+@pytest.mark.parametrize("value", ["", "0", "true", "yes"])
+def test_only_the_exact_switch_narrows_the_list(monkeypatch, value):
+    """Anything but ``1`` leaves the full surface, so a typo cannot half-apply."""
+    monkeypatch.setenv(mcp.READ_ONLY_ENV, value)
+    resp = mcp.handle_message({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+    assert len(resp["result"]["tools"]) == len(mcp.TOOLS) - len(mcp.CONVERSATION_TOOLS)
+
+
+def test_a_read_only_server_refuses_a_write_before_the_backend(monkeypatch):
+    """A guessed write name is refused in the server; nothing is sent anywhere."""
+    monkeypatch.setenv(mcp.READ_ONLY_ENV, "1")
+    sent: list = []
+    monkeypatch.setattr(mcp.backend, "request", lambda *a, **k: sent.append(a) or {})
+    for name in sorted(mcp.WRITE_TOOLS):
+        result = mcp.call_tool(name, {"routine_id": 1, "name": "x"})
+        assert result["isError"] is True
+        payload = json.loads(result["content"][0]["text"])
+        assert payload["error"] == "invalid_argument"
+        assert payload["detail"] == {"read_only": True}
+        assert "Nothing was changed" in payload["message"]
+    assert sent == []
+
+
+def test_every_tool_declares_whether_it_needs_confirmation():
+    """The flag is emitted for every tool, true *and* false.
+
+    A harness that has to infer "no flag means safe" is one release away from
+    inferring it about a tool that grew teeth. And because the assistant builds
+    its pre-approved set from ``READ_TOOLS``, a tool that forgets to declare
+    lands in the pre-approved set — so this is the guard that makes
+    confirmation a decision rather than a default.
+    """
+    resp = mcp.handle_message({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+    for tool in resp["result"]["tools"]:
+        assert isinstance(tool["requires_confirmation"], bool), tool["name"]
+
+    flagged = {t["name"] for t in resp["result"]["tools"] if t["requires_confirmation"]}
+    assert flagged == mcp.WRITE_TOOLS
+    assert flagged == {
+        "run_sweep", "create_routine", "run_routine",
+        "activate_routine", "deactivate_routine", "update_settings",
+        # Creating a profile writes a row and is confirm-gated like every
+        # other write; the three reads beside it are not.
+        "create_watch_profile",
+    }
+    assert mcp.READ_TOOLS | mcp.WRITE_TOOLS == {t["name"] for t in mcp.TOOLS}
+    assert not (mcp.READ_TOOLS & mcp.WRITE_TOOLS)
+
+
+def test_no_read_tool_reaches_the_backend_with_a_writing_method():
+    """The read/write split is a claim about HTTP verbs, so check the verbs.
+
+    ``READ_TOOLS`` is what the assistant pre-approves without asking anyone, so
+    "read" has to mean something the code enforces rather than something the
+    name suggests. Every read tool is called against a stub that answers
+    everything, and the methods it actually used are asserted.
+    """
+    calls_by_tool: dict[str, list[str]] = {}
+    for name in sorted(mcp.READ_TOOLS):
+        methods: list[str] = []
+        for args in _READ_TOOL_ARGS[name]:
+            stub = _stub({})        # 404s everything; the method is still recorded
+            with stub, mcp.in_conversation(1 if name in mcp.CONVERSATION_TOOLS else None):
+                mcp.call_tool(name, args)
+            methods += [c["method"] for c in stub.seen]
+        calls_by_tool[name] = methods
+
+    for name, methods in calls_by_tool.items():
+        assert methods, f"{name} made no request at all"
+        offending = [m for m in methods if m not in ("GET", "POST")]
+        assert not offending, f"{name} used {offending}"
+
+    # The two read tools that POST do so because the backend's search and
+    # bulk-export routes take a body. Anything else POSTing would be a write
+    # wearing a read's name, so the exception is named rather than allowed.
+    # ``export_references`` reaches both of its endpoints here, which is why
+    # its entry below has two argument sets: the by-execution path is a GET and
+    # only the by-document-ids path posts.
+    posting = {n for n, ms in calls_by_tool.items() if "POST" in ms}
+    assert posting == {"search_corpus", "export_references"}
+
+
+# Arguments that make each read tool issue exactly one request. Derived
+# coverage: the test above iterates ``READ_TOOLS``, so a read tool with no
+# entry here raises a KeyError rather than being skipped.
+_READ_TOOL_ARGS: dict[str, list[dict]] = {
+    "health": [{}],
+    "read_attached_file": [{}],
+    "search_corpus": [{"query": "x"}],
+    "find_similar": [{"doc_id": 1}],
+    "list_sources": [{}],
+    "list_routines": [{}],
+    "get_routine": [{"routine_id": 1}],
+    "list_executions": [{}],
+    "get_execution": [{"exec_id": 1}],
+    "get_execution_results": [{"exec_id": 1}],
+    "get_search_record": [{"exec_id": 1}],
+    "explain_match": [{"doc_id": 1}],
+    "get_paper_lifecycle": [{"doc_id": 1}],
+    "get_analytics": [{"view": "overview"}],
+    "get_watchdog_findings": [{}],
+    "list_collections": [{}],
+    "export_references": [{"exec_id": 1, "format": "bibtex"},
+                          {"doc_ids": [1, 2], "format": "bibtex"}],
+    # ``get_watch_profile`` deliberately issues two GETs — the profile and
+    # its match counts — and both are recorded; the assertion below is about the
+    # *methods*, so a second GET is not an exception to it.
+    "list_watch_profiles": [{}],
+    "get_watch_profile": [{"profile_id": 1}],
+    "get_profile_matches": [{"profile_id": 1}],
+}
+
+
+# ---------------------------------------------------------------------------
+# The settings, routine, and sweep tools
+# ---------------------------------------------------------------------------
+
+def test_activate_and_deactivate_hit_the_endpoints_that_exist():
+    for tool, path in (("activate_routine", "/api/routines/4/activate"),
+                       ("deactivate_routine", "/api/routines/4/deactivate")):
+        stub = _stub({("POST", path): {"id": 4, "is_active": tool == "activate_routine"}})
+        with stub:
+            body = _payload(mcp.call_tool(tool, {"routine_id": 4}))
+        assert stub.seen[0] == {"method": "POST", "path": path, "params": {}}
+        assert body["id"] == 4
+
+
+def test_update_settings_sends_only_the_keys_it_was_given():
+    """P11. The PUT carries the named keys and nothing else.
+
+    The backend's own PUT is a partial update, so a tool that sent the whole
+    group back would still *look* correct — until a key the model had not
+    thought about was rewritten with a stale value read seconds earlier. What
+    is asserted is the request body, not the outcome.
+    """
+    group = {"ai_provider": "claude_cli", "ai_model": "opus", "ai_effort": "high"}
+    changed = dict(group, ai_effort="low")
+    stub = _stub({("GET", "/api/settings/ai"): group,
+                  ("PUT", "/api/settings/ai"): {"success": True}})
+    stub_get_after = changed
+
+    calls: list = []
+
+    def _sequence(method, url, **kwargs):
+        calls.append((method, url, kwargs.get("json")))
+        if method == "PUT":
+            return httpx.Response(200, json={"success": True},
+                                  request=httpx.Request(method, url))
+        body = group if len([c for c in calls if c[0] == "GET"]) == 1 else stub_get_after
+        return httpx.Response(200, json=body, request=httpx.Request(method, url))
+
+    mcp.backend._base = STUB_BASE
+    with patch.object(mcp.httpx, "request", side_effect=_sequence):
+        body = _payload(mcp.call_tool(
+            "update_settings", {"group": "ai", "settings": {"ai_effort": "low"}}))
+
+    put = next(c for c in calls if c[0] == "PUT")
+    assert put[2] == {"settings": {"ai_effort": "low"}}
+    assert body["changed"] == {"ai_effort": {"from": "high", "to": "low"}}
+    assert body["unchanged_key_count"] == 2
+
+
+@pytest.mark.parametrize("requested,target", [("false", False), ("true", True),
+                                               (False, False), (True, True)])
+def test_update_settings_preserves_boolean_type_at_the_http_boundary(requested, target):
+    """PR-CI guard for the wire type, with the backend's truthiness failure.
+
+    This double deliberately evaluates bool(value), as the notification PUT
+    does: bool("False") is True. It cannot turn the original regression into a
+    pass by parsing the string helpfully. The real HTTP/SQLite companion stays
+    in test_mcp_settings_boundary.py; this check claims no real socket/storage.
+    """
+    before = not target
+    state = {"notify_manual": before, "notify_automatic_mode": "selected"}
+    sent = []
+    methods = []
+    base = "http://127.0.0.1:1"
+
+    def request(method, url, **kwargs):
+        assert url == base + "/api/settings/notifications"
+        methods.append(method)
+        if method == "PUT":
+            sent.append(kwargs["json"])
+            state["notify_manual"] = bool(kwargs["json"]["settings"]["notify_manual"])
+            body = {"success": True}
+        else:
+            assert method == "GET"
+            body = dict(state)
+        return httpx.Response(200, json=body, request=httpx.Request(method, url))
+
+    mcp.backend._base = base
+    with patch.object(mcp.httpx, "request", side_effect=request):
+        result = mcp.call_tool("update_settings", {
+            "group": "notifications", "settings": {"notify_manual": requested}})
+    assert not result["isError"], result
+    assert methods == ["GET", "PUT", "GET"]
+    assert sent == [{"settings": {"notify_manual": target}}]
+    assert type(sent[0]["settings"]["notify_manual"]) is bool
+    assert state == {"notify_manual": target, "notify_automatic_mode": "selected"}
+    body = _payload(result)
+    assert body["changed"] == {"notify_manual": {"from": before, "to": target}}
+    assert body["unchanged_key_count"] == 1
+
+
+def test_settings_receipt_uses_source_bytes_independent_of_copy_location(tmp_path):
+    from test_mcp_settings_boundary import _source_receipt
+
+    def make_source(root):
+        scripts = root / "resmon_scripts"
+        (scripts / "implementation_scripts").mkdir(parents=True)
+        for name in ("resmon.py", "mcp_server.py", "implementation_scripts/config.py"):
+            (scripts / name).write_text("# synthetic source\n", encoding="utf-8")
+
+    standalone = tmp_path / "standalone"
+    enclosing = tmp_path / "unrelated"
+    archived = enclosing / "archive"
+    (enclosing / ".git").mkdir(parents=True)
+    (enclosing / ".git/HEAD").write_text("unrelated enclosing history\n")
+    make_source(standalone)
+    make_source(archived)
+    # Git is irrelevant, including on a machine without a Git executable.
+    with patch.object(subprocess, "check_output", side_effect=AssertionError("must not consult Git")):
+        first, second = _source_receipt(standalone), _source_receipt(archived)
+    assert first["backend_source_sha256"] == second["backend_source_sha256"]
+    assert first["backend_source_file_count"] == second["backend_source_file_count"] == 3
+    assert first["source_root"] != second["source_root"]
+    assert "head" not in first and "head" not in second
+    (archived / "resmon_scripts/implementation_scripts/config.py").write_text("# changed bytes\n")
+    assert _source_receipt(archived)["backend_source_sha256"] != first["backend_source_sha256"]
+
+
+def test_update_settings_refuses_a_credential_shaped_key_before_any_request():
+    """Structural: the tool cannot be *asked* for a secret.
+
+    Refused on the key's name, before the group is even fetched — so this holds
+    for a credential key the app does not have yet as much as for one it does.
+    """
+    stub = _stub({("GET", "/api/settings/ai"): {"ai_provider": "x"}})
+    with stub:
+        result = mcp.call_tool("update_settings", {
+            "group": "ai", "settings": {"anthropic_api_key": "sk-real-value"}})
+    body = _payload(result)
+    assert result["isError"]
+    assert body["error"] == "invalid_argument"
+    assert body["detail"]["refused_keys"] == ["anthropic_api_key"]
+    assert stub.seen == [], "a refused key must not reach the backend at all"
+    assert "sk-real-value" not in json.dumps(body), (
+        "the refusal echoed the value it was refusing"
+    )
+
+
+@pytest.mark.parametrize("key", [
+    "api_key", "ANTHROPIC_TOKEN", "smtp_password", "client_secret",
+    "my_passphrase", "credential_store", "auth_header",
+])
+def test_every_credential_shaped_word_is_refused(key):
+    stub = _stub({})
+    with stub:
+        result = mcp.call_tool(
+            "update_settings", {"group": "ai", "settings": {key: "value"}})
+    assert result["isError"]
+    assert stub.seen == []
+
+
+def test_update_settings_refuses_a_group_that_is_not_on_the_allowlist():
+    for group in ("credentials", "advanced", "execution", ""):
+        stub = _stub({})
+        with stub:
+            result = mcp.call_tool(
+                "update_settings", {"group": group, "settings": {"a": "b"}})
+        assert result["isError"], group
+        assert stub.seen == [], group
+
+
+def test_update_settings_refuses_an_unknown_key_rather_than_dropping_it():
+    """The backend ignores keys outside the group. A tool must not.
+
+    Right for a form, wrong for a tool: a caller told "success" for a key that
+    was silently discarded has been lied to, and the assistant would report the
+    change to the user as done.
+
+    ``SETTINGS_KEYS_WRITABLE`` is one flat list rather than a group-to-keys
+    map, on purpose — a map here would be the copy of the app's key list that
+    this guard exists to avoid — so a writable key aimed at the wrong group is
+    exactly the case that reaches it. A key on no list at all is refused one
+    guard earlier, which is still "refused rather than dropped"; both are
+    checked, because only the second says the group's real key list back.
+    """
+    stub = _stub({("GET", "/api/settings/notifications"): {
+        "notify_manual": "true", "notify_automatic_mode": "all"}})
+    with stub:
+        result = mcp.call_tool(
+            "update_settings", {"group": "notifications", "settings": {"ai_model": "z"}})
+    body = _payload(result)
+    assert result["isError"]
+    assert body["detail"]["unknown_keys"] == ["ai_model"]
+    assert "notify_manual" in body["detail"]["group_keys"]
+    assert not [c for c in stub.seen if c["method"] == "PUT"]
+
+    stub = _stub({("GET", "/api/settings/ai"): {"ai_provider": "x", "ai_model": "y"}})
+    with stub:
+        result = mcp.call_tool(
+            "update_settings", {"group": "ai", "settings": {"ai_provder": "z"}})
+    assert result["isError"]
+    assert _payload(result)["detail"]["refused_keys"] == ["ai_provder"]
+    assert stub.seen == []
+
+
+def test_update_settings_says_so_when_nothing_moved():
+    """A no-op write reported as a change is an overclaim like any other."""
+    group = {"ai_effort": "high"}
+    stub = _stub({("GET", "/api/settings/ai"): group,
+                  ("PUT", "/api/settings/ai"): {"success": True}})
+    with stub:
+        body = _payload(mcp.call_tool(
+            "update_settings", {"group": "ai", "settings": {"ai_effort": "high"}}))
+    assert body["changed"] == {}
+    assert "Nothing changed" in body["detail"]
+
+
+def test_every_tool_advertises_a_schema_and_description():
+    resp = mcp.handle_message({"jsonrpc": "2.0", "id": 3, "method": "tools/list"})
+    for tool in resp["result"]["tools"]:
+        assert tool["description"].strip()
+        assert tool["inputSchema"]["type"] == "object"
+
+
+def test_an_unknown_method_is_a_jsonrpc_error():
+    resp = mcp.handle_message({"jsonrpc": "2.0", "id": 4, "method": "nope"})
+    assert resp["error"]["code"] == -32601
+
+
+def test_serve_round_trips_over_stdio():
+    """The transport itself: newline-delimited JSON in, JSON out."""
+    import io
+    stdin = io.StringIO(
+        json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize"}) + "\n"
+        + json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n"
+        + json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}) + "\n"
+    )
+    stdout = io.StringIO()
+    mcp.serve(stdin, stdout)
+    lines = [json.loads(l) for l in stdout.getvalue().splitlines() if l.strip()]
+    assert [m["id"] for m in lines] == [1, 2]  # the notification got no reply
+
+
+def test_unparseable_input_does_not_kill_the_server():
+    import io
+    stdin = io.StringIO(
+        "{not json\n" + json.dumps({"jsonrpc": "2.0", "id": 9, "method": "ping"}) + "\n"
+    )
+    stdout = io.StringIO()
+    mcp.serve(stdin, stdout)
+    assert json.loads(stdout.getvalue().strip())["id"] == 9
+
+
+# ---------------------------------------------------------------------------
+# The guarantee: never a silent empty result when the app is closed
+# ---------------------------------------------------------------------------
+
+def test_backend_down_is_a_named_error_not_an_empty_list():
+    """A harness told "you have no papers" would repeat that to the user."""
+    def _boom(*a, **k):
+        raise httpx.ConnectError("refused")
+
+    with patch.object(mcp.httpx, "get", side_effect=_boom):
+        result = mcp.call_tool("search_corpus", {"query": "x"})
+
+    assert result["isError"] is True
+    body = _payload(result)
+    assert body["error"] == "backend_unavailable"
+    assert "not running" in body["message"]
+    assert body["detail"]["tried"]
+
+
+def test_port_discovery_prefers_the_environment(monkeypatch, tmp_path):
+    """Both mechanisms name a port, and the environment's comes first.
+
+    Both are set, to different ports, because with only one of them set this
+    case tests nothing about order: reversing the two reads in
+    ``_candidate_ports`` would leave it green. The autouse fixture points
+    ``PORT_FILE`` at a path that does not exist, so a test that wants the port
+    file in play has to put it there itself -- which is what makes this the
+    only case guarding the order the three published documents state as an
+    ordered list.
+    """
+    monkeypatch.setenv("RESMON_PORT", "9999")
+    named = tmp_path / "named.port"
+    named.write_text("9002\n", encoding="utf-8")
+    monkeypatch.setattr("implementation_scripts.config.PORT_FILE", named)
+    assert mcp._candidate_ports() == [9999, 9002]
+
+
+def test_port_discovery_reads_the_port_file_when_the_environment_is_silent(
+        monkeypatch, tmp_path):
+    """The second of the two mechanisms, on its own."""
+    monkeypatch.delenv("RESMON_PORT", raising=False)
+    named = tmp_path / "named.port"
+    named.write_text("9002\n", encoding="utf-8")
+    monkeypatch.setattr("implementation_scripts.config.PORT_FILE", named)
+    assert mcp._candidate_ports() == [9002]
+
+
+def test_nothing_names_a_port_and_the_server_names_none_either(monkeypatch, tmp_path):
+    """No third candidate. The empty list is the refusal's precondition.
+
+    Falling back to the default port would reach only a backend that writes no
+    port file, and there is none: a backend that writes no port file writes no
+    token file either, and ``base_url`` skips a port whose token file is absent
+    before it probes. The only backend the default could ever reach is a
+    current one on that port, which on a machine with resmon's background
+    service installed is that service -- a different process over a different
+    database.
+    """
+    monkeypatch.delenv("RESMON_PORT", raising=False)
+    monkeypatch.setattr("implementation_scripts.config.PORT_FILE",
+                        tmp_path / "absent.port")
+    assert mcp._candidate_ports() == []
+
+
+def test_a_named_port_is_never_widened(monkeypatch, tmp_path):
+    """The bug this prevents attached the server to the launchd daemon.
+
+    When a named port stopped answering, falling through to the default
+    connected the server to a different process over a different database, and
+    every tool then answered truthfully about the wrong corpus. Failing is the
+    correct outcome.
+    """
+    monkeypatch.setenv("RESMON_PORT", "8791")
+    monkeypatch.setattr("implementation_scripts.config.PORT_FILE",
+                        tmp_path / "absent.port")
+    assert mcp._candidate_ports() == [8791]
+
+
+def test_an_unnamed_backend_is_a_refusal_that_tells_the_operator_what_to_do(
+        monkeypatch, tmp_path):
+    """A quiet failure and a wrong answer must not look the same.
+
+    The message is asserted on, not merely its error code, because the message
+    is the whole of what replaces the fallback. It has to say that nothing
+    named a backend, name *both* mechanisms that do, and say the server did not
+    pick one -- an operator who reads "backend_unavailable" and nothing else
+    learns only that something is wrong.
+    """
+    monkeypatch.delenv("RESMON_PORT", raising=False)
+    monkeypatch.setattr("implementation_scripts.config.PORT_FILE",
+                        tmp_path / "absent.port")
+
+    def _never(*a, **k):
+        raise AssertionError("a port was probed although none was named")
+
+    monkeypatch.setattr(mcp.httpx, "get", _never)
+    monkeypatch.setattr(mcp.httpx, "request", _never)
+
+    result = mcp.call_tool("search_corpus", {"query": "x"})
+    assert result["isError"] is True
+    body = _payload(result)
+    assert body["error"] == "backend_unavailable"
+
+    message = body["message"]
+    assert "RESMON_PORT" in message, "the environment mechanism is not named"
+    assert "port file" in message, "the port-file mechanism is not named"
+    assert "did not guess" in message, "it does not say it declined to guess"
+    assert "Start resmon" in message, "it does not say what to do"
+    # It names no address, because it chose none. Both halves, and the port is
+    # written out rather than read from a constant on purpose: the constant it
+    # would have come from is the one this change deleted, and the number is
+    # the thing that must not appear, not a value the code gets to redefine.
+    # A message that ended "if in doubt, try 8742, resmon's usual one" passes
+    # every other assertion here and hands back the whole defect in prose.
+    assert "127.0.0.1" not in message
+    assert "8742" not in message, "the refusal names the port it exists to stop"
+    assert body["detail"]["tried"] == []
+    assert body["detail"]["no_port_named"] is True
+    assert body["detail"]["port_file"] == str(tmp_path / "absent.port")
+
+
+def test_the_unnamed_refusal_does_not_claim_resmon_is_not_running(
+        monkeypatch, tmp_path):
+    """Nothing here establishes that. Saying it would be the house overclaim.
+
+    "resmon is not running" is the right sentence for a *named* port that did
+    not answer. With no port named, a backend may well be running on a port
+    this process was never told about, and the honest report is that it was not
+    told.
+    """
+    monkeypatch.delenv("RESMON_PORT", raising=False)
+    monkeypatch.setattr("implementation_scripts.config.PORT_FILE",
+                        tmp_path / "absent.port")
+    body = _payload(mcp.call_tool("health", {}))
+    assert "not running" not in body["message"]
+
+
+def test_a_dead_named_port_is_backend_unavailable(monkeypatch, tmp_path):
+    """Only the named port is tried, and nothing else is.
+
+    ``PORT_FILE`` is pointed at a path that does not exist, because it is a
+    *second* named source and a real one on disk makes ``tried`` two entries
+    long. This test passed only because no port file happened to be sitting in
+    the repo root; running the dev build puts one there and the assertion
+    changed under it. A test whose result depends on a file nobody mentioned is
+    not testing what its name says.
+    """
+    monkeypatch.setenv("RESMON_PORT", "8791")
+    monkeypatch.setattr(
+        "implementation_scripts.config.PORT_FILE", str(tmp_path / "absent.port"),
+    )
+
+    def _boom(*a, **k):
+        raise httpx.ConnectError("refused")
+
+    monkeypatch.setattr(mcp.httpx, "get", _boom)
+    body = _payload(mcp.call_tool("search_corpus", {"query": "x"}))
+    assert body["error"] == "backend_unavailable"
+    assert body["detail"]["tried"] == ["http://127.0.0.1:8791"]
+
+
+def test_a_candidate_is_confirmed_with_health_before_use(monkeypatch):
+    """The default port is a guess; a dev build may hold it."""
+    monkeypatch.setenv("RESMON_PORT", "9001")
+    seen: list[str] = []
+
+    def _get(url, **kwargs):
+        seen.append(url)
+        ok = "9002" in url
+        return httpx.Response(200 if ok else 500,
+                              json={"version": "1.0.2"},
+                              request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(mcp.httpx, "get", _get)
+    with patch.object(mcp, "_candidate_ports", return_value=[9001, 9002]):
+        assert mcp.backend.base_url() == "http://127.0.0.1:9002"
+    assert all(u.endswith("/api/health") for u in seen)
+
+
+# ---------------------------------------------------------------------------
+# The guarantee: no credential values, ever
+# ---------------------------------------------------------------------------
+
+def test_list_sources_reports_presence_never_a_value():
+    with _stub({
+        "/api/repositories/catalog": [{
+            "slug": "core", "name": "CORE", "subject_coverage": "OA",
+            "api_key_requirement": "required", "credential_name": "core_api_key",
+            "attribution": "Powered by CORE", "attribution_requirement": "required",
+        }],
+        "/api/credentials": {"credentials": {
+            "core_api_key": {"present": True, "status": "present",
+                             "value": "sk-should-never-appear"}}},
+    }):
+        body = _payload(mcp.call_tool("list_sources", {}))
+
+    source = body["sources"][0]
+    assert source["credential_alias"] == "core_api_key"
+    assert source["credential_status"] == "present"
+    assert "sk-should-never-appear" not in json.dumps(body)
+
+
+def test_list_sources_survives_an_unreadable_keyring():
+    """The catalog is the answer; key status is a nicety."""
+    with _stub({
+        "/api/repositories/catalog": [{"slug": "arxiv", "name": "arXiv"}],
+        "/api/credentials": (500, {"detail": "keyring timed out"}),
+    }):
+        body = _payload(mcp.call_tool("list_sources", {}))
+    assert body["sources"][0]["slug"] == "arxiv"
+    assert body["sources"][0]["credential_status"] is None
+
+
+# ---------------------------------------------------------------------------
+# The guarantee: token efficiency is a contract term
+# ---------------------------------------------------------------------------
+
+def test_list_executions_pages_and_caps():
+    rows = [{"id": i, "status": "completed"} for i in range(500)]
+    with _stub({"/api/executions": rows}):
+        body = _payload(mcp.call_tool("list_executions", {"limit": 10_000}))
+    assert body["count"] == mcp.MAX_LIMIT
+    assert body["total"] == 500
+
+
+def test_list_executions_defaults_to_a_small_page():
+    rows = [{"id": i} for i in range(200)]
+    with _stub({"/api/executions": rows}):
+        body = _payload(mcp.call_tool("list_executions", {}))
+    assert body["count"] == mcp.DEFAULT_LIMIT
+
+
+def test_execution_results_do_not_return_the_whole_report():
+    """The report endpoint returns the entire rendered Markdown.
+
+    Returning it would break the contract's own token-efficiency guarantee, so
+    the structured reference export is used instead.
+    """
+    docs = [{"id": i, "title": f"Paper {i}", "doi": f"10.1/{i}"} for i in range(60)]
+    with _stub({
+        "/api/executions/7/references": json.dumps(docs),
+        "/api/executions/7/report": {"report_text": "x" * 500_000},
+    }):
+        body = _payload(mcp.call_tool("get_execution_results", {"exec_id": 7}))
+    assert body["count"] == mcp.DEFAULT_LIMIT
+    assert body["total"] == 60
+    assert "x" * 1000 not in json.dumps(body)
+
+
+def test_search_refuses_offset_rather_than_ignoring_it():
+    """Silently ignoring it would page the first result set forever."""
+    body = _payload(mcp.call_tool("search_corpus", {"query": "q", "offset": 25}))
+    assert body["error"] == "invalid_argument"
+    assert "cursor" in body["message"]
+
+
+def test_search_passes_the_cursor_through_and_returns_the_next_one():
+    with _stub({"/api/explorer/search": {
+        "results": [{"id": 1, "title": "A", "source_repository": "arxiv"}],
+        "next_cursor": "2026-01-01|1", "has_more": True,
+        "total": 900, "total_is_exact": False,
+    }}):
+        body = _payload(mcp.call_tool(
+            "search_corpus", {"query": "q", "cursor": "2026-02-02|9"}))
+    assert body["next_cursor"] == "2026-01-01|1"
+    assert body["has_more"] is True
+    # A count that ran out of time says so with the number, so "900" cannot be read as exact.
+    assert body["total_is_exact"] is False
+
+
+# ---------------------------------------------------------------------------
+# Behavior the contract fixes
+# ---------------------------------------------------------------------------
+
+def test_analytics_view_names_map_to_endpoints_that_exist():
+    """Three of the contract's view names differ from the route serving them."""
+    seen = {}
+    for view in ("volume", "sources", "keywords"):
+        with _stub({("GET", mcp._ANALYTICS_VIEWS[view]): {"ok": view}}):
+            seen[view] = _payload(mcp.call_tool("get_analytics", {"view": view}))
+    assert seen["volume"]["ok"] == "volume"
+    assert seen["sources"]["ok"] == "sources"
+    assert seen["keywords"]["ok"] == "keywords"
+    assert mcp._ANALYTICS_VIEWS["volume"] == "/api/analytics/publication-volume"
+
+
+def test_an_unknown_analytics_view_lists_the_real_ones():
+    body = _payload(mcp.call_tool("get_analytics", {"view": "nonsense"}))
+    assert body["error"] == "invalid_argument"
+    assert "routine-health" in body["message"]
+
+
+def test_create_routine_creates_it_inactive():
+    """Scheduling something on a user's machine is not a tool call's side effect."""
+    captured = {}
+
+    seen: list[tuple[str, str]] = []
+
+    def _request(method, url, **kwargs):
+        seen.append((method, url))
+        captured.update(kwargs.get("json") or {})
+        return httpx.Response(201, json={"id": 1, "is_active": False},
+                              request=httpx.Request(method, url))
+
+    mcp.backend._base = STUB_BASE
+    with patch.object(mcp.httpx, "request", side_effect=_request):
+        body = _payload(mcp.call_tool("create_routine", {
+            "name": "n", "keywords": ["a", "b"], "sources": ["arxiv"],
+            "schedule": "0 8 * * *"}))
+
+    assert captured["is_active"] is False
+    assert "Activate it" in body["detail"]
+    # The record is read back, because ``POST /api/routines`` answers with
+    # ``{id, name}`` and the contract promised "the created routine". The
+    # caller can now see ``is_active`` rather than take the detail sentence's
+    # word for it.
+    assert seen == [("POST", f"{STUB_BASE}/api/routines"),
+                    ("GET", f"{STUB_BASE}/api/routines/1"),
+                    # The collection its runs' papers land in, named in the answer.
+                    ("GET", f"{STUB_BASE}/api/collections")]
+    assert body["routine"]["is_active"] is False
+    # A dict, not a JSON string: RoutineCreate declares `parameters: dict` and
+    # rejects the string form with a 422. The column stores JSON text, which
+    # makes the string the tempting guess.
+    assert isinstance(captured["parameters"], dict)
+    assert captured["parameters"]["repositories"] == ["arxiv"]
+    # No intent was given, so none is sent -- never defaulted from the keywords.
+    # The coverage audit reports which of the two it compared against, and a
+    # silent fallback written into the column at creation would erase that.
+    assert "intent" not in captured
+
+
+def test_create_routine_passes_a_stated_intent_through():
+    """A routine's stated intent, at the boundary it crosses.
+
+    ``routines.intent`` is what the coverage audit compares against; without this
+    a harness could create a routine but never say what it was for, and every
+    audit of it would be the circular keyword comparison.
+    """
+    captured = {}
+
+    def _request(method, url, **kwargs):
+        captured.update(kwargs.get("json") or {})
+        return httpx.Response(201, json={"id": 1, "is_active": False},
+                              request=httpx.Request(method, url))
+
+    mcp.backend._base = STUB_BASE
+    with patch.object(mcp.httpx, "request", side_effect=_request):
+        mcp.call_tool("create_routine", {
+            "name": "n", "keywords": ["a"], "sources": ["arxiv"],
+            "schedule": "0 8 * * *",
+            "intent": "methods for irregular time series in astronomy"})
+
+    assert captured["intent"] == "methods for irregular time series in astronomy"
+
+
+def test_the_coverage_counts_on_get_routine_are_totals_not_page_lengths():
+    """A harness reading ``off_target_count`` gets the whole, not the page.
+
+    Both lists are capped at 25 in the payload. ``len(off_target)`` would report
+    25 for a routine with 312 -- precise, repeated verbatim by whatever consumes
+    it, and wrong.
+    """
+    audit = {
+        "summary": "s", "intent": "i", "intent_source": "stated",
+        "results": 400, "results_embedded": 400,
+        "off_target": [{"id": n} for n in range(25)], "off_target_total": 312,
+        "missed_in_corpus": [{"id": n} for n in range(25)],
+        "missed_in_corpus_total": 63,
+        "missed_in_corpus_total_is_lower_bound": True,
+        "reason": None, "cannot_see": "c",
+    }
+
+    def _request(method, url, **kwargs):
+        payload = audit if url.endswith("/coverage") else {"id": 4, "name": "r"}
+        return httpx.Response(200, json=payload, request=httpx.Request(method, url))
+
+    mcp.backend._base = STUB_BASE
+    with patch.object(mcp.httpx, "request", side_effect=_request):
+        body = _payload(mcp.call_tool("get_routine", {"routine_id": 4}))
+
+    assert body["coverage"]["off_target_count"] == 312
+    assert body["coverage"]["missed_in_corpus_count"] == 63
+    assert body["coverage"]["missed_in_corpus_count_is_lower_bound"] is True
+
+
+def test_no_destructive_tool_is_exposed():
+    """v1 excludes everything destructive, and the omission is asserted."""
+    names = {t["name"] for t in mcp.TOOLS}
+    for banned in ("delete", "erase", "factory", "reset", "revoke", "uninstall"):
+        assert not any(banned in n for n in names), banned
+
+
+def test_no_tool_writes_a_credential_or_a_setting():
+    schemas = json.dumps([t["schema"] for t in mcp.TOOLS])
+    assert "api_key" not in schemas
+    assert "credential_value" not in schemas
+
+
+def test_a_missing_item_is_not_found_rather_than_a_crash():
+    with _stub({}):
+        body = _payload(mcp.call_tool("get_routine", {"routine_id": 42}))
+    assert body["error"] == "not_found"
+
+
+def test_a_required_argument_is_named_when_missing():
+    body = _payload(mcp.call_tool("get_routine", {}))
+    assert body["error"] == "invalid_argument"
+    assert "routine_id" in body["message"]
+
+
+def test_an_unknown_tool_is_reported_not_raised():
+    result = mcp.call_tool("drop_everything", {})
+    assert result["isError"] is True
+    assert _payload(result)["error"] == "invalid_argument"
+
+
+def test_run_routine_calls_the_new_endpoint():
+    with _stub({("POST", "/api/routines/3/run"): {
+        "execution_id": 11, "routine_id": 3, "was_inactive": True,
+        "detail": "This watch is not scheduled; it was run once because you asked for it.",
+    }}):
+        body = _payload(mcp.call_tool("run_routine", {"routine_id": 3}))
+    assert body["execution_id"] == 11
+    assert body["was_inactive"] is True
+
+
+# ---------------------------------------------------------------------------
+# The version guard — the wrong-instance hazard
+# ---------------------------------------------------------------------------
+#
+# A port a caller *named* can still be held by the wrong resmon: a port file a
+# crash left behind, a RESMON_PORT exported in an earlier session, a port
+# another installation took over. On such a machine an older resmon answers --
+# and every tool then reports another installation's corpus as the user's own.
+# The port below is therefore injected
+# rather than discovered: which port it is does not matter to this guard, and
+# the suite addresses no real one.
+
+def _health(version, status=200):
+    def _get(url, **kwargs):
+        body = {"status": "ok"} if version is None else {"status": "ok", "version": version}
+        return httpx.Response(status, json=body, request=httpx.Request("GET", url))
+    return _get
+
+
+@pytest.mark.parametrize("version", ["1.0.0", "1.0.2", "1.10.0", "2.0.0"])
+def test_a_supported_backend_is_accepted(monkeypatch, version):
+    monkeypatch.setattr(mcp.httpx, "get", _health(version))
+    with patch.object(mcp, "_candidate_ports", return_value=[STUB_PORT]):
+        assert mcp.backend.base_url() == STUB_BASE
+
+
+@pytest.mark.parametrize("version", ["0.9.9", "0.9.0", "0.1.0"])
+def test_an_older_backend_is_refused_rather_than_used(monkeypatch, version):
+    """The whole point: answering about the wrong corpus is worse than failing."""
+    monkeypatch.setattr(mcp.httpx, "get", _health(version))
+    with patch.object(mcp, "_candidate_ports", return_value=[STUB_PORT]):
+        with pytest.raises(mcp.ToolError) as excinfo:
+            mcp.backend.base_url()
+    assert excinfo.value.code == "backend_unavailable"
+    assert version in excinfo.value.message
+    assert version in str(excinfo.value.detail["rejected"])
+
+
+@pytest.mark.parametrize("version", [None, "", "garbage"])
+def test_a_backend_that_cannot_say_its_version_is_refused(monkeypatch, version):
+    """Unparseable is refused, not assumed good — that is the case guarded against."""
+    monkeypatch.setattr(mcp.httpx, "get", _health(version))
+    with patch.object(mcp, "_candidate_ports", return_value=[STUB_PORT]):
+        with pytest.raises(mcp.ToolError):
+            mcp.backend.base_url()
+
+
+def test_the_refusal_names_the_version_so_a_user_can_act(monkeypatch):
+    monkeypatch.setattr(mcp.httpx, "get", _health("0.9.9"))
+    with patch.object(mcp, "_candidate_ports", return_value=[STUB_PORT]):
+        with pytest.raises(mcp.ToolError) as excinfo:
+            mcp.backend.base_url()
+    message = excinfo.value.message
+    assert "0.9.9" in message and mcp.MIN_BACKEND_VERSION in message
+    assert "background" in message
+
+
+# ---------------------------------------------------------------------------
+# Format negotiation — the parameter the old double could not see
+# ---------------------------------------------------------------------------
+
+def test_execution_result_identity_crosses_the_real_json_projection():
+    from implementation_scripts import reference_export
+    docs = [{"id": 41, "title": "Continuity Alpha"}]
+    def request(method, url, **kwargs):
+        params = kwargs["params"]
+        text, media, _ = reference_export.render(
+            docs, params["format"], include_ids=params.get("include_ids", False))
+        return httpx.Response(200, text=text, headers={"Content-Type": media},
+                              request=httpx.Request(method, url))
+    mcp.backend._base = "http://127.0.0.1:49152"
+    with patch.object(mcp.httpx, "request", side_effect=request):
+        body = _payload(mcp.call_tool("get_execution_results", {"exec_id": 7}))
+    assert body["papers"][0]["id"] == 41
+    assert body["papers"][0]["title"] == docs[0]["title"]
+
+
+def test_execution_results_ask_for_a_format_the_backend_supports():
+    """The execution-results call asks for json, a format the references route supports."""
+    docs = [{"id": 1, "title": "A"}]
+    stub = _stub({"/api/executions/7/references": json.dumps(docs)})
+    with stub:
+        body = _payload(mcp.call_tool("get_execution_results", {"exec_id": 7}))
+    assert body["count"] == 1
+    assert stub.seen[0]["params"]["format"] == "json"
+
+
+def test_a_format_the_backend_rejects_surfaces_as_an_error_not_a_summary():
+    """If the double did not validate format, this test could not exist."""
+    stub = _stub({"/api/executions/7/references": json.dumps([])},
+                 formats=("bibtex", "ris", "csv"))
+    with stub:
+        body = _payload(mcp.call_tool("get_execution_results", {"exec_id": 7}))
+    assert body["error"] == "invalid_argument"
+    assert "Unknown export format" in body["message"]
+
+
+def test_export_references_by_execution_uses_the_execution_endpoint():
+    """It sent execution_id to an endpoint requiring document_ids: a 422 every time."""
+    stub = _stub({("GET", "/api/executions/9/references"): "@article{...}"})
+    with stub:
+        mcp.call_tool("export_references", {"exec_id": 9, "format": "bibtex"})
+    call = stub.seen[0]
+    assert call["method"] == "GET"
+    assert call["path"] == "/api/executions/9/references"
+    assert call["params"]["format"] == "bibtex"
+
+
+def test_export_references_by_doc_ids_still_posts_document_ids():
+    stub = _stub({("POST", "/api/export/references"): "@article{...}"})
+    with stub:
+        mcp.call_tool("export_references", {"doc_ids": [1, 2], "format": "ris"})
+    assert stub.seen[0]["path"] == "/api/export/references"
+
+
+@pytest.mark.parametrize("fmt", ["bibtex", "ris", "csv", "json"])
+def test_every_advertised_export_format_is_one_the_backend_has(fmt):
+    """The schema advertised 'json' before json existed. Now they must agree."""
+    from implementation_scripts import reference_export
+
+    schema = next(t["schema"] for t in mcp.TOOLS if t["name"] == "export_references")
+    assert fmt in schema["properties"]["format"]["enum"]
+    assert fmt in reference_export.FORMATS
+
+
+def test_health_description_does_not_promise_fields_the_endpoint_lacks():
+    """It claimed schema version and scheduler state; /api/health returns neither."""
+    description = next(t["description"] for t in mcp.TOOLS if t["name"] == "health")
+    assert "schema" not in description.lower()
+    assert "scheduler" not in description.lower()
+
+
+# Runtime expectation is deliberately opt-in on two reads only.
+_RUNTIME_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+_RUNTIME_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+
+
+def _identity(token=_RUNTIME_A):
+    return {"contract_version": 1, "runtime_id": token, "schema_version": 14,
+            "corpus_id": None, "build_id": None}
+
+
+@pytest.mark.parametrize("name", ["health", "get_execution"])
+@pytest.mark.parametrize("value", ["", None, 7, "bad", _RUNTIME_A.upper(), "aaaaaaaa-aaaa-1aaa-8aaa-aaaaaaaaaaaa"])
+def test_runtime_argument_refused_before_discovery(name, value):
+    with patch.object(mcp.backend, "base_url", side_effect=AssertionError("must not discover")):
+        with pytest.raises(mcp.ToolError) as exc:
+            next(t for t in mcp.TOOLS if t["name"] == name)["fn"]({"exec_id": 7, "expected_runtime_id": value})
+    assert exc.value.code == "invalid_argument"
+
+
+def test_expected_execution_preflights_and_forwards_exact_query():
+    stub = _stub({"/api/health": {"identity": _identity()},
+                  "/api/executions/7": {"id": 7, "identity": _identity()}})
+    with stub:
+        assert mcp.t_get_execution({"exec_id": 7, "expected_runtime_id": _RUNTIME_A})["id"] == 7
+    assert [(x["path"], x["params"]) for x in stub.seen] == [
+        ("/api/health", {"expected_runtime_id": _RUNTIME_A}),
+        ("/api/executions/7", {"expected_runtime_id": _RUNTIME_A})]
+
+
+@pytest.mark.parametrize("identity,code", [(None, "identity_unavailable"),
+    ({"runtime_id": "bad"}, "identity_unavailable"), (_identity(_RUNTIME_B), "instance_mismatch")])
+def test_legacy_preflight_refuses_before_execution(identity, code):
+    stub = _stub({"/api/health": {"identity": identity}, "/api/executions/7": {"id": 7}})
+    with stub:
+        with pytest.raises(mcp.ToolError) as exc:
+            mcp.t_get_execution({"exec_id": 7, "expected_runtime_id": _RUNTIME_A})
+    assert exc.value.code == code
+    assert len(stub.seen) == 1 and stub.seen[0]["path"] == "/api/health"
+
+
+@pytest.mark.parametrize("identity,code", [(None, "identity_unavailable"), (_identity(_RUNTIME_B), "instance_mismatch")])
+def test_replacement_after_preflight_discards_otherwise_valid_execution(identity, code):
+    with _stub({"/api/health": {"identity": _identity()},
+                "/api/executions/7": {"id": 7, "parameters": "private content", "identity": identity}}):
+        with pytest.raises(mcp.ToolError) as exc:
+            mcp.t_get_execution({"exec_id": 7, "expected_runtime_id": _RUNTIME_A})
+    assert exc.value.code == code
+    assert "private content" not in str(exc.value)
+
+
+@pytest.mark.parametrize("detail,code", [({"code": "instance_mismatch", "actual_runtime_id": _RUNTIME_B}, "instance_mismatch"),
+                                        ("Busy", "conflict"), ({"code": "other"}, "conflict")])
+def test_precise_runtime_409_mapping(detail, code):
+    with _stub({"/api/health": (409, {"detail": detail})}):
+        with pytest.raises(mcp.ToolError) as exc:
+            mcp.t_health({"expected_runtime_id": _RUNTIME_A})
+    assert exc.value.code == code
+
+
+def test_only_two_tools_offer_runtime_expectation():
+    assert {t["name"] for t in mcp.TOOLS if "expected_runtime_id" in t["schema"]["properties"]} == {"health", "get_execution"}
+    assert len(mcp.TOOLS) == 27 and len(mcp.WRITE_TOOLS) == 7
+
+
+@pytest.mark.parametrize("change", [{"contract_version": True}, {"schema_version": "14"}, {"corpus_id": "invented"}, {"build_id": "invented"}])
+def test_malformed_identity_shape_is_unavailable(change):
+    with _stub({"/api/health": {"identity": {**_identity(), **change}}}):
+        with pytest.raises(mcp.ToolError) as exc:
+            mcp.t_health({"expected_runtime_id": _RUNTIME_A})
+    assert exc.value.code == "identity_unavailable"
+
+
+def test_run_sweep_passes_a_queued_sweeps_ticket_through(monkeypatch):
+    """At the run limit a sweep waits; the ticket is how a caller finds the run it becomes."""
+    monkeypatch.delenv(mcp.READ_ONLY_ENV, raising=False)
+    listed = {"collections": [{"id": 1, "name": "Your collection"}], "default_id": 1}
+    monkeypatch.setattr(mcp.backend, "request", lambda method, path, **k: listed if path == "/api/collections" else {
+        "execution_id": None, "queued": True, "queue_position": 2, "ticket": "abc123", "detail": "waits"})
+    result = mcp.call_tool("run_sweep", {"query": "x", "sources": ["arxiv"]})
+    assert result["isError"] is False
+    payload = json.loads(result["content"][0]["text"])
+    assert payload == {"execution_id": None, "queued": True, "queue_position": 2, "ticket": "abc123", "detail": "waits",
+                       "collection": {"id": 1, "name": "Your collection"}}
+
+
+# ---------------------------------------------------------------------------
+# Collections (contract 1.1)
+# ---------------------------------------------------------------------------
+
+
+def _sending(responses: dict):
+    """A double that records each request's method, path, query and body, and answers from *responses*."""
+    sent: list[dict] = []
+
+    def _request(method, url, **kwargs):
+        path = url[len(STUB_BASE):].partition("?")[0]
+        sent.append({"method": method, "path": path, "params": dict(kwargs.get("params") or {}),
+                     "json": kwargs.get("json")})
+        return httpx.Response(200, json=responses.get(path, {}), request=httpx.Request(method, url))
+
+    mcp.backend._base = STUB_BASE
+    return patch.object(mcp.httpx, "request", side_effect=_request), sent
+
+
+def test_list_collections_names_each_and_the_default():
+    listed = {"collections": [
+        {"id": 1, "name": "Your collection", "is_default": True, "papers": 9, "watches": 2, "created_at": None},
+        {"id": 2, "name": "Optics", "is_default": False, "papers": 4, "watches": 1, "created_at": None}],
+        "current_id": 2, "default_id": 1}
+    patcher, sent = _sending({"/api/collections": listed})
+    with patcher:
+        body = _payload(mcp.call_tool("list_collections", {}))
+    assert [(c["id"], c["name"], c["papers"], c["watches"], c["is_default"]) for c in body["collections"]] == [
+        (1, "Your collection", 9, 2, True), (2, "Optics", 4, 1, False)]
+    assert (body["count"], body["current_id"], body["default_id"]) == (2, 2, 1)
+    assert [(s["method"], s["path"]) for s in sent] == [("GET", "/api/collections")]
+    assert "list_collections" in mcp.READ_TOOLS
+
+
+@pytest.mark.parametrize("tool,args,where", [
+    ("search_corpus", {"query": "x"}, "json"),
+    ("get_analytics", {"view": "overview"}, "params"),
+    ("get_profile_matches", {"profile_id": 3}, "params"),
+    ("run_sweep", {"query": "x", "sources": ["arxiv"]}, "json"),
+    ("create_routine", {"name": "n", "keywords": ["a"], "sources": ["arxiv"], "schedule": "0 8 * * *"}, "json"),
+])
+def test_a_collection_is_sent_as_named_and_left_out_when_not(tool, args, where):
+    """The backend resolves the name; with none, the request carries none, which is the default
+    collection. Every answer names the one collection used, by id and name."""
+    listed = {"collections": [{"id": 1, "name": "Your collection"}, {"id": 2, "name": "Optics"}], "default_id": 1}
+    for given, expected, used in (({"collection": "optics"}, "optics", (2, "Optics")),
+                                  ({"collection": 2}, "2", (2, "Optics")),
+                                  ({"collection": "2"}, "2", (2, "Optics")),
+                                  ({}, None, (1, "Your collection"))):
+        patcher, sent = _sending({"/api/collections": listed, "/api/routines/0": {"collection_id": used[0]}})
+        with patcher:
+            body = _payload(mcp.call_tool(tool, {**args, **given}))
+        first = sent[0][where] or {}
+        assert first.get("collection") == expected, (tool, given, first)
+        assert (body["collection"]["id"], body["collection"]["name"]) == used, (tool, given, body)
+    schema = next(t for t in mcp.TOOLS if t["name"] == tool)
+    assert schema["schema"]["properties"]["collection"]["type"] == "string"
+    assert "default" in schema["description"]
+
+
+def test_no_tool_declares_a_list_of_types_which_some_clients_reject_whole():
+    def types(node):
+        if isinstance(node, dict):
+            if isinstance(node.get("type"), list):
+                yield node["type"]
+            for value in node.values():
+                yield from types(value)
+        elif isinstance(node, list):
+            for value in node:
+                yield from types(value)
+    assert [t for tool in mcp.TOOLS for t in types(tool["schema"])] == []
+
+
+def test_the_turns_collection_is_the_one_a_call_that_names_none_reads(monkeypatch):
+    """The in-app assistant reads and runs in the window's collection: set for the turn in-process,
+    or given to a server it starts as RESMON_MCP_COLLECTION. A call that names one still wins."""
+    monkeypatch.delenv(mcp.COLLECTION_ENV, raising=False)
+    listed = {"collections": [{"id": 1, "name": "Your collection"}, {"id": 2, "name": "Optics"}], "default_id": 1}
+    patcher, sent = _sending({"/api/collections": listed})
+    with patcher, mcp.in_collection(2):
+        body = _payload(mcp.call_tool("search_corpus", {"query": "x"}))
+        named = _payload(mcp.call_tool("search_corpus", {"query": "x", "collection": "Your collection"}))
+    assert sent[0]["json"]["collection"] == "2" and body["collection"] == {"id": 2, "name": "Optics"}
+    assert named["collection"] == {"id": 1, "name": "Your collection"}
+    assert mcp.turn_collection() is None
+    monkeypatch.setenv(mcp.COLLECTION_ENV, "Optics")
+    patcher, sent = _sending({"/api/collections": listed})
+    with patcher:
+        body = _payload(mcp.call_tool("get_analytics", {"view": "overview"}))
+    assert sent[0]["params"]["collection"] == "Optics" and body["collection"] == {"id": 2, "name": "Optics"}
+
+
+def test_a_collection_that_is_neither_a_name_nor_an_id_is_refused_before_the_backend():
+    patcher, sent = _sending({})
+    with patcher:
+        body = _payload(mcp.call_tool("search_corpus", {"query": "x", "collection": ["Optics"]}))
+    assert body["error"] == "invalid_argument" and sent == []

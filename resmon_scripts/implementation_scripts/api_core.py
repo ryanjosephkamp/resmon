@@ -1,0 +1,168 @@
+# resmon_scripts/implementation_scripts/api_core.py
+"""CORE API v3 client — JSON, requires API key, graceful missing-key handling."""
+
+import logging
+
+from .api_base import (BaseAPIClient, NormalizedResult, RateLimiter,
+                       read_json_body, safe_request, sent_params)
+from . import search_terms
+from .credential_manager import get_credential_for
+
+logger = logging.getLogger(__name__)
+
+_CORE_API_URL = "https://api.core.ac.uk/v3/search/works"
+
+# CORE publishes its limits per minute and per day, in tokens, by account
+# type (https://api.core.ac.uk/docs/v3, "Rate limits", read October 29, 2026):
+# 25 a minute for a registered personal key, 10 a minute for a registered
+# academic key, with a simple search costing one token. resmon cannot tell
+# which kind of key it holds, so it paces at the lower of the two, one request
+# every six seconds. The 5 req/s it used before was thirty times that.
+_RATE_LIMITER = RateLimiter(requests_per_second=1 / 6)
+
+
+class CoreClient(BaseAPIClient):
+    """CORE repository API client (v3)."""
+
+    describe_request = staticmethod(sent_params("q"))
+
+    def get_name(self) -> str:
+        return "CORE"
+
+    def search(
+        self,
+        query: str,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        max_results: int = 100,
+        **kwargs,
+    ) -> list[NormalizedResult]:
+        api_key = get_credential_for(self._exec_id, "core_api_key")
+        if not api_key:
+            logger.warning("CORE API key not configured — returning empty results")
+            return []
+
+        terms = kwargs.get("terms")
+        text = search_terms.boolean(terms) if terms else query
+        results: list[NormalizedResult] = []
+        offset = 0
+        page_size = min(max_results, 100)
+
+        while len(results) < max_results:
+            params: dict = {
+                "q": text,
+                "offset": offset,
+                "limit": min(page_size, max_results - len(results)),
+            }
+
+            # Date filtering via query, with the terms in parentheses so the
+            # dates bind every one of them rather than the last.
+            if date_from or date_to:
+                d_from = date_from or "1900-01-01"
+                d_to = date_to or "2099-12-31"
+                params["q"] = f"({text}) AND createdDate>={d_from} AND createdDate<={d_to}"
+
+            headers = {"Authorization": f"Bearer {api_key}"}
+
+            try:
+                response = safe_request(
+                    "GET", _CORE_API_URL,
+                    params=params,
+                    headers=headers,
+                    rate_limiter=_RATE_LIMITER,
+                )
+                if response.status_code == 401:
+                    logger.error("CORE API key is invalid (401)")
+                    break
+                if response.status_code != 200:
+                    logger.error("CORE API returned %d", response.status_code)
+                    break
+            except Exception:
+                logger.exception("CORE API request failed")
+                break
+
+            data = read_json_body(response, "CORE")
+            if data is None:
+                break
+
+            items = data.get("results", [])
+            if not items:
+                break
+
+            for item in items:
+                parsed = self._parse_work(item)
+                if parsed is not None:
+                    results.append(parsed)
+
+            offset += len(items)
+            total = data.get("totalHits", 0)
+            if offset >= total or len(items) < params["limit"]:
+                break
+
+        return results[:max_results]
+
+    @staticmethod
+    def _parse_work(work: dict) -> NormalizedResult | None:
+        title = work.get("title")
+        if not title:
+            return None
+
+        external_id = str(work.get("id", ""))
+
+        doi = None
+        for identifier in work.get("identifiers", []):
+            if isinstance(identifier, str) and identifier.startswith("10."):
+                doi = identifier
+                break
+
+        authors = []
+        for author in work.get("authors", []):
+            if isinstance(author, dict):
+                name = author.get("name", "").strip()
+            elif isinstance(author, str):
+                name = author.strip()
+            else:
+                continue
+            if name:
+                authors.append(name)
+
+        abstract = work.get("abstract")
+        publication_date = work.get("publishedDate") or work.get("createdDate")
+        if publication_date and len(publication_date) >= 10:
+            publication_date = publication_date[:10]
+
+        # The download link first, then the first full-text link the source
+        # lists, then the record's page. Written as one conditional expression,
+        # this once read as "(download or full text) if full text else nothing",
+        # which dropped the download link of every work that listed no full text.
+        download = work.get("downloadUrl")
+        listed = [u for u in (work.get("sourceFulltextUrls") or []) if isinstance(u, str) and u.strip()]
+        url = (download.strip() if isinstance(download, str) else "") or (listed[0].strip() if listed else "")
+        if not url:
+            url = f"https://core.ac.uk/works/{external_id}"
+
+        categories = work.get("fieldOfStudy") or []
+        if isinstance(categories, str):
+            categories = [categories]
+
+        return NormalizedResult(
+            source_repository="core",
+            external_id=external_id,
+            doi=doi,
+            title=title,
+            authors=authors,
+            abstract=abstract,
+            publication_date=publication_date,
+            url=url,
+            categories=categories[:10],
+        )
+
+
+# ---------------------------------------------------------------------------
+# Registry auto-registration
+# ---------------------------------------------------------------------------
+def _register():
+    from .api_registry import register_client
+    register_client("core", CoreClient)
+
+_register()

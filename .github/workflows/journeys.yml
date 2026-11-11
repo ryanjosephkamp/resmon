@@ -1,0 +1,156 @@
+name: Journeys
+
+# One automated test per journey in `resmon_scripts/frontend/journeys/register.ts`, run against this build.
+#
+# `ui-smoke.yml` asks whether *this* checkout's app works. This asks something
+# else: whether the journeys a user has today are still there, in the words of
+# each journey rather than in the renderer's markup.
+#
+#   candidate  Build this checkout and run the suite against it through the
+#              Atlas driver, under xvfb-run, the same recipe as ui-smoke.yml's
+#              `smoke` job. It runs when started by hand (Actions › Journeys ›
+#              Run workflow), on any branch.
+#
+# It takes a `break_row` input that fails one named register row on purpose.
+# A new CI job is trusted once it has been made to go red, and a job that
+# cannot be made to go red on demand has to be trusted on somebody's word.
+#
+# Screenshots are uploaded, never committed: two branches that both run the
+# suite both rewrite every file.
+
+on:
+  workflow_dispatch:
+    inputs:
+      break_row:
+        description: >-
+          Fail one register row on purpose, to show this job can go red.
+          Try "J20".
+        required: false
+        default: ''
+
+# Runs on one branch queue rather than cancel each other: each one, a
+# `break_row` run included, is an answer someone asked for.
+concurrency:
+  group: journeys-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # No OS keyring on a runner; every credential read would otherwise pay a
+  # timeout against a backend that cannot work.
+  PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
+  RESMON_KEYRING_TIMEOUT: '2.0'
+  # The app spawns `python resmon.py <port>`; without this it would find the
+  # runner's interpreter only if one happened to be on PATH under that name.
+  RESMON_PYTHON: python3
+
+jobs:
+  candidate:
+    name: Journeys against this build
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    # Runs only here — see README.md in this directory.
+    if: github.repository == 'ryanjosephkamp/resmon'
+
+    env:
+      RESMON_JOURNEY_BREAK_ROW: ${{ github.event.inputs.break_row }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install the backend's dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: resmon_scripts/frontend/package-lock.json
+
+      - name: Install the renderer's dependencies
+        working-directory: resmon_scripts/frontend
+        run: npm install --no-audit --no-fund
+
+      - name: Install Electron's system libraries and a virtual display
+        working-directory: resmon_scripts/frontend
+        run: |
+          sudo npx playwright install-deps chromium
+          sudo apt-get install -y --no-install-recommends xvfb
+
+      - name: Typecheck the journey sources
+        working-directory: resmon_scripts/frontend
+        run: npm run typecheck:journeys
+
+      - name: Build the renderer and the Electron main process
+        working-directory: resmon_scripts/frontend
+        run: npm run build
+
+      - name: Walk every built journey
+        working-directory: resmon_scripts/frontend
+        # `set -o pipefail` is not decoration: without it this job's exit code
+        # is tee's, and a job that cannot go red is not a gate.
+        run: |
+          set -o pipefail
+          xvfb-run --auto-servernum --server-args='-screen 0 1600x1000x24' \
+            npm run journeys 2>&1 | tee "$RUNNER_TEMP/journeys-candidate.log"
+
+      - name: Say how much of the register this covered
+        if: always()
+        run: |
+          {
+            echo "### Journeys — this build"
+            echo
+            echo '```'
+            grep -h '^\[journeys\]' "$RUNNER_TEMP/journeys-candidate.log" | sort -u || echo "(nothing reported)"
+            echo '```'
+            echo
+            echo "Anything the suite could not verify:"
+            echo
+            echo '```'
+            grep -h 'NOT VERIFIED' "$RUNNER_TEMP/journeys-candidate.log" || echo "(none reported)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: What was still holding the worker open
+        # Empty on a healthy run: the probe is an unref'd timer that only fires
+        # when the worker has failed to exit. When it has fired, this is the
+        # list of handles that kept it alive, and it belongs in the log next to
+        # the failure rather than inside an artifact somebody has to download.
+        if: always()
+        run: |
+          probe=resmon_scripts/frontend/journeys/screenshots/exit-probe.txt
+          if [ -s "$probe" ]; then
+            {
+              echo "### The worker did not exit. What it was holding:"
+              echo
+              echo '```'
+              cat "$probe"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            cat "$probe"
+          else
+            echo "The worker exited on its own; the exit probe never fired."
+          fi
+
+      - name: Upload the pictures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: journeys-candidate-screenshots
+          path: resmon_scripts/frontend/journeys/screenshots/
+          if-no-files-found: warn
+
+      - name: Upload the failure context
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: journeys-candidate-failures
+          path: resmon_scripts/frontend/journeys/test-results/
+          if-no-files-found: ignore

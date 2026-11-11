@@ -1,0 +1,23 @@
+---
+/**
+ * GitHub Pages serves `404.html` for anything it cannot find. A reader who
+ * follows a stale link lands here, with a way back, rather than on GitHub's
+ * own page.
+ */
+import Base from '../layouts/Base.astro';
+import { url } from '../lib/urls';
+import Cartouche from '../components/Cartouche.astro';
+---
+
+<Base
+  title="Page not found"
+  description="That page is not on this site."
+  path="/404.html"
+>
+  <Cartouche title="Page not found" meta="There is nothing at that address. These pages are the places to start." />
+  <ul>
+    <li><a href={url('/')}>Home</a></li>
+    <li><a href={url('/guide/')}>Guide</a></li>
+    <li><a href={url('/reference/')}>Reference documents</a></li>
+  </ul>
+</Base>

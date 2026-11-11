@@ -1,0 +1,272 @@
+# resmon_scripts/verification_scripts/test_metadata_hash_index.py
+"""Schema 22: the cross-source duplicate check no longer reads the whole corpus.
+
+``normalizer.deduplicate_batch`` calls ``find_duplicates_by_hash`` once for
+every result a sweep stores, and ``documents.metadata_hash`` had no index, so
+every one of those calls was a full scan of ``documents``. The performance
+baseline of 628d1b5 found it: the storing stage took 6.9 s of a 28.2 s
+ten-source sweep over 10,000 papers, and the cost grows with the corpus.
+
+Two kinds of evidence, because each alone can be argued with:
+
+  * the query plan SQLite chooses for the exact statement
+    ``find_duplicates_by_hash`` runs -- captured from the connection, not
+    copied into this file -- names the index; and
+  * the work SQLite does for one lookup, counted in virtual-machine steps,
+    stays flat when the corpus grows tenfold. The same count is taken with the
+    index dropped, and there it grows with the corpus, which is what shows the
+    measure can see a scan at all.
+
+The 21 -> 22 step is checked from a schema 21 corpus written by that schema's
+own code: one ``init_db`` adds the index and moves the marker, and nothing
+else.
+
+What this does not establish: how much faster a sweep is. That is a
+wall-clock question and is answered by the harness in ``perf/``, against the
+recorded replies.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from implementation_scripts import database  # noqa: E402
+from verification_scripts.test_cumulative_upgrade import (  # noqa: E402
+    _MARKERS_A_LAUNCH_MAY_ADD, _as_recounted,
+)
+
+INDEX = "idx_documents_metadata_hash"
+SCHEMA_21_FIXTURE = Path(__file__).parent / "fixtures/schema-21/corpus.sql"
+
+
+def _open(path: Path) -> sqlite3.Connection:
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys=ON")
+    return conn
+
+
+def _lookup_sql(conn: sqlite3.Connection) -> list[str]:
+    """The statements ``find_duplicates_by_hash`` sends, as SQLite received them."""
+    seen: list[str] = []
+    conn.set_trace_callback(seen.append)
+    try:
+        database.find_duplicates_by_hash(conn, "0" * 64)
+    finally:
+        conn.set_trace_callback(None)
+    return [s for s in seen if s.lstrip().upper().startswith("SELECT")]
+
+
+def _plan(conn: sqlite3.Connection) -> list[str]:
+    """The query plan of the lookup's own statement, one detail line per step."""
+    statements = _lookup_sql(conn)
+    assert len(statements) == 1, statements
+    sql = statements[0]
+    # Python 3.10's trace callback hands over the statement as written, with
+    # its placeholder; later versions may expand it. Bind only if it is there.
+    params = ("0" * 64,) if "?" in sql else ()
+    return [row[3] for row in conn.execute("EXPLAIN QUERY PLAN " + sql, params)]
+
+
+def _steps_per_lookup(conn: sqlite3.Connection, metadata_hash: str) -> int:
+    """SQLite virtual-machine instructions spent on one real lookup."""
+    count = 0
+
+    def tick() -> int:
+        nonlocal count
+        count += 1
+        return 0
+
+    conn.set_progress_handler(tick, 1)
+    try:
+        found = database.find_duplicates_by_hash(conn, metadata_hash)
+    finally:
+        conn.set_progress_handler(None, 0)
+    assert len(found) == 1, "the lookup must find the one paper with that hash"
+    return count
+
+
+def _corpus(path: Path, papers: int) -> sqlite3.Connection:
+    database.init_db(str(path))
+    conn = _open(path)
+    conn.executemany(
+        "INSERT INTO documents (source_repository, external_id, title, metadata_hash) "
+        "VALUES (?, ?, ?, ?)",
+        [("arxiv", f"id-{i}", f"Paper {i}", f"{i:064x}") for i in range(papers)],
+    )
+    conn.commit()
+    return conn
+
+
+def test_a_fresh_database_answers_the_duplicate_check_from_the_index(tmp_path):
+    database.init_db(str(tmp_path / "fresh.db"))
+    conn = _open(tmp_path / "fresh.db")
+    try:
+        assert database.get_schema_version(conn) == database.SCHEMA_VERSION == 29
+        plan = _plan(conn)
+        assert any(INDEX in step for step in plan), plan
+        assert not any(step.startswith("SCAN") for step in plan), plan
+    finally:
+        conn.close()
+
+
+def test_one_lookup_costs_the_same_at_ten_times_the_corpus(tmp_path):
+    small = _corpus(tmp_path / "small.db", 500)
+    large = _corpus(tmp_path / "large.db", 5_000)
+    try:
+        # A hash near the end, so a scan in insertion order cannot stop early.
+        indexed_small = _steps_per_lookup(small, f"{499:064x}")
+        indexed_large = _steps_per_lookup(large, f"{4_999:064x}")
+        # One more level of the B-tree is allowed; a scan would be ~10x.
+        assert indexed_large <= indexed_small * 1.5, (indexed_small, indexed_large)
+
+        # The same measure without the index, to show it sees a scan when
+        # there is one. Without this half, "flat" could mean "blind".
+        for conn in (small, large):
+            conn.execute(f"DROP INDEX {INDEX}")
+        scanned_small = _steps_per_lookup(small, f"{499:064x}")
+        scanned_large = _steps_per_lookup(large, f"{4_999:064x}")
+        assert scanned_large >= scanned_small * 5, (scanned_small, scanned_large)
+        assert scanned_large >= indexed_large * 50, (indexed_large, scanned_large)
+    finally:
+        small.close()
+        large.close()
+
+
+def _objects(conn: sqlite3.Connection) -> dict[str, str]:
+    return {r[0]: r[1] for r in conn.execute(
+        "SELECT name, sql FROM sqlite_master WHERE sql IS NOT NULL")}
+
+
+def _rows(conn: sqlite3.Connection) -> dict[str, list[tuple]]:
+    tables = [r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND sql IS NOT NULL "
+        "AND name NOT LIKE 'documents_fts%' AND name NOT LIKE 'sqlite_%' ORDER BY name")]
+    return {t: [tuple(r) for r in conn.execute(f'SELECT * FROM "{t}" ORDER BY rowid')]
+            for t in tables}
+
+
+def test_the_schema_21_corpus_gains_the_index_and_nothing_else(tmp_path):
+    """21 -> 22 over a database a schema 21 resmon wrote, as its next launch does.
+
+    The launch also takes the steps past 22: schema 23 adds two tables, schema
+    24 rebuilds ``assistant_session_choices`` with its rows, schema 25 rebuilds
+    ``library_files`` with its rows and adds the empty ``library_removed``,
+    schema 26 adds the collections (filing every paper in the default one) and
+    ``routines.collection_id``, schema 27 rebuilds ``executions`` with
+    ``find_paper`` in its type CHECK, adds the four full-text tables and
+    ``routines.download_full_text``, and the marker moves to 27. Those are those
+    steps', and are named here so that nothing else can arrive or change
+    unnoticed. Any launch also recounts the runs' new papers once; the rows are
+    compared with the fixture as that recount leaves it (``_as_recounted``).
+    """
+    path = tmp_path / "schema21.db"
+    conn = _open(path)
+    conn.executescript(SCHEMA_21_FIXTURE.read_text(encoding="utf-8"))
+    conn.commit()
+    assert database.get_schema_version(conn) == 21
+    plan = _plan(conn)
+    assert any(step.startswith("SCAN") for step in plan), (
+        f"the schema 21 corpus should scan for a hash; its plan was {plan}")
+    recounted = _as_recounted(conn)
+    objects_before, rows_before = _objects(conn), _rows(recounted)
+    recounted.close()
+    before_library_columns = list(conn.execute("PRAGMA table_info(library_files)"))
+    conn.close()
+
+    database.init_db(str(path))            # the launch
+
+    conn = _open(path)
+    try:
+        objects_after, rows_after = _objects(conn), _rows(conn)
+        # Schema 25 adds ``library_removed``; its autoindexes have no stored SQL.
+        assert set(objects_after) - set(objects_before) == (
+            {INDEX} | set(database._ANSWER_RECORDS_V23_DDL) | {"library_removed"}
+            | set(database._COLLECTIONS_TABLES) | set(database._COLLECTIONS_TRIGGERS)
+            | set(database._FULL_TEXT_DDL) | {"assistant_session_files"})
+        assert set(objects_before) - set(objects_after) == set()
+        # Schema 24 rebuilds ``assistant_session_choices``, schema 25 rebuilds
+        # ``library_files``, schema 26 adds ``routines.collection_id``, and
+        # schema 27 rebuilds ``executions`` and adds
+        # ``routines.download_full_text``, on purpose; everything else is
+        # untouched.
+        rebuilt = {"assistant_session_choices", "library_files", "routines", "executions"}
+        assert all(objects_after[n] == objects_before[n] for n in objects_before
+                   if n not in rebuilt)
+        assert "'codex_cli'" in objects_after["assistant_session_choices"]
+        assert "'text/x-tex'" in objects_after["library_files"]
+        assert "collection_id INTEGER REFERENCES collections(id)" in objects_after["routines"]
+        assert "download_full_text INTEGER NOT NULL DEFAULT 0" in objects_after["routines"]
+        assert objects_after["executions"] == objects_before["executions"].replace(
+            "'automated_sweep')", "'automated_sweep', 'find_paper')")
+        assert [r[1] for r in conn.execute("PRAGMA table_info(library_files)")] == [
+            r[1] for r in before_library_columns]
+        assert objects_after[INDEX] == (
+            "CREATE INDEX idx_documents_metadata_hash ON documents(metadata_hash)")
+
+        settings_before = dict(rows_before.pop("app_settings"))
+        settings_after = dict(rows_after.pop("app_settings"))
+        assert settings_before.pop("schema_version") == "21"
+        assert settings_after.pop("schema_version") == "29"
+        # One-shot backfill markers this build writes on any launch, which the
+        # cumulative-upgrade test names; they are not this step's doing.
+        for marker in _MARKERS_A_LAUNCH_MAY_ADD:
+            settings_after.pop(marker, None)
+        assert settings_after == settings_before
+        # Schema 23's tables arrive empty; they are that step's, not this one's.
+        assert rows_after.pop("assistant_turn_failures") == []
+        assert rows_after.pop("execution_ai_models") == []
+        # Schema 25's removed-file record arrives empty.
+        assert rows_after.pop("library_removed") == []
+        # Schema 26 files every paper in the default collection, and each
+        # watch gains ``collection_id`` at the end of its row, pointing there.
+        assert [r[:3] for r in rows_after.pop("collections")] == [(1, "Main Collection", 0)]
+        assert sorted(r[1] for r in rows_after.pop("collection_documents")) == sorted(
+            r[0] for r in rows_before["documents"])
+        assert rows_after.pop("routines") == [r + (1, 0) for r in rows_before.pop("routines")]
+        # Schema 27's four tables arrive empty.
+        for table in database._FULL_TEXT_DDL:
+            if not table.startswith("idx_"):
+                assert rows_after.pop(table) == []
+        # Schema 28's record of Ask's attached files arrives empty.
+        assert rows_after.pop("assistant_session_files") == []
+        assert rows_after == rows_before
+
+        assert any(INDEX in step for step in _plan(conn))
+    finally:
+        conn.close()
+
+    database.init_db(str(path))            # the launch after that
+    conn = _open(path)
+    try:
+        assert _objects(conn) == objects_after
+        assert database.get_schema_version(conn) == 29
+    finally:
+        conn.close()
+
+
+def test_an_index_of_that_name_with_other_sql_is_a_conflict_not_accepted(tmp_path):
+    path = tmp_path / "conflict.db"
+    database.init_db(str(path))
+    conn = _open(path)
+    conn.execute(f"DROP INDEX {INDEX}")
+    conn.execute(f"CREATE INDEX {INDEX} ON documents(title)")
+    conn.execute("UPDATE app_settings SET value = '21' WHERE key = 'schema_version'")
+    conn.commit()
+    conn.close()
+
+    with pytest.raises(sqlite3.DatabaseError, match="schema-22"):
+        database.init_db(str(path))
+
+    conn = _open(path)
+    try:
+        # The savepoint rolled back: the marker did not move past a refusal.
+        assert database.get_schema_version(conn) == 21
+    finally:
+        conn.close()

@@ -1,0 +1,349 @@
+/**
+ * Atlas: the collection, a paper, and the reading queue, in the real app.
+ *
+ * A seeded corpus of three papers: two records of the same work from two
+ * sources (they share a DOI and are linked as near-duplicates) and one other,
+ * all collected by one run. Followed through what a reader does with them:
+ * search the collection, see the same work labeled and fold it without the
+ * count moving, open a paper and read why it is there, save it to read, mark
+ * it read and take it out of the queue, and save another from its run. With
+ * no embedding model, the collection says why it offers no ranking by meaning,
+ * and its link opens Settings → AI at Embeddings. A second case seeds more
+ * papers than the search counts and reads the cap said beside the number.
+ *
+ * The journeys J09, J10, J12 and J28 drive the same screens through
+ * `journeys/drivers/atlas.ts`, including ranking by meaning against a
+ * loopback embedder; this spec is the part that runs on every pull request.
+ * No network is involved: nothing here asks a source.
+ */
+import { spawnSync } from 'child_process';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { test, expect, _electron as electron, type Page } from '@playwright/test';
+import { FRONTEND_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
+
+/** Whether this engine loaded sqlite-vec. The macos-15 runner's python3 cannot. */
+async function vecLoaded(win: Page): Promise<boolean> {
+  return win.evaluate(async () => {
+    const port = (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort();
+    const res = await e2eFetch(`http://127.0.0.1:${port}/api/health`);
+    return Boolean(((await res.json()) as { embeddings?: { extension: string | null } }).embeddings?.extension);
+  });
+}
+
+const SEED = String.raw`
+import json, os, sys
+sys.path.insert(0, sys.argv[1])
+from implementation_scripts.database import (init_db, get_connection, insert_document, insert_execution,
+    link_execution_document, record_execution_source, update_execution_status)
+path = os.environ["RESMON_DB_PATH"]
+init_db(path)
+conn = get_connection(path)
+ids = []
+for n, (source, title, doi) in enumerate((
+    ("arxiv", "Perovskite solar cells that keep their efficiency", "10.5555/same-work"),
+    ("crossref", "Perovskite solar cells that keep their efficiency", "10.5555/same-work"),
+    ("arxiv", "Light-emitting diodes from layered crystals", None),
+)):
+    ids.append(insert_document(conn, {
+        "source_repository": source, "external_id": f"e2e-{n}", "title": title, "doi": doi,
+        "authors": "Ada Fixture, Ben Fixture", "publication_date": "2026-10-01",
+        "abstract": f"{title}. An authored abstract for the suite, not a published one.",
+        "metadata_hash": f"e2e-{n}",
+    }))
+conn.execute("INSERT INTO document_links (document_a, document_b, kind, score, method) "
+             "VALUES (?, ?, 'near_duplicate', NULL, 'shared_doi')", (ids[0], ids[1]))
+run = insert_execution(conn, {"execution_type": "deep_dive", "start_time": "2026-10-28T00:00:00Z",
+    "parameters": json.dumps({"repository": "arxiv", "query": "perovskite", "keywords": ["perovskite"]})})
+for doc in ids:
+    link_execution_document(conn, run, doc)
+record_execution_source(conn, run, "arxiv", "ok", result_count=3, zero_reason=None)
+update_execution_status(conn, run, "completed", end_time="2026-10-28T00:00:09Z", result_count=3, new_result_count=3)
+conn.commit()
+print(json.dumps({"ids": ids, "run": run}))
+`;
+
+test('the collection, a paper, and the reading queue', async () => {
+  test.setTimeout(240_000);
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-collection-'));
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
+  const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', SEED, path.join(FRONTEND_ROOT, '..')], { env, encoding: 'utf8' });
+  expect(seeded.status, seeded.stderr).toBe(0);
+  const { ids, run } = JSON.parse(seeded.stdout.trim().split('\n').pop() ?? '{}') as { ids: number[]; run: number };
+  const [pairA, pairB, other] = ids as [number, number, number];
+
+  const app = await electron.launch({
+    args: ['.', `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`],
+    cwd: FRONTEND_ROOT, env, colorScheme: null, timeout: 180_000,
+  });
+  registerStateDir(stateDir);
+  try {
+    const win = await app.firstWindow({ timeout: 180_000 });
+    const problems: string[] = [];
+    win.on('pageerror', (e) => problems.push(e.message));
+    await win.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Search' }).click();
+    await expect(win.getByRole('heading', { name: 'Main Collection', level: 1 })).toBeVisible({ timeout: 60_000 });
+    const results = win.locator('section.results');
+    await expect(results).toHaveAttribute('aria-busy', 'false', { timeout: 60_000 });
+
+    // A short window keeps at least a third of its height for the results.
+    const original = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.getBounds());
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(1024, 684));
+    await expect.poll(() => win.evaluate(() => {
+      const results = document.querySelector('.results > .index-scroll')!.getBoundingClientRect();
+      return results.height / window.innerHeight;
+    })).toBeGreaterThanOrEqual(1 / 3);
+    for (const name of ['Collection', 'Saved']) {
+      const tab = win.getByRole('navigation', { name: 'Search' }).getByRole('link', { name, exact: true });
+      expect(await tab.evaluate((node) => getComputedStyle(node).whiteSpace)).toBe('nowrap');
+    }
+    await app.evaluate(({ BrowserWindow }, bounds) => BrowserWindow.getAllWindows()[0]!.setBounds(bounds), original);
+
+    // The whole collection, the same work labeled from both sides.
+    await expect(win.locator('.count-sentence')).toHaveText('3 papers in your collection');
+    // No embedding model: no ranking control, and the sentence in its place says why.
+    await expect(win.getByRole('group', { name: 'Order' })).toHaveCount(0);
+    const vec = await vecLoaded(win);
+    await expect(win.locator('[data-collection="ranking"]')).toHaveText(vec
+      ? 'Ranking by meaning is off: no embedding model is set up, so none of your 3 papers has a vector. '
+        + 'Set one up in Settings → AI → Embeddings.'
+      : /^Ranking by meaning is off: the similarity index \(sqlite-vec\) did not load in this copy of resmon \(.+\)\. Settings → AI → Embeddings says more\.$/);
+    await expect(win.locator('.result')).toHaveCount(3);
+    await expect(win.locator(`.result[data-document="${pairA}"] .result-links li`)).toHaveText(['also appears in crossref — same DOI']);
+    await expect(win.locator(`.result[data-document="${pairB}"] .result-links li`)).toHaveText(['also appears in arxiv — same DOI']);
+
+    // Native popovers: the trigger owns its toggle, focus enters after showing,
+    // and light dismissal leaves the next field's focus alone.
+    const compactRow = win.locator(`.result[data-document="${other}"]`);
+    const actions = compactRow.getByRole('button', { name: /^Paper Actions for/ });
+    const menu = compactRow.locator('[popover]');
+    await menu.evaluate((node) => {
+      node.addEventListener('toggle', (event) => {
+        if ((event as ToggleEvent).newState === 'open') {
+          queueMicrotask(() => node.setAttribute('data-focused-first', String(document.activeElement === node.querySelector('button:not(:disabled), a[href]'))));
+        }
+      });
+    });
+    await actions.click();
+    await expect(menu).toBeVisible();
+    await expect(menu).toHaveAttribute('data-focused-first', 'true');
+    await actions.click();
+    await expect(menu).toBeHidden();
+    // Wait past the native toggle task: it must stay closed.
+    await expect(actions).toHaveAttribute('aria-expanded', 'false');
+    await actions.press('Enter');
+    await expect(menu).toBeVisible();
+    await actions.press('Enter');
+    await expect(menu).toBeHidden();
+    await expect(actions).toHaveAttribute('aria-expanded', 'false');
+    await actions.click();
+    const searchField = win.getByLabel('Search your collection');
+    await searchField.click();
+    await expect(menu).toBeHidden();
+    await expect(searchField).toBeFocused();
+    await actions.click();
+    await menu.getByRole('button', { name: /^Add to a Project for/ }).focus();
+    await win.keyboard.press('Escape');
+    await expect(menu).toBeHidden();
+    await expect(actions).toBeFocused();
+
+    // A row's transform must not contain its fixed Undo notice.
+    await actions.click();
+    await menu.getByRole('button', { name: /^Save to Read for/ }).click();
+    const savedAction = menu.getByRole('button', { name: /^Saved for/ });
+    await expect(savedAction).toBeEnabled();
+    await savedAction.click();
+    const notice = win.locator('.lib-notice').filter({ hasText: 'Light-emitting diodes from layered crystals' });
+    await expect(notice).toBeVisible();
+    expect(await notice.evaluate((node) => node.closest('.result, li'))).toBeNull();
+    const box = await notice.boundingBox();
+    const viewport = await win.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.y).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height);
+    // A click on the notice is a click outside the popover, so it closes the menu.
+    await notice.getByRole('button', { name: 'Dismiss', exact: true }).click();
+    await expect(menu).toBeHidden();
+    await expect(notice).toBeHidden();
+
+    // Folding hides a row in this view only: the count does not move.
+    await win.getByLabel('Fold the same work into one row').check();
+    await expect(win.locator('.result')).toHaveCount(2);
+    await expect(win.locator(`.result[data-document="${pairA}"]`)).toBeVisible();
+    await expect(win.locator('.collapse-note')).toContainText('Nothing was removed');
+    await expect(win.locator('.count-sentence')).toHaveText('3 papers in your collection');
+    await win.getByLabel('Fold the same work into one row').uncheck();
+    await expect(win.locator('.result')).toHaveCount(3);
+
+    // A query narrows the list.
+    await win.getByLabel('Search your collection').fill('crystals');
+    await win.getByLabel('Search your collection').press('Enter');
+    await expect(win.locator('.count-sentence')).toHaveText('1 paper match');
+    await expect(win.locator('.result .result-title')).toHaveText(['Light-emitting diodes from layered crystals']);
+
+    // A paper: the record, why it is here, and saving it to read.
+    await win.locator('.result .result-title').first().click();
+    const paper = win.locator(`.paper[data-paper="${other}"]`);
+    await expect(paper).toBeVisible();
+    await expect(win.locator('.paper-abstract')).toContainText('An authored abstract');
+    await expect(win.locator('.why .why-limits-label')).toHaveText('What resmon Cannot See');
+    await expect(win.locator('.why .why-limits li').first()).toBeVisible();
+    await win.getByRole('button', { name: /^Save to Read for/ }).click();
+    await expect(win.locator('.paper-actions')).toHaveAttribute('data-queue', 'to_read');
+    await expect(win.locator('.paper-actions .queue-state')).toHaveText('In the reading queue · To Read');
+    fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-paper.png') });
+    // The paper's actions are a row of buttons of one height, wrapping as a row does: each button sits on a row
+    // with the others (none floats between two rows), and the line about the PDF is beneath them all.
+    const rows = await win.locator('.paper-actions').evaluate((box) => {
+      const buttons = Array.from(box.querySelectorAll<HTMLElement>('.btn')).map((b) => b.getBoundingClientRect());
+      const line = box.querySelector<HTMLElement>('.fulltext-line')?.getBoundingClientRect() ?? null;
+      const tops = [...new Set(buttons.map((r) => Math.round(r.top)))].sort((a, b) => a - b);
+      return {
+        buttons: buttons.length,
+        tops,
+        heights: [...new Set(buttons.map((r) => Math.round(r.height)))],
+        rowsApart: tops.every((top, i) => i === 0 || top - tops[i - 1]! >= 28),
+        lineBelow: line === null ? null : buttons.every((r) => line.top >= r.bottom),
+      };
+    });
+    expect(rows.buttons, JSON.stringify(rows)).toBeGreaterThanOrEqual(3);
+    expect(rows.heights, JSON.stringify(rows)).toHaveLength(1);
+    expect(rows.rowsApart, JSON.stringify(rows)).toBe(true);
+    if (rows.lineBelow !== null) expect(rows.lineBelow, JSON.stringify(rows)).toBe(true);
+    // At the narrowest window the row wraps, and every button keeps one height.
+    const wide = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.getBounds());
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(960, 760));
+    await expect.poll(() => win.evaluate(() => window.innerWidth)).toBeLessThanOrEqual(960);
+    expect(await win.locator('.paper-actions').evaluate((box) => new Set(
+      Array.from(box.querySelectorAll<HTMLElement>('.btn')).map((b) => Math.round(b.getBoundingClientRect().height))).size)).toBe(1);
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-paper-narrow.png') });
+    await app.evaluate(({ BrowserWindow }, bounds) => BrowserWindow.getAllWindows()[0]!.setBounds(bounds), wide);
+
+    // The queue: there under To Read, marked read, then removed.
+    await win.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Library' }).click();
+    await expect(win.getByRole('heading', { name: 'Library', level: 1 })).toBeVisible();
+    const row = win.locator(`article.card[data-document="${other}"]`);
+    await expect(row).toHaveAttribute('data-status', 'to_read');
+    await row.getByRole('button', { name: 'Mark Read' }).click();
+    await expect(win.locator(`article.card[data-document="${other}"]`)).toHaveCount(0);
+    await win.getByRole('group', { name: 'Show' }).getByRole('button', { name: /^Read/ }).click();
+    await expect(row).toHaveAttribute('data-status', 'read');
+    await row.hover();
+    await row.getByRole('button', { name: 'Remove from Read' }).click();
+    await expect(row).toHaveCount(0);
+    await expect(win.locator('.lib-empty')).toHaveText('Nothing is marked read yet. Choose Mark Read on a cover in To Read, or on a paper’s page.');
+
+    // Saving from the run that collected it.
+    await win.evaluate((id) => { window.location.hash = `#/runs/${id}`; }, run);
+    await win.getByRole('tab', { name: 'Papers' }).click();
+    const fromRun = win.locator(`.paper-row[data-document="${pairA}"]`);
+    // A run's rows offer the same Paper Actions as Search's.
+    await fromRun.getByRole('button', { name: /^Paper Actions for/ }).click();
+    await win.getByRole('dialog', { name: /^Paper Actions for/ }).getByRole('button', { name: /^Save to Read for/ }).click();
+    await expect(fromRun).toHaveAttribute('data-queue', 'to_read');
+    await expect(fromRun.locator('.queue-state')).toHaveText('Saved · To Read');
+
+    // The way to ranking by meaning leads somewhere: Settings → AI, opened at Embeddings.
+    await win.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Search' }).click();
+    await win.locator('[data-collection="ranking"]').getByRole('link', {
+      name: vec ? 'Set one up in Settings → AI → Embeddings' : 'Settings → AI → Embeddings says more',
+    }).click();
+    await expect(win.getByRole('heading', { name: 'Embeddings', level: 3 })).toBeFocused({ timeout: 30_000 });
+    await expect(win.locator('section.embeddings')).toBeInViewport();
+    await expect(win.locator('section.embeddings [data-embeddings="missing"] dd'))
+      .toHaveText('3 papers: no embedding model is set up to make vectors.');
+    expect(await win.evaluate(() => window.location.hash), 'the request to focus is cleared once used').toBe('#/settings/ai');
+
+    expect(problems).toEqual([]);
+  } finally {
+    await app.close();
+    removeStateDir(stateDir);
+  }
+});
+
+/**
+ * More papers than the search once counted (it stopped at 10,000), written in one transaction: no authors or
+ * categories, so no facet rows. Published a day apart going back from October 1, 2026, so a jump to a month
+ * lands on a known paper.
+ */
+const MANY = String.raw`
+import os, sys
+from datetime import date, timedelta
+sys.path.insert(0, sys.argv[1])
+from implementation_scripts.database import init_db, get_connection
+path = os.environ["RESMON_DB_PATH"]
+init_db(path)
+conn = get_connection(path)
+start = date(2026, 10, 1)
+conn.executemany(
+    "INSERT INTO documents (source_repository, external_id, title, abstract, publication_date, metadata_hash) "
+    "VALUES ('arxiv', ?, ?, 'An authored abstract about perovskite films.', ?, ?)",
+    [(f"e2e-many-{n}", f"Perovskite film {n}", (start - timedelta(days=n)).isoformat(), f"e2e-many-{n}") for n in range(10005)],
+)
+conn.commit()
+`;
+
+test('a collection past ten thousand is counted whole, scrolled as one list, and jumped through by month', async () => {
+  test.setTimeout(240_000);
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-many-'));
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
+  const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', MANY, path.join(FRONTEND_ROOT, '..')], { env, encoding: 'utf8' });
+  expect(seeded.status, seeded.stderr).toBe(0);
+
+  const app = await electron.launch({
+    args: ['.', `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`],
+    cwd: FRONTEND_ROOT, env, colorScheme: null, timeout: 180_000,
+  });
+  registerStateDir(stateDir);
+  try {
+    const win = await app.firstWindow({ timeout: 180_000 });
+    const problems: string[] = [];
+    win.on('pageerror', (e) => problems.push(e.message));
+    await win.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Search' }).click();
+    await expect(win.getByRole('heading', { name: 'Main Collection', level: 1 })).toBeVisible({ timeout: 60_000 });
+
+    // The whole collection, counted: it said "10,000+" and that search stops counting at 10,000.
+    await expect(win.locator('.count-sentence')).toHaveText('10,005 papers in your collection', { timeout: 60_000 });
+    await expect(win.locator('[data-collection="count-stopped"]')).toHaveCount(0);
+    // A search: every match counted too.
+    await win.getByLabel('Search your collection').fill('perovskite');
+    await win.getByLabel('Search your collection').press('Enter');
+    await expect(win.locator('.count-sentence')).toHaveText('10,005 papers match', { timeout: 60_000 });
+
+    // One list, drawn as a window: scrolling to its end reads the next pages by itself, and the page holds
+    // only the rows near the view however many have been read.
+    const scroller = win.locator('section.results .index-scroll');
+    await expect(win.locator('.result').first()).toHaveAttribute('data-document', /\d+/);
+    await expect.poll(async () => {
+      await scroller.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+      return Number(await win.locator('.result').last().getAttribute('aria-posinset'));
+    }, { timeout: 30_000, intervals: [250] }).toBeGreaterThan(200);
+    expect(await win.locator('.result').count(), 'only the rows near the view are in the page').toBeLessThan(80);
+    expect(await win.locator('.result').last().getAttribute('aria-setsize')).toBe('10005');
+
+    // Jump to a month: the list starts at its last day, says how many newer matches come first, and the count
+    // above it is still every match. Paper n was published n days before October 1, 2026.
+    await win.getByLabel('Jump to a month of publication').fill('2026-03');
+    await expect(win.locator('[data-collection="jumped"]')).toContainText(
+      'Listed from March 2026 back. 184 newer matches come before it in the newest order.', { timeout: 30_000 });
+    await expect(win.locator('.result .result-title').first()).toHaveText('Perovskite film 184');
+    await expect(win.locator('.count-sentence')).toHaveText('10,005 papers match');
+    await expect(win).toHaveURL(/[?&]at=2026-03(&|$)/);
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-collection-jump.png') });
+    await win.locator('[data-collection="jumped"]').getByRole('button', { name: 'Back to the Newest' }).click();
+    await expect(win.locator('[data-collection="jumped"]')).toHaveCount(0);
+    await expect(win.locator('.result .result-title').first()).toHaveText('Perovskite film 0');
+    await expect(win.locator('[data-collection="ranking"]')).toContainText(await vecLoaded(win)
+      ? 'none of your 10,005 papers has a vector'
+      : 'the similarity index (sqlite-vec) did not load in this copy of resmon');
+    expect(problems).toEqual([]);
+  } finally {
+    await app.close();
+    removeStateDir(stateDir);
+  }
+});

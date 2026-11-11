@@ -1,0 +1,331 @@
+# resmon_scripts/implementation_scripts/summarizer.py
+"""Token-aware chunking and summarization pipeline."""
+
+import logging
+import re
+
+import tiktoken
+
+from .prompt_templates import (
+    SUMMARIZE_FULL_TEXT,
+    AGGREGATE_SUMMARIES,
+    length_band,
+    constitution_sha256_prefix,
+)
+
+logger = logging.getLogger(__name__)
+
+# Sentence splitter: break after ., ! or ? followed by whitespace. It is
+# cruder than a trained model (it splits "et al. 2019"), but chunking only needs
+# roughly sentence-sized pieces, and it needs no data file, so it behaves the
+# same in every install and never reaches the network.
+_SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+def _sent_tokenize(text: str) -> list[str]:
+    """Split *text* into sentences."""
+    return [s for s in _SENTENCE_RE.split(text) if s.strip()]
+
+# ---------------------------------------------------------------------------
+# Defaults
+# ---------------------------------------------------------------------------
+
+_DEFAULT_MAX_TOKENS = 3000  # conservative default leaving room for prompt overhead
+_DEFAULT_OVERLAP_TOKENS = 200
+_CHARS_PER_TOKEN_HEURISTIC = 4  # rough estimate for non-tiktoken models
+
+# Batching budget.
+#
+# A batched call sends N documents in one prompt, so the thing that has to stay
+# bounded is the *total*, and the thing that has to stay small is each part. A
+# title-plus-abstract is a few hundred tokens; anything near 1,500 is not an
+# abstract, and the chunk-and-aggregate path is what handles those correctly.
+# So a batch is taken only when every document in it is small, and the whole
+# batch is under the total -- otherwise the slice falls back to the
+# per-document path, which loses the speed and keeps the correctness.
+_BATCH_MAX_TOKENS_PER_DOCUMENT = 1500
+_BATCH_MAX_TOKENS_TOTAL = 12000
+
+
+class SummarizationPipeline:
+    """Route text through an LLM client with automatic token-aware chunking.
+
+    Works with both ``RemoteLLMClient`` and ``LocalLLMClient`` — any object
+    that exposes ``summarize(text, prompt_params) -> str`` and has a
+    ``provider`` attribute (or not).
+    """
+
+    def __init__(self, llm_client, prompt_params: dict | None = None) -> None:
+        self.llm_client = llm_client
+        self.prompt_params = prompt_params or {}
+
+        # Try to build a tiktoken encoder if the client uses an OpenAI model
+        self._tiktoken_enc = None
+        model = getattr(llm_client, "model", None)
+        provider = getattr(llm_client, "provider", None)
+        if provider == "openai" and model:
+            # ``except Exception``, not ``except KeyError``. tiktoken downloads
+            # its BPE vocabulary on first use, so for a *known* model this call
+            # fails with a network error rather than a KeyError -- and that
+            # propagated straight out of this constructor. A user running resmon
+            # offline, or behind a firewall that blocks tiktoken's CDN, saw the
+            # whole execution fail instead of getting the character-count
+            # fallback this class documents two methods below.
+            try:
+                self._tiktoken_enc = tiktoken.encoding_for_model(model)
+            except Exception:
+                # Unknown model, or the vocabulary could not be fetched --
+                # fall back to cl100k_base (GPT-4 family), then to the
+                # ~4 chars/token heuristic if that is unavailable too.
+                try:
+                    self._tiktoken_enc = tiktoken.get_encoding("cl100k_base")
+                except Exception:
+                    logger.debug(
+                        "tiktoken unavailable for model %s; using the "
+                        "characters-per-token heuristic", model, exc_info=True,
+                    )
+
+    # ------------------------------------------------------------------
+    # Token estimation
+    # ------------------------------------------------------------------
+
+    def estimate_tokens(self, text: str) -> int:
+        """Estimate the token count of *text*.
+
+        Uses tiktoken for OpenAI models; falls back to a ~4 chars/token
+        heuristic for all others.
+        """
+        if not text:
+            return 0
+        if self._tiktoken_enc is not None:
+            return len(self._tiktoken_enc.encode(text))
+        return max(1, len(text) // _CHARS_PER_TOKEN_HEURISTIC)
+
+    # ------------------------------------------------------------------
+    # Chunking
+    # ------------------------------------------------------------------
+
+    def chunk_text(
+        self,
+        text: str,
+        max_tokens: int = _DEFAULT_MAX_TOKENS,
+        overlap_tokens: int = _DEFAULT_OVERLAP_TOKENS,
+    ) -> list[str]:
+        """Split *text* at sentence boundaries into chunks of ≤ *max_tokens*.
+
+        Adjacent chunks share approximately *overlap_tokens* worth of trailing
+        sentences from the previous chunk to preserve local context.
+        """
+        if not text or not text.strip():
+            return []
+
+        sentences = _sent_tokenize(text)
+        if not sentences:
+            return []
+
+        chunks: list[str] = []
+        current_sentences: list[str] = []
+        current_tokens = 0
+
+        for sentence in sentences:
+            sent_tokens = self.estimate_tokens(sentence)
+
+            if current_tokens + sent_tokens > max_tokens and current_sentences:
+                # Flush current chunk
+                chunks.append(" ".join(current_sentences))
+
+                # Build overlap from the tail of the current chunk
+                overlap_sents: list[str] = []
+                overlap_count = 0
+                for s in reversed(current_sentences):
+                    s_tok = self.estimate_tokens(s)
+                    if overlap_count + s_tok > overlap_tokens:
+                        break
+                    overlap_sents.insert(0, s)
+                    overlap_count += s_tok
+
+                current_sentences = overlap_sents
+                current_tokens = overlap_count
+
+            current_sentences.append(sentence)
+            current_tokens += sent_tokens
+
+        # Final chunk
+        if current_sentences:
+            chunks.append(" ".join(current_sentences))
+
+        return chunks
+
+    # ------------------------------------------------------------------
+    # Audit prefix (IMPL-AI13)
+    # ------------------------------------------------------------------
+
+    def _audit_prefix(self) -> str:
+        """Return the ``[constitution: ... | model: ... | length: ...]`` prefix.
+
+        Returns an empty string when ``prompt_params["_show_audit_prefix"]``
+        is explicitly False. The constitution digest is cached by
+        :func:`constitution_sha256_prefix`; failures there propagate because
+        the constitution is mandatory (ADQ-AI1).
+        """
+        if self.prompt_params.get("_show_audit_prefix") is False:
+            return ""
+        provider = str(self.prompt_params.get("_audit_provider") or "").strip()
+        if not provider:
+            provider = str(getattr(self.llm_client, "provider", "") or "").strip() or "unknown"
+        model = str(self.prompt_params.get("_audit_model") or "").strip()
+        if not model:
+            model = str(getattr(self.llm_client, "model", "") or "").strip() or "unknown"
+        length_token = str(self.prompt_params.get("length") or "standard")
+        band = length_band(length_token)
+        try:
+            const_hash = constitution_sha256_prefix(8)
+        except Exception:  # pragma: no cover - constitution is mandatory
+            const_hash = "unknown"
+        # Effort is additive and appears only when a lane actually set
+        # one. An empty `| effort:` on the eight API-key providers would imply
+        # a control they do not have; a missing one says nothing, which is the
+        # honest answer for a lane where the concept does not exist.
+        effort = str(
+            self.prompt_params.get("_audit_effort")
+            or getattr(self.llm_client, "effort", "")
+            or ""
+        ).strip()
+        suffix = f" | effort: {effort}" if effort else ""
+        return (
+            f"[constitution: {const_hash} | model: {provider}/{model} "
+            f"| length: {band}{suffix}]"
+        )
+
+    def _decorate(self, summary: str) -> str:
+        """Prepend the audit prefix to *summary* unless disabled."""
+        prefix = self._audit_prefix()
+        if not prefix:
+            return summary
+        if not summary:
+            return prefix
+        return f"{prefix}\n\n{summary}"
+
+    # ------------------------------------------------------------------
+    # Single-document summarization
+    # ------------------------------------------------------------------
+
+    def summarize_document(self, text: str) -> str:
+        """Summarize a single document, chunking automatically if needed.
+
+        If the document fits within ``_DEFAULT_MAX_TOKENS``, it is sent to
+        the LLM in one call.  Otherwise it is split into chunks, each chunk
+        is summarized, and the chunk summaries are aggregated.  If the
+        aggregated summaries still exceed the context window, aggregation
+        is applied recursively.
+        """
+        if not text or not text.strip():
+            return ""
+
+        token_count = self.estimate_tokens(text)
+
+        if token_count <= _DEFAULT_MAX_TOKENS:
+            # Fits in a single call
+            return self._decorate(self.llm_client.summarize(text, self.prompt_params))
+
+        # Chunk and summarize each chunk
+        chunks = self.chunk_text(text)
+        chunk_summaries = [
+            self.llm_client.summarize(chunk, self.prompt_params)
+            for chunk in chunks
+        ]
+
+        return self._decorate(self._aggregate_summaries(chunk_summaries))
+
+    # ------------------------------------------------------------------
+    # Batch summarization
+    # ------------------------------------------------------------------
+
+    def supports_batching(self, documents: list[str]) -> bool:
+        """True when *documents* can go through the client in one call.
+
+        Two conditions, and both are necessary. The client has to expose
+        ``summarize_many`` — only the subscription lane does, because it is the
+        only lane where a call has a fixed cost worth amortizing — and every
+        document has to be small enough that batching does not push the prompt
+        somewhere the chunking path exists to handle.
+        """
+        if getattr(self.llm_client, "supports_batch_calls", False) is not True:
+            return False
+        if not callable(getattr(self.llm_client, "summarize_many", None)):
+            return False
+        if not documents:
+            return False
+        total = 0
+        for doc in documents:
+            count = self.estimate_tokens(doc)
+            if count > _BATCH_MAX_TOKENS_PER_DOCUMENT:
+                return False
+            total += count
+        return total <= _BATCH_MAX_TOKENS_TOTAL
+
+    def summarize_batch(self, documents: list[str]) -> list[str]:
+        """Summarize a list of documents, returning one result per document.
+
+        Takes the batched route when the client and the documents both allow
+        it; an empty string marks a document the batch did not answer for, and
+        the caller is expected to retry those. Otherwise this is the
+        per-document loop it has always been.
+        """
+        if self.supports_batching(documents):
+            logger.info(
+                "Summarizing %d documents in one call", len(documents),
+            )
+            raw = self.llm_client.summarize_many(documents, self.prompt_params)
+            results: list[str] = []
+            for position in range(len(documents)):
+                value = raw[position] if position < len(raw) else None
+                # ``_decorate("")`` would return the audit prefix on its own,
+                # which reads as a summary that says nothing rather than as a
+                # document with no summary. An unanswered slot stays empty.
+                results.append(
+                    self._decorate(value) if isinstance(value, str) and value.strip()
+                    else ""
+                )
+            return results
+
+        results = []
+        for i, doc in enumerate(documents):
+            logger.info("Summarizing document %d/%d", i + 1, len(documents))
+            results.append(self.summarize_document(doc))
+        return results
+
+    # ------------------------------------------------------------------
+    # Aggregation (with recursive fallback)
+    # ------------------------------------------------------------------
+
+    def _aggregate_summaries(self, summaries: list[str]) -> str:
+        """Combine chunk summaries into a single coherent summary.
+
+        Recurses if the concatenated summaries exceed the context window.
+        """
+        combined = "\n\n".join(summaries)
+        combined_tokens = self.estimate_tokens(combined)
+
+        if combined_tokens <= _DEFAULT_MAX_TOKENS:
+            _length = self.prompt_params.get("length") or "standard"
+            agg_prompt = AGGREGATE_SUMMARIES.format(
+                chunk_summaries=combined,
+                tone=self.prompt_params.get("tone", "technical"),
+                length=_length,
+                word_count_band=length_band(_length),
+            )
+            return self.llm_client.summarize(agg_prompt, self.prompt_params)
+
+        # Recursive: re-chunk the summaries and aggregate again
+        logger.info(
+            "Chunk summaries exceed context window (%d tokens); "
+            "recursively aggregating.",
+            combined_tokens,
+        )
+        sub_chunks = self.chunk_text(combined)
+        sub_summaries = [
+            self.llm_client.summarize(chunk, self.prompt_params)
+            for chunk in sub_chunks
+        ]
+        return self._aggregate_summaries(sub_summaries)

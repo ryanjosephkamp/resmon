@@ -1,0 +1,908 @@
+"""The source wall: every source's recorded answer to every recent run.
+
+``execution_sources`` holds one row per source per execution, and
+``source_coverage.outcome`` classifies each of those rows. This module is a
+reader that puts the classification *across* runs: every other surface reads one
+execution at a time, so a source that quietly stopped answering three runs ago
+is visible only to someone who opens three runs and compares them by hand. That
+is the gap this module closes, and it closes it with no new recording, no
+migration and no second copy of the classification.
+
+**This module classifies nothing.** ``zero_reason.answered`` and
+``source_coverage.outcome`` decide what a recorded row means, and they are
+called, not re-implemented. A separate copy of that decision could drift from
+them and put a green tick on a source that has no author query. What
+this module adds is a *projection*: the three categories plus the flags that
+``outcome`` already returns, folded into the states a wall can draw, and
+a sentence saying what the wall adds up to.
+
+The states, and what each one is allowed to mean:
+
+``answered``
+    The source replied and returned records. Includes a reply whose records
+    resmon could not keep -- see the note on ``rights_filtered`` below.
+``answered_empty``
+    The source replied and genuinely had nothing. A quiet field, not a fault.
+``answered_in_part``
+    The source answered every page resmon asked for, and resmon stopped -- at
+    its own time budget or the run's cap -- after a stretch of the window the
+    client recorded. Not a fault and not a full answer: the cell's note says
+    what was read.
+``could_not_be_asked``
+    resmon never got a question to this source, or the source cannot express
+    the question: no key, retired, no author query, a window it cannot answer.
+``rate_limited``
+    The source was asked and told resmon to slow down (HTTP 429), or resmon
+    held back while an earlier 429's wait ran. The source is up; the cell's
+    note says when to try again where the source said.
+``failed``
+    The source was asked and the exchange broke -- an upstream failure, a
+    reply resmon could not read, a recorded query error.
+``not_recorded``
+    resmon did not observe an outcome. **Never rendered as either success or
+    failure**, and never inferred into one of the others.
+``not_selected``
+    This run's saved selection did not name this source, so nothing was asked
+    of it. A silence the user chose, which is a different fact from a silence
+    in the record, and the sixth state exists to keep them apart.
+
+Three collapses are deliberate and are the honest reading of what is stored,
+rather than places where the data ran out:
+
+* A zero whose reason is ``rights_filtered`` or ``records_unusable`` is
+  ``answered``. The source replied *and returned records*; resmon declined to
+  store them. Calling it ``answered_empty`` would state that the field was
+  quiet, which is a claim about someone else's corpus that the row disproves.
+  The cell's own note carries the matched/kept pair.
+* A ``cancelled`` row is ``not_recorded``. The user stopped the run; resmon
+  observed its own cancellation, not an outcome from the source. Drawing it as
+  ``failed`` would blame the source for the user's keystroke.
+* A source with no row for a run whose saved selection *cannot be read* is
+  ``not_recorded``, not ``not_selected``. An unreadable selection is not
+  evidence that the user declined to ask: turning it into one would invent a
+  choice nobody made, which is the same move as inventing a zero reason.
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+
+from . import repo_catalog, source_coverage, zero_reason
+from .api_registry import RETIRED_NAMES
+
+# The wall's vocabulary, in severity order -- answered first, the states that
+# say nothing last. The renderer draws this order and holds no copy of it.
+#
+# Five of these were the approved concept. ``not_selected`` is the sixth and
+# it is here because the stored data distinguished something the concept did
+# not: a run's saved selection says which sources the user asked, so "I did
+# not ask this source" and "I asked and do not know what happened" are both
+# on disk and they are not the same silence. The first is a choice the user
+# made; the second is a hole in the record. Collapsing them is the same
+# compression as calling a 503 an empty field, one level down.
+#
+# ``answered_in_part`` is the seventh, for the same reason: bioRxiv and medRxiv
+# record the stretch of a window they read, so "resmon stopped reading" is on
+# disk apart from "the source failed" and from "the source answered it all".
+#
+# ``rate_limited`` is the eighth: a source that answered 429 is up and asking
+# resmon to wait, which a person acts on differently from an outage.
+WALL_STATES: tuple[str, ...] = (
+    "answered",
+    "answered_empty",
+    "answered_in_part",
+    "could_not_be_asked",
+    "rate_limited",
+    "failed",
+    "not_recorded",
+    "not_selected",
+)
+
+# What each state is called and what it means, served with the grid.
+#
+# **The backend owns this vocabulary and the renderer takes it.** Two of these
+# words are ``source_coverage.outcome``'s own labels and are asserted equal to
+# them by ``test_the_legend_word_for_a_state_is_the_backend_s_own_word``: a
+# quiet field is called *answered, zero* here because that is what every other
+# surface in resmon calls it, not *answered, nothing new*, which was a phrase
+# from a brief. The renderer keeping its own name for a state is the defect
+# that was fixed in "One source of truth for 'did not answer' in the
+# renderer", and a legend is that same copy wearing a different hat. If the
+# word reads badly it is changed here, once, and every surface picks it up.
+STATE_LEGEND: tuple[dict[str, str], ...] = (
+    {"state": "answered", "label": "answered",
+     "meaning": "The source replied and returned records."},
+    {"state": "answered_empty", "label": "answered, zero",
+     "meaning": "The source replied and genuinely had nothing. A quiet field, not a fault."},
+    {"state": "answered_in_part", "label": "answered in part",
+     "meaning": "The source answered every page; resmon stopped at its own time budget or the run's cap."},
+    {"state": "could_not_be_asked", "label": "could not be asked",
+     "meaning": "No key, retired, no author query, or a window the source cannot answer."},
+    {"state": "rate_limited", "label": zero_reason.RATE_LIMITED_LABEL,
+     "meaning": "The source was asked and told resmon to slow down (HTTP 429). It is up; try again later."},
+    {"state": "failed", "label": "failed",
+     "meaning": "The source was asked and the exchange broke."},
+    {"state": "not_recorded", "label": "outcome not recorded",
+     "meaning": "resmon did not observe an outcome. This is not a success and not a failure."},
+    {"state": "not_selected", "label": "not asked on this run",
+     "meaning": "This run's saved selection did not name this source. Nothing was asked of it."},
+)
+
+# Which wall state each *non-answer* reason draws as.
+#
+# The keys are exactly ``zero_reason.DID_NOT_ANSWER`` and
+# ``test_source_wall.py`` asserts that equality, so a reason added to the
+# backend's non-answer set turns the suite red here rather than arriving at a
+# user as an unmapped cell. The split is between "the question never reached
+# the source, or the source cannot express it" and "the exchange broke".
+STATE_FOR_NON_ANSWER: dict[str, str] = {
+    "missing_key": "could_not_be_asked",
+    "retired": "could_not_be_asked",
+    "window_unanswerable": "could_not_be_asked",
+    "entity_unsupported": "could_not_be_asked",
+    "upstream_failure": "failed",
+    "parse_failure": "failed",
+}
+
+# The states that mean the source did get a question answered. Used by the
+# verdict to decide whether a source has *stopped* answering, which needs
+# evidence that it once did. A source answered in part is in it: resmon
+# stopped reading, and that is no fault of the source's.
+_ANSWERING = frozenset({"answered", "answered_empty", "answered_in_part"})
+
+# The states that want the user's attention.
+_ATTENTION = frozenset({"could_not_be_asked", "rate_limited", "failed"})
+
+# The two states that are not a verdict. Neither may be read as a source's
+# current condition: one is a hole in the record and the other is a run the
+# user chose not to put the source in.
+_SILENT = frozenset({"not_recorded", "not_selected"})
+
+# How many runs a single request may ask for. The wall is a scanning
+# instrument, not an archive: twelve columns fit a laptop window at the cell
+# size this screen uses, and fifty is the point past which the grid stops
+# being readable before it starts being slow.
+DEFAULT_RUNS = 12
+MAX_RUNS = 50
+
+
+def state_for(outcome: dict) -> str:
+    """Project one ``source_coverage.outcome`` dict onto a wall state.
+
+    ``outcome`` is taken whole rather than re-derived from the row: its
+    ``category``, ``genuine_empty``, ``in_part`` and ``status`` are the facts
+    this function is allowed to read, and it reads nothing else about the row.
+    """
+    category = outcome.get("category")
+    if category == "answered" and outcome.get("in_part"):
+        # Answered, for the stretch the note states; resmon stopped reading.
+        return "answered_in_part"
+    if category == "answered":
+        # ``genuine_empty`` is the backend's own name for the one zero that is
+        # a real answer: status ``ok``, count 0, reason ``answered_empty``.
+        return "answered_empty" if outcome.get("genuine_empty") else "answered"
+    if category != "non_answer":
+        # ``unknown`` -- a malformed row, a status this build does not know, a
+        # zero with no reason on record. All of it is "resmon does not know".
+        return "not_recorded"
+
+    status = outcome.get("status")
+    if status == "cancelled":
+        return "not_recorded"
+    if outcome.get("rate_limited"):
+        # An upstream failure the source answered with 429: ``outcome`` read
+        # the row's detail to say so, and the wall takes its word.
+        return "rate_limited"
+    mapped = STATE_FOR_NON_ANSWER.get(outcome.get("zero_reason") or "")
+    if mapped:
+        return mapped
+    if status == "skipped_missing_key":
+        # The row predates ``zero_reason`` or was written without one; the
+        # status itself is the fact, and it is a question never asked.
+        return "could_not_be_asked"
+    if status == "error":
+        return "failed"
+    # A non-answer this projection has no rule for. It fails toward "resmon
+    # does not know" rather than toward a verdict, and the mapping test above
+    # is what stops this branch from being reachable in practice.
+    return "not_recorded"
+
+
+def _display_names() -> dict[str, str]:
+    """Slug to catalog display name, for the axis labels only.
+
+    Deliberately not used inside any sentence: ``source_coverage`` builds its
+    notes from the slug, and two different names for one source in one cell
+    would be worse than one plain one.
+    """
+    return {entry.slug: entry.name for entry in repo_catalog.REPOSITORY_CATALOG}
+
+
+def _name_for(slug: str, catalog_names: dict[str, str]) -> str:
+    """The name a source is shown under, including one that has been withdrawn.
+
+    A withdrawn source is no longer in the catalog, but runs from before it was
+    withdrawn still carry it, and ``ieee`` on the wall reads as a key rather
+    than as IEEE Xplore. Only a slug resmon has no name for shows as itself.
+    """
+    return catalog_names.get(slug) or RETIRED_NAMES.get(slug) or slug
+
+
+def _run_label(row: dict, routine_names: dict[int, str]) -> str:
+    """What the column header says. A run is identified by when it ran."""
+    kind = {
+        "deep_dive": "Deep Dive",
+        "deep_sweep": "Deep Sweep",
+        "automated_sweep": "Watch",
+        "find_paper": "Look Up a Paper",
+    }.get(str(row.get("execution_type")), str(row.get("execution_type") or "Run"))
+    routine = routine_names.get(row.get("routine_id")) if row.get("routine_id") else None
+    if routine:
+        return f"{kind} — {routine}"
+    # Deleting a watch clears the run's foreign key, but not its type. No
+    # saved name remains to show, so say why the watch cannot be named.
+    return "Watch — a deleted watch" if kind == "Watch" else kind
+
+
+def _unrecorded_cell(execution_id: int, in_selection: bool | None) -> dict:
+    """A cell for a source this run has no row for -- one of the two silences.
+
+    ``in_selection`` is what separates them, and it comes from
+    ``source_coverage.selection`` rather than from the rows that happen to
+    exist, because a selection inferred from the outcomes recorded would make
+    a source that was asked and lost indistinguishable from one that was never
+    asked -- which is the distinction this branch exists to draw.
+    """
+    if in_selection is False:
+        state, label = "not_selected", "not asked on this run"
+        note = (
+            "This source is not in this run's saved selection, so it was not "
+            "asked. This is a choice recorded on the run, not a gap in what "
+            "resmon observed."
+        )
+    elif in_selection:
+        state, label = "not_recorded", "outcome not recorded"
+        note = (
+            "This source was part of this run's saved selection and resmon "
+            "recorded no outcome for it. No attempt, failure or empty answer "
+            "can be inferred."
+        )
+    else:
+        state, label = "not_recorded", "outcome not recorded"
+        note = (
+            "This run's saved source selection is unknown and no outcome was "
+            "recorded for this source. Nothing can be inferred -- in "
+            "particular, not that you chose not to ask it."
+        )
+    return {
+        "execution_id": execution_id,
+        "state": state,
+        "label": label,
+        "note": note,
+        "result_count": None,
+        "status": None,
+        "zero_reason": None,
+        "partial": False,
+        "outcome_recorded": False,
+        "in_selection": in_selection,
+    }
+
+
+def _cell(execution_id: int, row: dict, in_selection: bool | None) -> dict:
+    outcome = source_coverage.outcome(row)
+    cell = {
+        "execution_id": execution_id,
+        "state": state_for(outcome),
+        # ``source_coverage``'s own label and sentence, unedited. The wall adds
+        # a state; it does not get to re-word what happened.
+        "label": outcome["label"],
+        "note": outcome["note"],
+        "result_count": outcome["result_count"],
+        "status": outcome["status"],
+        "zero_reason": outcome["zero_reason"],
+        "partial": bool(outcome.get("partial")),
+        "outcome_recorded": True,
+        "in_selection": in_selection,
+    }
+    if outcome.get("cooldown_until_utc"):
+        # When a rate-limited source said it may be asked again.
+        cell["cooldown_until_utc"] = outcome["cooldown_until_utc"]
+    return cell
+
+
+def _latest_known_state(cells: list[dict]) -> str | None:
+    """The newest run this source's condition can be read from.
+
+    Runs are ordered oldest first, so this walks backwards. ``not_recorded``
+    is skipped rather than returned: a string of blank columns at the
+    right-hand edge is the absence of a fact, and reading it as the source's
+    current condition would be the inference this whole module refuses. A
+    row that *exists* and classifies to ``not_recorded`` -- a canceled query,
+    a zero with no reason on file -- is skipped for the same reason, because
+    what resmon recorded there is that it does not know.
+    """
+    cell = _latest_known_cell(cells)
+    return cell["state"] if cell is not None else None
+
+
+def _latest_known_cell(cells: list[dict]) -> dict | None:
+    """The cell ``_latest_known_state`` reads its state from, by the same rule."""
+    for cell in reversed(cells):
+        if cell["state"] not in _SILENT:
+            return cell
+    return None
+
+
+# What a source's last recorded non-answer was, for the verb of the headline.
+# ``stopped`` is kept for a source that gave no answer at all: a timeout, a
+# connection that failed, a server error, a recorded query failure. The others
+# are answers of a kind, and calling them a silence would misstate them.
+_LAST_OUTCOME_KINDS = ("stopped", "rate_limited", "refused", "unreadable", "not_asked")
+
+
+def _last_outcome_kind(state: str, row: dict | None) -> str:
+    """Which of ``_LAST_OUTCOME_KINDS`` a source's latest non-answer was.
+
+    Read from the recorded row, never inferred: a reply resmon could not read
+    is ``parse_failure``; a refusal is an upstream failure the source answered
+    with an HTTP 4xx or with an error in place of results (``refused``). A row
+    whose detail cannot be read falls back to ``stopped``, the plainest claim.
+    """
+    if state == "could_not_be_asked":
+        return "not_asked"
+    if state == "rate_limited":
+        return "rate_limited"
+    reason = (row or {}).get("zero_reason")
+    if reason == "parse_failure":
+        return "unreadable"
+    if reason == "upstream_failure":
+        detail = (row or {}).get("zero_detail")
+        if isinstance(detail, str):
+            try:
+                detail = json.loads(detail) if detail else {}
+            except ValueError:
+                detail = {}
+        if isinstance(detail, dict):
+            status = detail.get("status")
+            if detail.get("detail") == "refused" or (
+                    isinstance(status, int) and 400 <= status < 500):
+                return "refused"
+    return "stopped"
+
+
+def _join(names: list[str]) -> str:
+    """"A", "A and B", "A, B, and C": three or more take the serial comma."""
+    if len(names) == 1:
+        return names[0]
+    if len(names) == 2:
+        return f"{names[0]} and {names[1]}"
+    return f"{', '.join(names[:-1])}, and {names[-1]}"
+
+
+def _stopped_sentence(kind: str, names: list[str], total: int) -> str:
+    """One sentence of the headline: the sources whose last outcome was ``kind``.
+
+    Up to three are named, because a name tells the reader what to look at and
+    a number only that something is wrong; past three they are counted.
+    """
+    one = len(names) == 1
+    named = _join(sorted(names)) if len(names) <= 3 else None
+    if kind == "rate_limited":
+        if named:
+            return f"{named} rate-limited resmon's last request{'' if one else 's'}."
+        return f"{len(names)} of {total} sources rate-limited resmon's last requests."
+    if kind == "refused":
+        if named:
+            return f"{named} refused resmon's last request{'' if one else 's'}."
+        return f"{len(names)} of {total} sources refused resmon's last requests."
+    if kind == "unreadable":
+        if named and one:
+            return f"{named}'s last reply could not be read."
+        if named:
+            return f"The last replies from {named} could not be read."
+        return f"The last replies from {len(names)} of {total} sources could not be read."
+    if kind == "not_asked":
+        if named:
+            return (f"{named} could not be asked on the last run that included "
+                    f"{'it' if one else 'them'}.")
+        return f"{len(names)} of {total} sources could not be asked on the last runs that included them."
+    if named:
+        return f"{named} {'has' if one else 'have'} stopped answering."
+    return f"{len(names)} of {total} sources have stopped answering."
+
+
+def _again_sentence(names: list[str], again: dict[str, str] | None) -> str:
+    """" Try again after about 3:40 PM.": the latest time any of them gave, while it is ahead; else nothing."""
+    times = sorted((again or {}).get(name) or "" for name in names)
+    at = zero_reason.again_at({"cooldown_until_utc": times[-1]}) if times and times[-1] else None
+    return f" Try again after about {at}." if at else ""
+
+
+def _silent_sentence(names: list[str], total: int, run_count: int,
+                     recorded_outcomes: dict[str, int]) -> str:
+    """The sources that answered before this window and not once inside it.
+
+    Counted against the runs that recorded an outcome for them, never against
+    the whole window: a source in two of twelve runs has not failed ten times.
+    """
+    one = len(names) == 1
+    subject = (f"{_join(sorted(names))} {'has' if one else 'have'}" if len(names) <= 3
+               else f"{len(names)} of {total} sources have")
+    runs = f"{run_count} run{'s' if run_count != 1 else ''}"
+    counts = {recorded_outcomes[name] for name in names}
+    if counts == {run_count}:
+        # Every run in the window recorded a non-answer from each of them.
+        return f"{subject} not answered in the last {runs}."
+    pronoun = "it" if one else "them"
+    if len(counts) == 1:
+        (asked,) = counts
+        return (f"{subject} not answered in the last {runs}. Only {asked} of those "
+                f"runs recorded an outcome for {pronoun}, and none was an answer.")
+    return (f"{subject} not answered in the last {runs}. None of the runs that "
+            f"recorded an outcome for {pronoun} got an answer.")
+
+
+def _never_sentence(names: list[str], total: int) -> str:
+    """The sources no run resmon has a record of ever got an answer from.
+
+    Worded apart from "has not answered in the last N runs", which says a
+    source once answered: these never have, which usually means the source
+    cannot be asked as the runs ask it (a key, the query) rather than that it
+    went down.
+    """
+    if len(names) <= 3:
+        verb = "has" if len(names) == 1 else "have"
+        return f"{_join(sorted(names))} {verb} not answered any run resmon has a record of."
+    return f"{len(names)} of {total} sources have not answered any run resmon has a record of."
+
+
+def _verdict(sources: list[dict], run_count: int,
+             last_kinds: dict[str, str] | None = None,
+             answered_before: set[str] | None = None,
+             again: dict[str, str] | None = None) -> dict:
+    """The sentence at the top of the wall, built from the cells below it.
+
+    It is built here and not in the renderer for the reason
+    ``zero_reason.sentence`` lives in the backend: one place to be wrong, and
+    one place to fix. The wording avoids *intact*, *healthy* and *verified* --
+    the wall can say what the last runs recorded and nothing beyond it.
+
+    ``last_kinds`` maps a source's name to what its latest non-answer was (see
+    ``_last_outcome_kind``), so a source whose last reply could not be read is
+    not said to have stopped answering. A source missing from it is worded as
+    stopped.
+
+    ``answered_before`` names the sources with no answer in this window that
+    did answer some run before it. A silent source outside it has never
+    answered, and is said to have never answered rather than to have not
+    answered lately; ``None`` means the history was not read, and every silent
+    source is worded by the window alone.
+
+    ``again`` maps a rate-limited source's name to when its last answer said
+    it may be asked again (``cooldown_until_utc``), where it said; the
+    headline gives the latest of them while it is still ahead.
+    """
+    last_kinds = last_kinds or {}
+    if not sources:
+        return {
+            "level": "empty",
+            "headline": "No runs are recorded yet, so there is nothing to check.",
+            "detail": [],
+        }
+
+    stopped: list[str] = []
+    silent: list[str] = []
+    in_part: list[str] = []
+    # For each silent source, how many of the window's runs recorded an outcome
+    # for it. A source can be silent in two of twelve runs because it was only
+    # in two of them, and the headline must not count the other ten against it.
+    recorded_outcomes: dict[str, int] = {}
+    unobserved: list[str] = []
+    unasked: list[str] = []
+    dropped: list[str] = []
+    answering = 0
+    owner_stopped: list[str] = []
+    for source in sources:
+        asked = next((cell for cell in reversed(source["cells"])
+                      if cell.get("outcome_recorded")), None)
+        if asked is not None and asked["label"] == "stopped by you":
+            owner_stopped.append(source["name"])
+            continue
+        latest = _latest_known_state(source["cells"])
+        if latest is None:
+            # A source with nothing but silence behind it: say which silence.
+            # "You never asked this one" and "resmon lost track of this one"
+            # want different things from the reader.
+            if all(cell["state"] == "not_selected" for cell in source["cells"]):
+                unasked.append(source["name"])
+            else:
+                unobserved.append(source["name"])
+            continue
+        if latest in _SILENT:
+            # Unreachable while ``_latest_known_state`` skips the silent
+            # states, and here anyway, because this is the branch where
+            # getting it wrong costs the most. A silence that fell through to
+            # the code below would be announced as a source that had *stopped
+            # answering* -- which is how a wall comes to blame a source for a
+            # keystroke the user made. ``failed`` is not allowed to do that to
+            # a canceled run and the headline is not allowed to do it to a
+            # deselected source; it is the same rule one level up, in the
+            # sentence that is read first.
+            unobserved.append(source["name"])
+            continue
+        if latest in _ANSWERING:
+            answering += 1
+            if latest == "answered_in_part":
+                in_part.append(source["name"])
+            # Deselection is not a fault and is never the headline, but it is
+            # a fact the user may not have intended, so it is reported.
+            if source["cells"][-1]["state"] == "not_selected":
+                dropped.append(source["name"])
+            continue
+        if any(cell["state"] in _ANSWERING for cell in source["cells"]):
+            stopped.append(source["name"])
+        else:
+            silent.append(source["name"])
+            recorded_outcomes[source["name"]] = sum(
+                1 for cell in source["cells"] if cell["state"] not in _SILENT
+            )
+
+    total = len(sources) - len(owner_stopped)
+    runs = f"{run_count} run{'s' if run_count != 1 else ''}"
+    detail: list[str] = []
+    if owner_stopped:
+        detail.append(
+            f"{_join(sorted(owner_stopped))} {'was' if len(owner_stopped) == 1 else 'were'} "
+            "stopped by you when last asked; a user stop is neither an answer nor a failure."
+        )
+    if unobserved:
+        detail.append(
+            f"{len(unobserved)} of {total} sources recorded no outcome in these "
+            f"{runs}; resmon cannot say whether they answered."
+        )
+    if unasked:
+        detail.append(
+            f"{len(unasked)} of {total} sources were not in any of these "
+            f"{runs}' saved selections, so nothing was asked of them."
+        )
+    if in_part:
+        # Not a fault, and counted as answering; but not a full answer either,
+        # and the headline's "answered" would hide that without this.
+        detail.append(
+            f"{_join(sorted(in_part))} answered in part the last time resmon "
+            f"asked {'it' if len(in_part) == 1 else 'them'}: resmon stopped at its "
+            "own time budget or the run's cap, after the part of the window "
+            f"{'its' if len(in_part) == 1 else 'each'} cell states."
+        )
+    if dropped:
+        # Worded as the record, not as a warning. resmon cannot tell a
+        # deliberate change of scope from a mistaken untick, and saying which
+        # it was would be the inference this module exists to refuse.
+        detail.append(
+            f"{_join(sorted(dropped))} answered when last asked and "
+            f"{'is' if len(dropped) == 1 else 'are'} no longer in the most "
+            "recent run's saved selection."
+        )
+
+    if stopped:
+        by_kind: dict[str, list[str]] = {}
+        for name in stopped:
+            by_kind.setdefault(last_kinds.get(name, "stopped"), []).append(name)
+        sentences = []
+        for kind in _LAST_OUTCOME_KINDS:
+            if kind not in by_kind:
+                continue
+            sentence = _stopped_sentence(kind, by_kind[kind], total)
+            if kind == "rate_limited":
+                sentence += _again_sentence(by_kind[kind], again)
+            sentences.append(sentence)
+        headline = " ".join(sentences)
+        detail.insert(
+            0,
+            "Each of these answered earlier in this window, and the last outcome "
+            "resmon recorded for it was not an answer.",
+        )
+        return {"level": "attention", "headline": headline, "detail": detail}
+
+    if silent:
+        # "Has not answered in the last 12 runs" said of a source that was in
+        # two of them claimed ten failures nobody recorded, and said of a source
+        # that has never answered at all it implied an answer that never came.
+        lapsed = [n for n in silent if answered_before is None or n in answered_before]
+        never = [n for n in silent if n not in lapsed]
+        sentences = []
+        if lapsed:
+            sentences.append(_silent_sentence(lapsed, total, run_count, recorded_outcomes))
+        if never:
+            sentences.append(_never_sentence(never, total))
+        # A silent source whose last request was rate-limited is up and asking
+        # resmon to wait: said, with when to try again, after the silence.
+        limited = [n for n in silent if last_kinds.get(n) == "rate_limited"]
+        if limited:
+            sentences.append(_stopped_sentence("rate_limited", limited, total) + _again_sentence(limited, again))
+        return {"level": "attention", "headline": " ".join(sentences), "detail": detail}
+
+    if answering == 0:
+        if owner_stopped and total == 0:
+            return {"level": "unknown", "headline": "The sources were stopped by you, so there is no answer to judge.", "detail": detail}
+        return {
+            "level": "unknown",
+            "headline": (
+                f"resmon recorded no source outcomes in the last {runs}, so it "
+                "cannot say whether your coverage held."
+            ),
+            "detail": detail,
+        }
+
+    return {
+        "level": "ok",
+        "headline": (
+            f"All {answering} of {total} sources answered the last time resmon "
+            "asked them."
+        ),
+        "detail": detail,
+    }
+
+
+def _answered_before(conn: sqlite3.Connection, window: list[int],
+                     names_by_slug: dict[str, str]) -> set[str]:
+    """Which of these sources, silent in the window, answered some earlier run.
+
+    Read from every recorded row outside the window and classified the way a
+    cell is (``source_coverage.outcome``, then ``state_for``), so "answered"
+    means here what it means on the wall. Only rows with status ``ok`` are read,
+    because ``zero_reason.answered`` says no other status ever answered. The
+    query is on ``idx_execution_sources_source`` and runs only for sources
+    already silent in the window, which on a working install is none.
+    """
+    if not names_by_slug:
+        return set()
+    slugs = sorted(names_by_slug)
+    params: list[object] = list(slugs)
+    outside = ""
+    if window:
+        outside = f" AND execution_id NOT IN ({','.join('?' for _ in window)})"
+        params.extend(window)
+    found: set[str] = set()
+    for row in conn.execute(
+        f"""
+        SELECT execution_id, source, status, result_count, error_message,
+               zero_reason, zero_detail, recorded_at
+        FROM execution_sources
+        WHERE source IN ({','.join('?' for _ in slugs)}) AND status = 'ok'{outside}
+        """,
+        params,
+    ):
+        slug = str(row["source"])
+        if slug in found:
+            continue
+        if state_for(source_coverage.outcome(dict(row))) in _ANSWERING:
+            found.add(slug)
+    return {names_by_slug[slug] for slug in found}
+
+
+def build(conn: sqlite3.Connection, limit: int = DEFAULT_RUNS) -> dict:
+    """The whole grid for the last ``limit`` executions.
+
+    **The output is bounded by ``limit``; the input is not.** There is no
+    index on ``executions.start_time``, so ``EXPLAIN QUERY PLAN`` for the
+    window is ``SCAN executions`` plus ``USE TEMP B-TREE FOR ORDER BY``: the
+    whole table is read and sorted to find the newest ``limit`` rows. Only
+    then is the work bounded -- the cells are one query over
+    ``execution_sources`` restricted to those ids by primary key, so the row
+    count this *returns* does not grow with the corpus even though the rows
+    it *reads* do.
+
+    Measured on this machine over a corpus grown to 600,000
+    ``execution_sources`` rows, best of five:
+
+    ======================  ==========  ==========
+    executions              limit=12    limit=50
+    ======================  ==========  ==========
+    12                      0.4 ms      0.4 ms
+    5,000                   0.6 ms      2.1 ms
+    50,000                  5.7 ms      7.5 ms
+    ======================  ==========  ==========
+
+    ``COUNT(*)`` is a second ``SCAN executions`` and costs 1.7 ms of that at
+    50,000. All of it is comfortably inside a screen refresh, which is why
+    there is no index here: adding one is a schema change and belongs in its
+    own migration rather than riding along with a read.
+
+    Runs come back **oldest first**, so the newest column is the right-hand
+    edge and the grid reads as a timeline. Sources are alphabetical by display
+    name and stay in that position between polls: a wall whose rows reorder
+    when something breaks is a wall you cannot learn.
+    """
+    limit = max(1, min(int(limit), MAX_RUNS))
+    runs_available = int(
+        conn.execute("SELECT COUNT(*) FROM executions").fetchone()[0]
+    )
+    execution_rows = [
+        dict(row)
+        for row in conn.execute(
+            """
+            SELECT id, execution_type, status, start_time, end_time,
+                   routine_id, parameters
+            FROM executions
+            ORDER BY start_time DESC, id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    ]
+    execution_rows.reverse()
+    exec_ids = [int(row["id"]) for row in execution_rows]
+
+    routine_names: dict[int, str] = {}
+    wanted = {int(r["routine_id"]) for r in execution_rows if r.get("routine_id")}
+    if wanted:
+        placeholders = ",".join("?" for _ in wanted)
+        routine_names = {
+            int(row["id"]): str(row["name"])
+            for row in conn.execute(
+                f"SELECT id, name FROM routines WHERE id IN ({placeholders})",
+                sorted(wanted),
+            ).fetchall()
+        }
+
+    recorded: dict[int, dict[str, dict]] = {i: {} for i in exec_ids}
+    if exec_ids:
+        placeholders = ",".join("?" for _ in exec_ids)
+        for row in conn.execute(
+            f"""
+            SELECT execution_id, source, status, result_count, error_message,
+                   zero_reason, zero_detail, recorded_at
+            FROM execution_sources
+            WHERE execution_id IN ({placeholders})
+            """,
+            exec_ids,
+        ).fetchall():
+            recorded[int(row["execution_id"])][str(row["source"])] = dict(row)
+
+    # Each run's saved selection, where it is knowable. ``source_coverage``
+    # owns that reading too -- a selection guessed from the rows that happen to
+    # exist would make a source that was never asked indistinguishable from one
+    # that was asked and lost.
+    selections: dict[int, list[str] | None] = {}
+    selection_notes: list[str] = []
+    unknown_selection = 0
+    for row in execution_rows:
+        selected, _provenance = source_coverage.selection(row.get("parameters"))
+        selections[int(row["id"])] = selected
+        if selected is None:
+            unknown_selection += 1
+
+    names = _display_names()
+    # The source axis is the union of every source this window either selected
+    # or recorded. A source that was dropped from the selection partway through
+    # the window keeps its row, which is the whole point: its disappearance is
+    # the thing the user came here to see.
+    slugs: set[str] = set()
+    for exec_id in exec_ids:
+        slugs.update(recorded[exec_id])
+        for slug in selections[exec_id] or []:
+            slugs.add(slug)
+
+    runs = [
+        {
+            "execution_id": int(row["id"]),
+            "execution_type": row["execution_type"],
+            "status": row["status"],
+            "started_at": row["start_time"],
+            "ended_at": row["end_time"],
+            "label": _run_label(row, routine_names),
+        }
+        for row in execution_rows
+    ]
+
+    sources: list[dict] = []
+    for slug in sorted(slugs, key=lambda s: (_name_for(s, names).lower(), s)):
+        cells: list[dict] = []
+        for exec_id in exec_ids:
+            selected = selections[exec_id]
+            in_selection = None if selected is None else slug in selected
+            row = recorded[exec_id].get(slug)
+            cells.append(
+                _cell(exec_id, row, in_selection) if row
+                else _unrecorded_cell(exec_id, in_selection)
+            )
+        sources.append({
+            "slug": slug,
+            "name": _name_for(slug, names),
+            "in_catalog": slug in names,
+            "cells": cells,
+            "counts": {
+                state: sum(cell["state"] == state for cell in cells)
+                for state in WALL_STATES
+            },
+            "latest_known_state": _latest_known_state(cells),
+        })
+
+    totals = {
+        state: sum(source["counts"][state] for source in sources)
+        for state in WALL_STATES
+    }
+
+    # What each source's latest non-answer was, read from its recorded row, so
+    # the headline can say it rather than call every non-answer a silence.
+    last_kinds: dict[str, str] = {}
+    again: dict[str, str] = {}
+    for source in sources:
+        latest = _latest_known_cell(source["cells"])
+        if latest is not None and latest["state"] not in _ANSWERING:
+            row = recorded[latest["execution_id"]].get(source["slug"])
+            last_kinds[source["name"]] = _last_outcome_kind(latest["state"], row)
+            if latest.get("cooldown_until_utc"):
+                again[source["name"]] = latest["cooldown_until_utc"]
+
+    answered_before = _answered_before(
+        conn, exec_ids,
+        {source["slug"]: source["name"] for source in sources
+         if source["latest_known_state"] is not None
+         and not any(cell["state"] in _ANSWERING for cell in source["cells"])},
+    )
+
+    notes = [
+        "Every cell is one source's recorded answer to one run. Nothing here "
+        "is inferred: a run with no row for a source reads as not recorded.",
+        "A source that answered and whose records resmon could not store reads "
+        "as answered, because the source did reply with records. The cell's "
+        "note carries how many were matched and how many were kept.",
+        "Answered in part is resmon stopping, at its own time budget or the run's "
+        "cap, not the source failing. The cell's note says which part of the "
+        "window was read; the rest was not read and is counted neither way.",
+        "A canceled run reads as not recorded for every source it was still "
+        "querying: resmon observed its own cancellation, not an answer.",
+        "Not asked and not recorded are different marks. The first is a choice "
+        "saved on the run; the second is a gap in what resmon observed.",
+    ]
+    if unknown_selection:
+        notes.append(
+            f"{unknown_selection} of {len(runs)} runs have no usable saved "
+            "source selection, so for those runs a source with no recorded "
+            "outcome reads as not recorded rather than not asked: resmon "
+            "cannot tell which it was and will not guess."
+        )
+    notes.extend(selection_notes)
+
+    return {
+        "runs": runs,
+        "sources": sources,
+        "states": list(WALL_STATES),
+        # Served, not transcribed. The renderer draws a glyph per state and
+        # takes every word from here.
+        "state_legend": [dict(entry) for entry in STATE_LEGEND],
+        "totals": totals,
+        "verdict": _verdict(sources, len(runs), last_kinds, answered_before, again),
+        "window": {
+            "requested": limit,
+            "returned": len(runs),
+            "max": MAX_RUNS,
+            "runs_available": runs_available,
+        },
+        "notes": notes,
+    }
+
+
+def mapped_reasons() -> dict[str, str]:
+    """Every reason in ``zero_reason.ZERO_REASONS`` and the state it reaches.
+
+    Exported so the conformance test takes its denominator from the code on
+    both sides rather than from a list written out in the test.
+    """
+    out: dict[str, str] = {}
+    for reason in zero_reason.ZERO_REASONS:
+        if reason in STATE_FOR_NON_ANSWER:
+            out[reason] = STATE_FOR_NON_ANSWER[reason]
+        elif reason == "not_recorded":
+            out[reason] = "not_recorded"
+        elif reason == "answered_empty":
+            out[reason] = "answered_empty"
+        elif reason in zero_reason.ANSWERED_IN_PART:
+            out[reason] = "answered_in_part"
+        else:
+            # ``rights_filtered`` and ``records_unusable``: the source answered.
+            out[reason] = "answered"
+    return out

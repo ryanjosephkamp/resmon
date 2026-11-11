@@ -1,0 +1,2209 @@
+# resmon_scripts/implementation_scripts/repo_catalog.py
+"""Static repository catalog.
+
+Single source of truth for the active repositories. Registration URLs point at
+each source's own sign-up page. Nothing in this module references or returns raw
+credential values.
+"""
+
+from dataclasses import dataclass, asdict
+from typing import Literal
+
+# The site's exporter (``site/scripts/export_sources.py``) imports this file as
+# a module of its own, outside the package; ``search_terms`` imports nothing
+# from the package at load, so it is found either way.
+try:
+    from . import search_terms
+except ImportError:
+    import search_terms  # type: ignore[no-redef]
+
+ApiKeyRequirement = Literal["none", "required", "optional", "recommended"]
+
+# Whether a source's credit is something resmon *must* show or merely one the
+# upstream would like.
+#
+# The distinction is the whole point of the field and it is not decoration.
+# OpenAIRE's metadata is CC BY, so attribution is a license condition and
+# reusing it without the credit is simply reuse without a license. arXiv, by
+# contrast, *requests* an acknowledgement sentence. Rendering both the same way
+# would either overstate arXiv's terms or understate OpenAIRE's, and this
+# application does not get to be vague about which obligations are real.
+AttributionRequirement = Literal["none", "requested", "required"]
+
+# The finest date precision **resmon's own query to this source can express**,
+# read from the client's date-filter code rather than from a description of
+# the upstream. That is the quantity that decides whether a window can be
+# answered at all, and it is the one a user is entitled to before they read a
+# zero: NASA ADS is asked for whole months; DataCite, DBLP, DOAJ, ERIC, Open
+# Library and Semantic Scholar for whole years; everything else for exact
+# days.
+#
+# **A transcription error can leave a source out of this field.**
+# ``api_doaj.py`` clips both bounds with ``[:4]`` and sends a ``bibjson.year``
+# range, and ``day`` here would be rendered by the Repositories page as "Exact
+# dates - resmon can ask for any window". That error survives unless something
+# compares the two. ``SourceConstraints.window_effect`` records the same
+# quantity in the vocabulary the search forms need, and
+# ``test_source_constraints.py`` requires the two to agree row by row:
+# ``day`` with ``as_asked``, ``month`` with ``whole_months``, ``year`` with
+# ``whole_years``. Either field alone can be mistyped; both of them wrong in
+# the same direction takes effort.
+#
+# The field says what the query can express, not what each source does about a
+# window it cannot express -- those are two different facts and conflating
+# them was the temptation here. DBLP, ERIC and Open Library **refuse** a
+# window shorter than a calendar year, because a record they returned would
+# have unknowable in-window status. DataCite, DOAJ, NASA ADS and Semantic
+# Scholar answer the coarser window instead. Both behaviors are honest; only
+# the first produces a ``window_unanswerable`` zero, and ``window_rounding``
+# is the field that says which a source does.
+DateGranularity = Literal["day", "month", "year"]
+
+# The order a keyword search comes back in, read from the client's request
+# rather than from a description of the upstream, because it is the order the
+# client asks for that decides what a watch with no date limit finds.
+#
+# ``newest_first``  the client asks the upstream to sort by a date, descending,
+#                   or reads a list the upstream sorts by date from its end
+#                   (bioRxiv and medRxiv). A watch with no date limit gets the
+#                   newest papers each run.
+# ``relevance``     the client asks for relevance order, or sends no sort to an
+#                   upstream that ranks a query by relevance. A watch with no
+#                   date limit gets the most relevant papers of all years,
+#                   mostly the same ones every run, and finds little that is new.
+# ``unstated``      the client sends no sort and nothing establishes the
+#                   upstream's default, so resmon says nothing about it.
+#
+# No client changes its sort when a date is set; a date only narrows what the
+# order is applied to. ``result_order_established`` cites the line, as
+# ``established`` does for the constraints, and an empty one fails the guard.
+ResultOrder = Literal["newest_first", "relevance", "unstated"]
+
+
+# ---------------------------------------------------------------------------
+# entity_search — what a source can be asked about a *person*
+# ---------------------------------------------------------------------------
+#
+# Watching people requires knowing which of these sources can be asked about
+# one at all. Every client has exactly one search shape — a keyword string in,
+# records out — so an author query is either a field syntax *inside* that
+# string, a separate parameter the client does not expose today, or a
+# different endpoint entirely. Which, per source, was established by
+# ``verification_scripts/probe_entity_search.py`` on 2026-09-06 and each entry
+# below carries what came back.
+#
+# **The probe has three controls, and it needed all three.** Asking a source for
+# ``au:Hinton`` and getting papers proves nothing: most of these endpoints
+# tolerate an unknown field prefix and keyword-search the whole string, which
+# returns plausible answers for a famous name. So each author query was run
+# against (A) a real author, (B) an author who does not exist, (C) the bare name
+# with no syntax, and (D) the same word under a *different* field of the same
+# source.
+#
+# Two of those controls changed an answer:
+#
+# * **OAPEN** looked like a keyword search under A-versus-C — the two share
+#   their first record — and is plainly a parsed field under D, where
+#   ``dc.title:"Suber"`` returns nothing for a word ``dc.contributor.author``
+#   finds twice. The field result is a *subset* of the keyword result, which is
+#   what a working field looks like. OAPEN was withdrawn in October 2026
+#   (``api_registry.RETIRED_REPOSITORIES``) and has no entry below; the
+#   finding stays here because it is why control D exists.
+# * **arXiv, NDL and PubMed are XML**, so the comparison reads ``<id>``,
+#   ``<PMID>`` and ``<dcterms:identifier>`` as well as JSON keys. A comparison
+#   that read JSON keys only would run the controls for those three and compare
+#   them to nothing, leaving their verdicts to A and B alone.
+#
+# ``unknown`` is a real answer and is used rather than a guess: four sources
+# need a key this machine does not hold. Nothing about them is claimed.
+EntityQuery = Literal["none", "field", "param", "endpoint", "unknown"]
+EntityIdentifier = Literal["none", "orcid", "native", "unknown"]
+
+
+@dataclass(frozen=True)
+class EntitySearch:
+    """How a source answers a question about a person, and what it gives back.
+
+    ``returns_orcid`` and ``returns_affiliation`` are about what the record
+    **actually carries**, not about which keys exist in it. That distinction is
+    the whole point: Crossref puts an ``affiliation`` key on every author object
+    and leaves it empty on most of them, and DataCite and Zenodo carry an
+    ``orcid`` key that was populated on **none** of the 54 and 16 creators
+    measured. A capability read off key names would have claimed all three.
+    """
+
+    author_query: EntityQuery
+    identifier_query: EntityIdentifier = "none"
+    returns_orcid: bool = False
+    returns_affiliation: bool = False
+    # The exact syntax, with ``{name}`` where the author goes. Empty when the
+    # source cannot be asked.
+    author_syntax: str = ""
+    identifier_syntax: str = ""
+    # What was run and what came back. This is the citation; a capability
+    # without one fails ``test_repo_catalog.py``.
+    established: str = ""
+
+    @property
+    def supported(self) -> bool:
+        """Whether resmon will ask this source about a person at all."""
+        return self.author_query in ("field", "param", "endpoint")
+
+
+# The day every capability below was established. One constant, so a re-probe
+# that moves the answers moves the date with them.
+ENTITY_PROBED_ON = "2026-09-06"
+
+
+def _entity(
+    author_query: EntityQuery = "none",
+    *,
+    identifier_query: EntityIdentifier = "none",
+    returns_orcid: bool = False,
+    returns_affiliation: bool = False,
+    author_syntax: str = "",
+    identifier_syntax: str = "",
+    established: str = "",
+) -> EntitySearch:
+    return EntitySearch(
+        author_query=author_query,
+        identifier_query=identifier_query,
+        returns_orcid=returns_orcid,
+        returns_affiliation=returns_affiliation,
+        author_syntax=author_syntax,
+        identifier_syntax=identifier_syntax,
+        established=established,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Constraints — what a source will do to a query before it is sent
+# ---------------------------------------------------------------------------
+#
+# A *constraint* is something about a source that changes what a user is able
+# to ask for, and that resmon knows before anybody presses the button: a date
+# window the client cannot express, a keyword search the upstream does not
+# have, a cap on how much can come back, a default resmon applies when the
+# user leaves a field blank. It is knowable in advance, every time.
+#
+# A source being down is **not** a constraint. Neither is a rate limit that
+# only makes a search slower, a timeout, or a provider that has been answering
+# HTTP 500 since March. Those are run-time facts; they already have a home in
+# ``zero_reason`` and the source wall, and a page that warned about them
+# before every search would be warning about the weather. The dividing
+# question is whether the user could act on the sentence while composing the
+# query. "DBLP will search all of 2025" is actionable. "OAPEN might be down"
+# is not.
+#
+# **The credential requirement is deliberately absent from this record.** It
+# is already stated once, on ``api_key_requirement`` and ``credential_name``,
+# and a second copy is exactly the drift this structure exists to prevent:
+# ``sweep_engine`` kept a hand-written dict of three sources that require a
+# key while the catalog declared four, and GovInfo — whose client returns an
+# empty list the moment it finds no key — was recorded as a source that had
+# answered with nothing. Anything that needs the credential facts reads the
+# two fields above, and ``test_source_constraints.py`` fails if a notice here
+# restates them.
+#
+# What the request can express is ``date_granularity``, a field this module
+# already carries. What the client *does* with a window it cannot express is a
+# different fact, which that field's own comment points out and does not
+# record. That is ``window_effect`` and ``window_rounding`` below.
+
+# How faithfully the user's date window reaches the source.
+#
+# ``as_asked``      the bounds are sent as typed.
+# ``whole_years``   the request is in whole calendar years.
+# ``whole_months``  the request is in whole calendar months.
+WindowEffect = Literal["as_asked", "whole_years", "whole_months"]
+
+# Which way a coarser window is rounded, and therefore which way it is wrong.
+#
+# ``inward``   only whole periods *contained by* the window are searched, so a
+#              window containing none is refused before any request is sent
+#              and the honest answer is no results at all.
+# ``outward``  the whole periods the window *touches* are searched, so records
+#              outside the dates the user typed can come back.
+# ``none``     the window is honored as given.
+#
+# Both are truthful and they fail in opposite directions, which is why one
+# enum cannot carry both and a user cannot be told "year granularity" and left
+# to guess which it is.
+WindowRounding = Literal["none", "inward", "outward"]
+
+# Whether the upstream searches the keywords, or resmon does.
+#
+# ``client_side`` is not a smaller version of ``upstream``: it means the
+# endpoint has no query parameter at all, resmon retrieves the window and
+# matches the terms against each record itself, and the matching rule is
+# resmon's rather than the provider's.
+KeywordSearch = Literal["upstream", "client_side", "none"]
+
+# The state a sentence is true in. It is shown there and nowhere else.
+#
+# ``always``             true whatever is on the form.
+# ``with_date_window``   only once the form has a date. arXiv's window being
+#                        its submission date matters a great deal to somebody
+#                        filtering by date and not at all to anybody else, and
+#                        arXiv is on most selections every time.
+# ``with_end_date``      only once an end date is set. The state a sentence
+#                        about what resmon does with your *end* date is true
+#                        in -- which is not the same as "both bounds are
+#                        set", and standing one in for the other hid NIST
+#                        RMM's sentence in the state where it mattered most.
+# ``without_start_date`` only while the start date is blank, because the
+#                        sentence is about the default resmon substitutes
+#                        there. Telling somebody who typed a start date what
+#                        would have happened if they had not is noise.
+# ``above_record_cap``   only when the run asks for more records than the
+#                        source returns in one request -- that is, more than
+#                        ``SourceConstraints.records_per_request``.
+# ``beyond_default_start`` only when the window is longer than
+#                        ``SourceConstraints.default_start_days``: a start
+#                        date earlier than that many days before the end date,
+#                        or before today with none. A source read from its
+#                        newest end within a time budget may not reach the
+#                        start of a longer window, and the sentence says so.
+#                        With no start date the window is the default itself,
+#                        so it is not shown there.
+#
+# **Every one of these exists because a sentence must not be shown where it is
+# not true.** A single flag is not enough: bioRxiv would promise a January 1,
+# 2020 floor underneath a start date the user had just typed, and DBLP would
+# say "a record carrying no year is dropped" directly under "DBLP will not be
+# searched at all". A notice whose state cannot be expressed here does not
+# get shown with an approximation -- the state gets added.
+#
+# ``with_end_date`` is that rule applied. NIST RMM's sentence cannot be scoped
+# ``with_both_dates`` just because that state exists and is *close*. It is not
+# the same state: with an end date and no start date the client sends no
+# upstream date bound at all and filters every record locally, which is the
+# case where "a run can come back with fewer in-window records than the cap
+# you set" is most true -- and the approximation would hide it there. The
+# near-enough state is the trap, not the missing one. NIST RMM was withdrawn
+# in November 2026 (``api_registry.RETIRED_REPOSITORIES``) and has no entry
+# below, so no row uses this scope today; it stays because the rule it applies
+# still holds, and a revived NIST RMM would need it.
+#
+# An enum rather than a pile of booleans, and separate from ``kind`` rather
+# than read off it: two of the thirteen window-scoped notices are record
+# filters rather than date-window notices, and relabeling them to get the
+# display right would make ``kind`` lie about what they are. Both counts are
+# asserted in ``test_source_constraints.py``, because a number written into
+# a comment is a number nobody re-measures.
+NoticeScope = Literal[
+    "always",
+    "with_date_window",
+    "with_end_date",
+    "without_start_date",
+    "above_record_cap",
+    "beyond_default_start",
+]
+
+ConstraintKind = Literal[
+    "date_window",
+    "keyword_search",
+    "credential",
+    "result_cap",
+    "applied_default",
+    "record_filter",
+]
+
+
+@dataclass(frozen=True)
+class SourceNotice:
+    """One sentence a user should read before they submit, and its citation.
+
+    ``effect`` is written in the future tense of the thing resmon will do,
+    not in the abstract vocabulary of the limitation — "resmon will search the
+    whole of 2025" rather than "year granularity" — because the second is a
+    label and only the first tells somebody whether to change their query.
+
+    ``established`` is where the sentence was read: the client code that
+    implements it, or a provider's published wording quoted exactly. It is the
+    field that makes the rest checkable, and a notice without one fails
+    ``test_source_constraints.py``.
+    """
+
+    kind: ConstraintKind
+    effect: str
+    established: str
+    applies_when: NoticeScope = "always"
+
+
+# Where bioRxiv and medRxiv start when a run sets no start date: this many days
+# before it. They cannot be asked for words, so resmon reads every record in the
+# range itself, page by page from the newest back, for at most 45 seconds
+# (``api_biorxiv._SEARCH_BUDGET_SECONDS``). Asked from 2013, a run would stop
+# long before it reached the start of an archive that size, and a search the
+# budget cuts short is not an answer. Measured October 31, 2026: the /details
+# list held 79 to 352 bioRxiv records a day from October 18 to 31 (medRxiv, 0
+# to 118). A run that afternoon made 41 requests inside the budget, at most
+# 1,230 records; late that evening the client read 14 to 25 pages of 30 (420 to
+# 750 records). So the budget covers about one and a half to five days of bioRxiv. Three days
+# before a run (four calendar days with the run's own) held 681 to 1,235
+# bioRxiv records over October 21 to 31, inside the afternoon's pace on ten of
+# those eleven days; a week (1,817 for October 24 to 31) fits inside neither
+# pace. medRxiv read a week of its own in 23 seconds. On a slow evening even
+# one day of bioRxiv can outlast the budget, and the run then says how far it
+# read (``api_base.note_read``).
+DEFAULT_START_DAYS = 3
+
+
+@dataclass(frozen=True)
+class SourceConstraints:
+    """Everything resmon can tell a user about a source before they search."""
+
+    window_effect: WindowEffect = "as_asked"
+    window_rounding: WindowRounding = "none"
+    # Whether records outside the typed dates are dropped again after they
+    # arrive. Only meaningful with ``outward`` rounding, where it is the
+    # difference between a widened *request* and a widened *answer*.
+    window_refiltered_locally: bool = False
+    keyword_search: KeywordSearch = "upstream"
+    # The most records this source returns in one request, where the client
+    # is built around a published ceiling. ``None`` where the page size is an
+    # ordinary pagination detail with no consequence for the caller: a number
+    # here means a run asking for more than it changes shape.
+    records_per_request: int | None = None
+    # A source that cannot usefully be asked without a start date: the number
+    # of days before the run (or before its end date, when that is earlier)
+    # resmon asks it from when the run sets no start. ``None`` for a source
+    # asked with no start as it is. The search forms fill in the same start
+    # and will not let it be cleared while such a source is chosen.
+    default_start_days: int | None = None
+    notices: tuple[SourceNotice, ...] = ()
+    # The citation for the typed fields above. Empty is the omitted default,
+    # and it fails the guard rather than reading like an answer.
+    established: str = ""
+
+    @property
+    def has_anything_to_say(self) -> bool:
+        """Whether this source would change anything about a plain query."""
+        return bool(self.notices) or self.window_effect != "as_asked"
+
+
+def _constraints(
+    *,
+    window_effect: WindowEffect = "as_asked",
+    window_rounding: WindowRounding = "none",
+    window_refiltered_locally: bool = False,
+    keyword_search: KeywordSearch = "upstream",
+    records_per_request: int | None = None,
+    default_start_days: int | None = None,
+    notices: tuple[SourceNotice, ...] = (),
+    established: str = "",
+) -> SourceConstraints:
+    return SourceConstraints(
+        window_effect=window_effect,
+        window_rounding=window_rounding,
+        window_refiltered_locally=window_refiltered_locally,
+        keyword_search=keyword_search,
+        records_per_request=records_per_request,
+        default_start_days=default_start_days,
+        notices=notices,
+        established=established,
+    )
+
+
+def _notice(
+    kind: ConstraintKind,
+    effect: str,
+    established: str,
+    *,
+    applies_when: NoticeScope = "always",
+) -> SourceNotice:
+    return SourceNotice(
+        kind=kind,
+        effect=effect,
+        established=established,
+        applies_when=applies_when,
+    )
+
+
+# ---------------------------------------------------------------------------
+# paper_lookup — whether a source can be asked for one paper, and by what
+# ---------------------------------------------------------------------------
+#
+# Look Up a Paper asks a source for one paper by a DOI, an arXiv id, a PMID or a
+# title, and only by a kind this capability names. A kind with a field syntax
+# is asked through the client's ordinary ``search()`` with the syntax filled in
+# (``BaseAPIClient.lookup``, as ``entity_search`` asks about a person); a kind
+# with none is asked through the client's own lookup endpoint (Crossref's
+# ``/works/{doi}``), which the client implements.
+#
+# What comes back is never taken on trust: ``paper_find.best_match`` keeps a
+# record only when it carries the identifier asked for, or when its title is
+# the title asked for or close to it. So a field a source ignores costs a
+# search, not a false match; ``established`` says what was seen when the
+# capability was checked, and a source that could not be checked (its key is
+# not on this machine) can be asked by nothing.
+LookupKind = Literal["doi", "arxiv", "pmid", "title"]
+
+
+@dataclass(frozen=True)
+class PaperLookup:
+    """The kinds of query a source can be asked for one paper by, and how."""
+
+    kinds: tuple[str, ...] = ()
+    #: ``(kind, syntax)``, with ``{value}`` where the DOI, id or title goes.
+    syntax: tuple[tuple[str, str], ...] = ()
+    #: What was run and what came back, or why the source is asked by nothing.
+    established: str = ""
+    #: For a source asked by nothing: why, in the words Look Up a Paper shows a
+    #: person under "not asked, and why". ``established`` is the record of the
+    #: check, with its dates and queries; this is the sentence.
+    why_not: str = ""
+
+    def syntax_for(self, kind: str) -> str:
+        return next((text for k, text in self.syntax if k == kind), "")
+
+    @property
+    def supported(self) -> bool:
+        return bool(self.kinds)
+
+
+LOOKUP_PROBED_ON = "2026-11-05"
+
+
+def _lookup(*kinds: str, syntax: dict[str, str] | None = None, established: str = "",
+            why_not: str = "") -> PaperLookup:
+    return PaperLookup(kinds=tuple(kinds), syntax=tuple((syntax or {}).items()), established=established,
+                       why_not=why_not)
+
+
+_KEYED = "not established: {name} requires a key and this machine holds none, so resmon does not ask it for one paper."
+_KEYED_WHY = "resmon has not checked how {name} looks up one paper, because that needs an API key, so it is not asked."
+
+PAPER_LOOKUP: dict[str, PaperLookup] = {
+    "arxiv": _lookup("arxiv", "title", established=(
+        f"{LOOKUP_PROBED_ON}: `id_list=1706.03762` returned that paper and `id_list=2401.99999` none. "
+        "`ti:\"Attention Is All You Need\"` in relevance order returned it, exactly by title, among 5; "
+        "a title of no paper returned none. In the newest-first order `search()` asks for, later "
+        "papers echoing the title left it outside the first 5, so a title is asked in relevance order.")),
+    "biorxiv": _lookup("doi", established=(
+        f"{LOOKUP_PROBED_ON}: `/details/biorxiv/10.1101/2023.12.28.573564` returned that preprint, "
+        "and a 10.1101 DOI that does not exist returned none. Only DOIs beginning 10.1101/ are asked.")),
+    "core": _lookup(established=_KEYED.format(name="CORE"), why_not=_KEYED_WHY.format(name="CORE")),
+    "crossref": _lookup("doi", "title", established=(
+        f"{LOOKUP_PROBED_ON}: `/works/10.1371/journal.pone.0000308` returned that paper, and a DOI "
+        "Crossref does not hold answered 404, which resmon records as an answer. "
+        "`query.bibliographic` with its title ranked it first of 5, exactly by title; a title of no "
+        "paper returned 5 records, none of them the paper, so none was kept.")),
+    "datacite": _lookup("doi", "title", syntax={"title": 'titles.title:"{value}"'}, established=(
+        f"{LOOKUP_PROBED_ON}: `/dois/10.5281/zenodo.17397357` returned that record, and an "
+        "unregistered DOI answered 404. `titles.title:\"...\"` with its title returned it, exactly "
+        "by title, among 2; a title of no paper returned none.")),
+    "dblp": _lookup(established=(
+        f"not established: on {LOOKUP_PROBED_ON} DBLP answered resmon's title query with its "
+        "access-challenge page, so resmon does not ask it for one paper."),
+        why_not="DBLP answered resmon's check with an access-challenge page rather than records, so it is not asked."),
+    "doaj": _lookup("doi", "title", syntax={"doi": 'doi:"{value}"', "title": 'bibjson.title:"{value}"'},
+                    established=(
+        f"{LOOKUP_PROBED_ON}: `doi:\"10.1371/journal.pone.0000308\"`, percent-encoded into DOAJ's "
+        "one path segment, returned that article, and an unregistered DOI none; "
+        "`bibjson.title:\"...\"` with its title returned it, exactly by title, and a title of no "
+        "paper none. Sent unencoded, as `search()` once sent every query, a DOI's slash split the "
+        "segment in two.")),
+    "dryad": _lookup(established=(
+        "Dryad holds datasets, not papers, so resmon does not ask it for one paper."),
+        why_not='Dryad holds datasets, not papers.'),
+    "eric": _lookup("title", syntax={"title": 'title:"{value}"'}, established=(
+        f"{LOOKUP_PROBED_ON}: `title:\"The Science of Reading Comprehension Instruction\"` returned "
+        "that record, exactly by title; a title of no paper returned none. ERIC's records rarely "
+        "carry a DOI, and resmon asks it by title only.")),
+    "europepmc": _lookup("doi", "pmid", "title", syntax={
+        "doi": 'DOI:"{value}"', "pmid": "EXT_ID:{value} AND SRC:MED", "title": 'TITLE:"{value}"'},
+        established=(
+        f"{LOOKUP_PROBED_ON}: `DOI:\"10.1371/journal.pone.0000308\"` returned that paper, "
+        "`EXT_ID:17375194 AND SRC:MED` the same paper by its PMID, and `TITLE:\"...\"` the same "
+        "paper exactly by title; an unregistered DOI, the PMID 999999999 and a title of no paper "
+        "each returned none.")),
+    "govinfo": _lookup(established=(
+        "GovInfo holds U.S. government documents, not scholarly papers with DOIs or PMIDs, so resmon "
+        "does not ask it for one paper."),
+        why_not='GovInfo holds U.S. government documents, not scholarly papers with DOIs or PMIDs.'),
+    "hal": _lookup("doi", "title", syntax={"doi": 'doiId_s:"{value}"', "title": 'title_t:"{value}"'},
+                   established=(
+        f"{LOOKUP_PROBED_ON}: `doiId_s:\"10.48550/arXiv.2605.03663\"` returned that record, and "
+        "`title_t:\"...\"` with its title the same record exactly by title; an unregistered DOI "
+        "and a title of no paper each returned none.")),
+    "inspire_hep": _lookup("doi", "arxiv", "title", syntax={
+        "doi": "doi {value}", "arxiv": "arxiv {value}", "title": 't "{value}"'}, established=(
+        f"{LOOKUP_PROBED_ON}: `doi 10.1016/j.physletb.2012.08.020`, `arxiv 1207.7214` and "
+        "`t \"Observation of a new particle in the search for the Standard Model Higgs boson with "
+        "the ATLAS detector at the LHC\"` each returned that paper (by DOI, by arXiv id, and "
+        "exactly by title); an unregistered DOI, the id 2401.99999 and a title of no paper each "
+        "returned none.")),
+    "medrxiv": _lookup("doi", established=(
+        f"{LOOKUP_PROBED_ON}: `/details/medrxiv/10.1101/2024.01.02.24300691` returned that "
+        "preprint, and a 10.1101 DOI that does not exist returned none.")),
+    "nasa_ads": _lookup(established=_KEYED.format(name="NASA ADS"), why_not=_KEYED_WHY.format(name="NASA ADS")),
+    "ndl_search": _lookup(established=(
+        "NDL Search keeps only records under its open-data terms and matches a title through CQL "
+        "with no DOI field, which resmon has not checked for one paper; it is not asked."),
+        why_not=(
+            'resmon has not checked how NDL Search looks up one paper, and it has no DOI field, so it '
+            'is not asked.')),
+    "openaire": _lookup(established=(
+        "OpenAIRE has announced that this API is discontinued, so resmon does not add new uses of it."),
+        why_not='OpenAIRE has announced that this API is discontinued, so resmon adds no new uses of it.'),
+    "openalex": _lookup("doi", "pmid", "title", established=(
+        f"{LOOKUP_PROBED_ON}: `/works/doi:10.1371/journal.pone.0000308` returned that work and "
+        "`/works/pmid:17375194` the same work; an unregistered DOI and the PMID 999999999 answered "
+        "404, recorded as answers. `filter=title.search:` with its title returned it, exactly by "
+        "title, among 3; two later tries that day, and the control with a title of no paper, were "
+        "answered 429 (OpenAlex's rate limit, with no contact address set).")),
+    "openlibrary": _lookup(established=(
+        "Open Library holds books by ISBN, not papers, so resmon does not ask it for one paper."),
+        why_not='Open Library holds books, not papers.'),
+    "osti": _lookup(established=(
+        "not established: resmon asks OSTI through its `q` parameter, whose DOI and title fields "
+        "resmon has not checked, so it is not asked for one paper."),
+        why_not=(
+            'resmon has not checked how OSTI.GOV looks up one paper by DOI or title, so it is not '
+            'asked.')),
+    "plos": _lookup("doi", "title", syntax={"doi": 'id:"{value}"', "title": 'title:"{value}"'},
+                    established=(
+        f"{LOOKUP_PROBED_ON}: `id:\"10.1371/journal.pone.0000308\"` (PLOS's id is the DOI) "
+        "returned that article, and `title:\"...\"` with its title the same article exactly by "
+        "title; an unregistered DOI and a title of no paper each returned none.")),
+    "pubmed": _lookup(established=(
+        f"not established: on {LOOKUP_PROBED_ON} E-utilities' esearch answered HTTP 500 to every "
+        "request, resmon's and a plain one alike, so resmon does not ask PubMed for one paper yet. "
+        "Europe PMC answers by PMID."),
+        why_not=(
+            "PubMed's search answered with errors on every request when resmon checked it "
+            "on November 5, 2026, so it is not asked yet. Europe PMC is asked by PMID.")),
+    "semantic_scholar": _lookup("doi", "arxiv", "pmid", "title", established=(
+        f"{LOOKUP_PROBED_ON}: `/paper/DOI:10.1371/journal.pone.0000308`, `/paper/PMID:17375194` "
+        "and `/paper/ARXIV:1706.03762` each returned that paper, and `/paper/search/match` with a "
+        "title returned it exactly by title; an unregistered DOI, the PMID 999999999 and a title of "
+        "no paper returned none. Without a key Semantic Scholar answered many of these requests 429 "
+        "before answering, and the arXiv control was answered 429 on every try.")),
+    "springer": _lookup(established=_KEYED.format(name="Springer"), why_not=_KEYED_WHY.format(name="Springer")),
+    "zenodo": _lookup("doi", "title", syntax={"doi": 'doi:"{value}"', "title": 'title:"{value}"'},
+                      established=(
+        f"{LOOKUP_PROBED_ON}: `doi:\"10.5281/zenodo.17397357\"` returned that record and "
+        "`title:\"...\"` with its title the same record exactly by title; an unregistered DOI and "
+        "a title of no paper each returned none.")),
+}
+
+
+@dataclass(frozen=True)
+class RepoCatalogEntry:
+    """Public, non-secret metadata for a single active repository."""
+    slug: str
+    name: str
+    description: str
+    subject_coverage: str
+    endpoint: str
+    query_method: str
+    rate_limit: str
+    client_module: str
+    api_key_requirement: ApiKeyRequirement
+    credential_name: str | None
+    website: str
+    registration_url: str | None
+    placeholder: str
+    upstream_policy: str
+    parallel_safe: str
+    notes: str
+    #: A sentence about the service itself that a person should read before
+    #: asking it (one that has announced its own end, say), or empty. Shown
+    #: wherever the source is chosen, not only in its details.
+    service_notice: str
+    keyword_combination: str
+    keyword_combination_notes: str
+    attribution: str
+    attribution_requirement: AttributionRequirement
+    attribution_source: str
+    date_granularity: DateGranularity
+    result_order: ResultOrder
+    result_order_established: str
+    entity_search: EntitySearch
+    constraints: SourceConstraints
+    paper_lookup: PaperLookup
+
+    def to_dict(self) -> dict:
+        data = asdict(self)
+        # As the routes serve it: the syntax as a mapping from kind to syntax.
+        data["paper_lookup"]["syntax"] = dict(self.paper_lookup.syntax)
+        # Look Up a Paper's own words for a source it does not ask; the catalog
+        # row states the check itself (``established``).
+        data["paper_lookup"].pop("why_not")
+        return data
+
+
+def _placeholder_for(requirement: ApiKeyRequirement) -> str:
+    if requirement == "required":
+        return "Enter API key here (REQUIRED)"
+    if requirement == "optional":
+        return "Enter API key here (OPTIONAL)"
+    if requirement == "recommended":
+        return "Enter API key here (RECOMMENDED)"
+    return ""
+
+
+def _entry(
+    *,
+    slug: str,
+    name: str,
+    description: str,
+    subject_coverage: str,
+    endpoint: str,
+    query_method: str,
+    rate_limit: str,
+    client_module: str,
+    requirement: ApiKeyRequirement,
+    credential_name: str | None,
+    website: str,
+    registration_url: str | None,
+    upstream_policy: str = "",
+    parallel_safe: str = "",
+    notes: str = "",
+    service_notice: str = "",
+    keyword_combination: str = "",
+    keyword_combination_notes: str = "",
+    attribution: str = "",
+    attribution_requirement: AttributionRequirement = "none",
+    attribution_source: str = "",
+    date_granularity: DateGranularity = "day",
+    result_order: ResultOrder = "unstated",
+    result_order_established: str = "",
+    entity_search: EntitySearch | None = None,
+    constraints: SourceConstraints | None = None,
+) -> RepoCatalogEntry:
+    # How resmon asks the source for several terms is decided in one place,
+    # ``search_terms.PLANS``, and the catalog says it from there: the label is
+    # the plan's, and the notes open with the plan's sentence, followed by the
+    # entry's own facts about the upstream.
+    plan = search_terms.plan(slug)
+    if plan is not None:
+        keyword_combination = plan.label
+        keyword_combination_notes = " ".join(
+            part for part in (search_terms.notes(slug, name), keyword_combination_notes) if part)
+    return RepoCatalogEntry(
+        slug=slug,
+        name=name,
+        description=description,
+        subject_coverage=subject_coverage,
+        endpoint=endpoint,
+        query_method=query_method,
+        rate_limit=rate_limit,
+        client_module=client_module,
+        api_key_requirement=requirement,
+        credential_name=credential_name,
+        website=website,
+        registration_url=registration_url,
+        placeholder=_placeholder_for(requirement),
+        upstream_policy=upstream_policy,
+        parallel_safe=parallel_safe,
+        notes=notes,
+        service_notice=service_notice,
+        keyword_combination=keyword_combination,
+        keyword_combination_notes=keyword_combination_notes,
+        attribution=attribution,
+        attribution_requirement=attribution_requirement,
+        attribution_source=attribution_source,
+        date_granularity=date_granularity,
+        # "unstated" is a real answer, but only with a citation saying why:
+        # the omitted default has none, and fails
+        # ``test_every_entry_states_its_result_order``.
+        result_order=result_order,
+        result_order_established=result_order_established,
+        # No default that means "cannot be asked": a source added without an
+        # answer would then silently claim one. ``None`` becomes an explicit
+        # ``unknown`` and ``test_every_entry_has_an_established_entity_capability``
+        # fails on it, so the omission is loud.
+        entity_search=entity_search or _entity("unknown", established=""),
+        # Same reasoning as ``entity_search`` above, for the same reason: the
+        # omitted default has an empty citation, so a source added without an
+        # answer fails the guard instead of quietly claiming it constrains
+        # nothing. "This source constrains nothing" is a real answer and 11 of
+        # the 25 rows below give it — but it is written down, not defaulted.
+        # Of the other 14, five say only that the window means a date other
+        # than the publication date, which is a sentence worth one line to
+        # somebody filtering by date and worth none to anybody else.
+        constraints=constraints or _constraints(),
+        # Read when the entry is built, from the table below the catalog,
+        # where each source's answer is cited. A source absent from it fails
+        # ``test_every_entry_states_its_paper_lookup``.
+        paper_lookup=PAPER_LOOKUP.get(slug) or _lookup(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Catalog — 25 active repositories.
+# ---------------------------------------------------------------------------
+
+REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
+    _entry(
+        slug="arxiv",
+        name="arXiv",
+        description="Open-access preprints in physics, mathematics, computer science, quantitative biology, statistics, electrical engineering, and economics",
+        subject_coverage="Physics / Math / CS / Quant-bio / Stats / EE / Econ",
+        endpoint="https://export.arxiv.org/api/query",
+        query_method="GET Atom XML: one all: clause per term, joined with OR or AND, and a submittedDate filter",
+        rate_limit="0.33 req/s (1 per 3 s)",
+        client_module="api_arxiv.py",
+        requirement="none",
+        credential_name=None,
+        website="https://arxiv.org",
+        registration_url=None,
+        upstream_policy="\u22653 s between calls; bulk access via OAI-PMH",
+        parallel_safe="Yes",
+        notes=(
+            "Conservative by design. Do not drop the delay. When arXiv answers "
+            "429 or 503, resmon waits and asks again: 5 seconds, doubling, or "
+            "longer when arXiv's Retry-After asks for longer, up to three minutes "
+            "of waiting in one search. A watch's scheduled run, which nobody is "
+            "waiting on, waits up to fifteen minutes, no single wait longer than "
+            "five. A run that still gets 429 or 503 records how many attempts it "
+            "made and how long it waited."
+        ),
+        # arXiv's own default between bare words is OR, measured October 30,
+        # 2026 (`_terms_query` in api_arxiv.py has the figures).
+        keyword_combination_notes=(
+            "arXiv itself reads bare words as any one of them (on October 30, 2026, "
+            "`all:graph neural` matched 331,422 papers, as `all:graph OR all:neural` did, "
+            "against 21,136 for `all:graph AND all:neural`), so each term is sent as its "
+            "own all: clause. A term that is one common English word, such as \"of\" or "
+            "\"the\", is left out when there are others: arXiv leaves most of them out of "
+            "its index, so requiring one would empty the search."
+        ),
+        result_order="newest_first",
+        result_order_established=(
+            "`api_arxiv.py`: `search()` sends `sortBy=submittedDate` and "
+            "`sortOrder=descending`."
+        ),
+        attribution='Thank you to arXiv for use of its open access interoperability.',
+        attribution_requirement="requested",
+        attribution_source='https://info.arxiv.org/help/api/index.html',
+        constraints=_constraints(
+            established=(
+                "`api_arxiv.py`: the `submittedDate` clause in "
+                "`_date_clause` pads both bounds to a valid clock time, so "
+                "the window reaches arXiv as typed, and `_terms_query` puts "
+                "the terms in parentheses before it, so it binds every term."),
+            notices=(
+                _notice(
+                    "date_window",
+                    "arXiv's date window is its submission date, not a journal "
+                    "publication date.",
+                    "`api_arxiv.py`: the window is built from "
+                    "`submittedDate`, which is not a publication date.",
+                    applies_when="with_date_window",
+                ),
+            ),
+        ),
+        entity_search=_entity(
+            "field", author_syntax='au:"{name}"',
+            established=(
+                f"{ENTITY_PROBED_ON}: `au:\"Hinton\"` returned 5 entries naming him; the nonsense author 0; "
+                "the bare `all:\"Hinton\"` and `ti:\"Hinton\"` controls returned different "
+                "id sets. No ORCID and no affiliation anywhere in the Atom record."),
+        ),
+    ),
+    _entry(
+        slug="biorxiv",
+        name="bioRxiv",
+        description="Preprints across the life sciences",
+        subject_coverage="Life sciences preprints",
+        endpoint="https://api.biorxiv.org/details/biorxiv/{from}/{to}/{cursor}",
+        query_method="GET date-range JSON; keywords filtered client-side by resmon",
+        rate_limit="2.0 req/s (conservative; no published API limit)",
+        client_module="api_biorxiv.py",
+        requirement="none",
+        credential_name=None,
+        website="https://www.biorxiv.org",
+        registration_url=None,
+        upstream_policy="No published API rate limit; resmon uses a conservative ceiling",
+        parallel_safe="Yes",
+        notes="The /details endpoint has reported upstream outages; resmon surfaces those failures.",
+        keyword_combination_notes=(
+            "Its documented /details API retrieves by date range or DOI rather than by "
+            "words."
+        ),
+        result_order="newest_first",
+        result_order_established=(
+            "`api_biorxiv.py`: the `/details` endpoint lists a range oldest "
+            "first, and `search()` reads it from its end back "
+            "(`_newest_first`), each page reversed, so its matches come "
+            "newest first. The range starts where `default_start_days` puts "
+            "it when a run sets none."
+        ),
+        constraints=_constraints(
+            keyword_search="client_side",
+            default_start_days=DEFAULT_START_DAYS,
+            established=(
+                "`api_biorxiv.py`: the `_BIORXIV_API_BASE` URL in "
+                "`search()` is built from the two dates unrounded, and "
+                "`search_terms.matches` does the keyword matching because the "
+                "endpoint has no query parameter. A search with no start date "
+                "starts at `_default_start`, `default_start_days` before the "
+                "run."),
+            notices=(
+                _notice(
+                    "keyword_search",
+                    "bioRxiv cannot be asked for keywords. resmon retrieves the "
+                    "preprints posted in your date range and matches your terms "
+                    "against each title and abstract itself, as whole words "
+                    "and phrases; a preprint is kept when it has any one of your "
+                    "terms, or every term when the search asks for all of them.",
+                    "`api_biorxiv.py`: `search_terms.matches`, called from the "
+                    "per-item loop in `search()`. The `_BIORXIV_API_BASE` "
+                    "endpoint takes a server, a date range and a cursor and "
+                    "nothing else.",
+                ),
+                _notice(
+                    "applied_default",
+                    "With no start date, resmon asks bioRxiv for the "
+                    f"{DEFAULT_START_DAYS} days before the run starts, or "
+                    "before your end date when that is earlier. resmon reads "
+                    "every preprint in the range itself, and bioRxiv's whole "
+                    "archive since 2013 is far more than a search can read "
+                    "in 45 seconds.",
+                    "`api_biorxiv.py`: `_default_start`, from the catalog's "
+                    "`default_start_days`, for `d_from` in `search()`, and "
+                    "`_SEARCH_BUDGET_SECONDS`.",
+                    applies_when="without_start_date",
+                ),
+                _notice(
+                    "date_window",
+                    "resmon reads bioRxiv from the newest preprints in your "
+                    "window back, for at most 45 seconds, and a window longer "
+                    f"than {DEFAULT_START_DAYS} days can hold more than that "
+                    "reads. A run may stop before it reaches the start of your "
+                    "window, and says how far back it read.",
+                    "`api_biorxiv.py`: `_newest_first` in `search()`, "
+                    "`_SEARCH_BUDGET_SECONDS`, and `note_read`.",
+                    applies_when="beyond_default_start",
+                ),
+            ),
+        ),
+        entity_search=_entity(
+            "none",
+            established=(
+                f"{ENTITY_PROBED_ON}: the details endpoint takes a date window and a cursor and has no "
+                "query parameter of any kind — there is nothing to ask an author about. "
+                "Established from the endpoint's own shape, not from a failed call."),
+        ),
+    ),
+    _entry(
+        slug="core",
+        name="CORE",
+        description="Aggregator of open-access research outputs from institutional and subject repositories",
+        subject_coverage="Multi-disciplinary OA",
+        endpoint="https://api.core.ac.uk/v3/search/works",
+        query_method="GET with Authorization: Bearer {key}",
+        rate_limit="0.167 req/s (1 per 6 s)",
+        client_module="api_core.py",
+        requirement="required",
+        credential_name="core_api_key",
+        website="https://core.ac.uk",
+        registration_url="https://core.ac.uk/services/api",
+        # https://api.core.ac.uk/docs/v3, "Rate limits", read October 29, 2026.
+        upstream_policy=(
+            "Counted in tokens by key type: a personal key 25 a minute and 1,000 a "
+            "day, an academic key 10 a minute and 5,000 a day; a simple search "
+            "costs 1. Replies carry X-RateLimit-Remaining and X-RateLimit-Retry-After"),
+        parallel_safe="Yes",
+        notes="Must register for an API key before use.",
+        keyword_combination_notes=(
+            "resmon has not measured how CORE reads a query, because asking needs an API "
+            "key."
+        ),
+        result_order="relevance",
+        result_order_established=(
+            "`api_core.py`: `search()` sends no sort, and CORE's Lucene backend "
+            "ranks documents matching more terms higher "
+            "(`keyword_combination_notes`)."
+        ),
+        attribution='Powered by CORE',
+        attribution_requirement="required",
+        attribution_source='https://core.ac.uk/faq',
+        constraints=_constraints(
+            established=(
+                "`api_core.py`: the `createdDate` clause in `search()` "
+                "interpolates both bounds unrounded."),
+            notices=(
+                _notice(
+                    "date_window",
+                    "resmon sends your window to CORE as a createdDate range. "
+                    "That is a different field from the work's publication "
+                    "date, so a work published long ago but added to CORE "
+                    "recently falls inside a recent window.",
+                    "`api_core.py`: `search()` sends `createdDate>=` and "
+                    "`createdDate<=`, which is not the publication-date "
+                    "field.",
+                    applies_when="with_date_window",
+                ),
+            ),
+        ),
+        entity_search=_entity(
+            "unknown",
+            identifier_query="unknown",
+            established=(
+                f"{ENTITY_PROBED_ON}: not established. CORE requires an API key and this machine holds "
+                "none, so nothing was asked and nothing is claimed."),
+        ),
+    ),
+    _entry(
+        slug="crossref",
+        name="Crossref",
+        description="DOI registration agency metadata across all scholarly works",
+        subject_coverage="All disciplines (DOI-indexed)",
+        endpoint="https://api.crossref.org/works",
+        query_method="GET /works?query={q} with optional date filters",
+        rate_limit="1.0 req/s (the public pool's limit for searches)",
+        client_module="api_crossref.py",
+        requirement="none",
+        credential_name=None,
+        website="https://www.crossref.org",
+        registration_url=None,
+        upstream_policy=(
+            "Since July 21, 2026: searches and filters 1 request a second from the public pool, 3 from the polite "
+            "pool (a request that names a contact address); single records 5 and 10."),
+        parallel_safe="Yes",
+        notes=(
+            "resmon sends a contact address only if you set one in Settings › Sources, which puts its requests in "
+            "the polite pool; its pace stays within the public pool's either way."),
+        keyword_combination_notes=(
+            "Measured October 30, 2026: `climate model`, `climate AND model` and `climate "
+            "OR model` each matched 3,793,797 works, more than `model` alone (3,183,048), "
+            "so AND and OR are read as words, not operators."
+        ),
+        result_order="relevance",
+        result_order_established=(
+            "`api_crossref.py`: `search()` sends no sort, and Crossref ranks a "
+            "`query` by relevance (`keyword_combination_notes`)."
+        ),
+        constraints=_constraints(
+            established=(
+                "`api_crossref.py`: `search()` sends `from-pub-date` and "
+                "`until-pub-date` built from the two bounds as typed."),
+        ),
+        entity_search=_entity(
+            "param", author_syntax="query.author={name}",
+            returns_orcid=True, returns_affiliation=True,
+            established=(
+                f"{ENTITY_PROBED_ON}: `query.author=Yoshua Bengio` returned 5 works naming him and the "
+                "nonsense author 0. Over a 50-work sample: **2 of 84 authors carried an "
+                "`ORCID` and 26 of 84 a non-empty `affiliation`** — the key is on every "
+                "author object and empty on most, which is why this was counted rather "
+                "than read off the key names."),
+        ),
+    ),
+    _entry(
+        slug="datacite",
+        name="DataCite",
+        description="DOI metadata with strong coverage of datasets, software, dissertations, and other research outputs",
+        subject_coverage="All disciplines / Data / Software / Dissertations / Other DOI outputs",
+        endpoint="https://api.datacite.org/dois",
+        query_method="GET JSON:API query with upstream publication-year filtering and precise Issued-date checks where available",
+        rate_limit="1.5 req/s (below 500 requests/5 min unidentified)",
+        client_module="api_datacite.py",
+        requirement="none",
+        credential_name=None,
+        website="https://datacite.org",
+        registration_url=None,
+        upstream_policy="Unidentified requests: 500 per 5 minutes per IP; CC0 metadata; attribution requested; linked resources excluded",
+        parallel_safe="Yes",
+        notes="Public API returns Findable DOI metadata only. Publication filtering is year-granular upstream; resmon preserves partial date precision and applies exact bounds only when Issued metadata supports them.",
+        # Live behavior, against DataCite's own description; the note says which is which.
+        keyword_combination_notes=(
+            "DataCite's documentation describes every unfielded term as optional so long "
+            "as one matches, but the live API requires them all when no operator is "
+            "given. Measured October 30, 2026: `climate model` matched 107,442 records, "
+            "near `climate AND model` (120,693) and far from `climate OR model` "
+            "(4,091,550). Unfielded search covers common metadata fields."
+        ),
+        result_order="relevance",
+        result_order_established=(
+            "`api_datacite.py`: `search()` sends `sort=relevance`."
+        ),
+        attribution='Metadata from DataCite',
+        attribution_requirement="requested",
+        attribution_source='https://support.datacite.org/docs/datacite-data-file-use-policy',
+        # api_datacite.py:101-107 sends a whole-year `published` filter and keeps each record's own precision.
+        date_granularity="year",
+        constraints=_constraints(
+            window_effect="whole_years",
+            window_rounding="outward",
+            window_refiltered_locally=True,
+            established=(
+                "`api_datacite.py`: `_publication_year_filter` builds the "
+                "documented year-only `published` filter, `search()` falls "
+                "back to a `publicationYear` range for wider or one-sided "
+                "windows, and `_inside_requested_window` drops a record "
+                "outside the typed dates."),
+            notices=(
+                _notice(
+                    "date_window",
+                    "DataCite can only be filtered by publication year, so "
+                    "resmon asks for the whole calendar years your window "
+                    "touches and then drops anything outside your exact dates "
+                    "once it arrives.",
+                    "`api_datacite.py`: `_publication_year_filter`, and the "
+                    "`publicationYear` fallback in `search()`.",
+                    applies_when="with_date_window",
+                ),
+                _notice(
+                    "record_filter",
+                    "A DataCite record dated to the year alone is kept only "
+                    "when your window covers the whole of that year.",
+                    "`api_datacite.py`: `_inside_requested_window` expands "
+                    "a year-only record date to a whole year and requires "
+                    "the whole interval inside the window.",
+                    applies_when="with_date_window",
+                ),
+            ),
+        ),
+        entity_search=_entity(
+            "field", author_syntax='creators.name:"{name}"',
+            established=(
+                f"{ENTITY_PROBED_ON}: `creators.name:\"Yoshua Bengio\"` returned 5, the nonsense author 0, "
+                "and the bare and `titles.title:` controls returned different id sets. "
+                "**No ORCID and no affiliation was populated on any of the 54 creators "
+                "measured**, although both keys appear in the document."),
+        ),
+    ),
+    _entry(
+        slug="dblp",
+        name="DBLP",
+        description="Computer-science bibliography maintained by Schloss Dagstuhl",
+        subject_coverage="Computer science",
+        endpoint="https://dblp.org/search/publ/api; https://sparql.dblp.org/sparql",
+        query_method=(
+            "GET keyword search with q={query}, f/h pagination; POST SPARQL "
+            "exact-label authored-publication search with bounded pagination"
+        ),
+        rate_limit="0.5 req/s (shared; at least 2 seconds between requests)",
+        client_module="api_dblp.py",
+        requirement="none",
+        credential_name=None,
+        website="https://dblp.org",
+        registration_url=None,
+        upstream_policy="DBLP asks automated clients to leave one or two seconds between requests",
+        parallel_safe="Shared limiter across REST and SPARQL",
+        notes=(
+            "Keyword REST and author SPARQL share a 45-second cooperative budget. "
+            "DBLP dates have year precision; YYYY-01-01 is storage encoding, not a "
+            "known day. Exact-label author search may match several people and aliases "
+            "may be missed. A bounded 2026-09-17 diagnostic observed REST challenge "
+            "pages and useful SPARQL JSON; future hosted availability is not guaranteed."
+        ),
+        keyword_combination_notes=(
+            "resmon has not established how DBLP combines several words or whether it "
+            "reads OR: on November 10, 2026 its search help and its search API both answered "
+            "automated requests with an access challenge rather than a reply."
+        ),
+        result_order="unstated",
+        result_order_established=(
+            "`api_dblp.py`: the REST search sends no sort, and DBLP's default "
+            "order is not authoritatively documented "
+            "(`keyword_combination_notes`)."
+        ),
+        attribution='Bibliographic data from the dblp computer science bibliography',
+        attribution_requirement="requested",
+        attribution_source='https://dblp.org/faq/1474677.html',
+        # DBLP exposes year precision. REST is filtered locally; the SPARQL
+        # author route filters xsd:gYear values upstream and validates them locally.
+        date_granularity="year",
+        constraints=_constraints(
+            window_effect="whole_years",
+            window_rounding="inward",
+            established=(
+                "`api_dblp.py`: `_whole_year_bounds` keeps only whole years "
+                "inside the window, `search()` returns with no request when "
+                "there are none, and `_parse_info` matches each hit's year "
+                "because the REST API has no date parameter."),
+            notices=(
+                _notice(
+                    "date_window",
+                    "DBLP records only a year, so resmon searches the whole "
+                    "calendar years inside your window and matches them after "
+                    "the results arrive. A window containing no complete "
+                    "calendar year is refused before any request is sent.",
+                    "`api_dblp.py`: `_whole_year_bounds`, and the "
+                    "`note_unanswerable` early return in `search()`.",
+                    applies_when="with_date_window",
+                ),
+                _notice(
+                    "record_filter",
+                    "A DBLP record carrying no year at all is dropped whenever "
+                    "you set a date window.",
+                    "`api_dblp.py`: the `elif date_from or date_to` branch "
+                    "in `_parse_info`.",
+                    applies_when="with_date_window",
+                ),
+            ),
+        ),
+        entity_search=_entity(
+            "endpoint", author_syntax='SPARQL exact rdfs:label "{name}" + dblp:authoredBy',
+            established=(
+                "2026-09-06 historical REST evidence: `author:Geoffrey_Hinton:` "
+                "returned a hit and the nonsense author 0. That dated observation is "
+                "not a current REST success; a bounded 2026-09-17 diagnostic observed "
+                "REST challenge pages. On 2026-09-17, a bounded official SPARQL "
+                "diagnostic returned useful exact-label authored-publication bindings. "
+                "Exact-label ambiguity and alias misses remain; candidate hosted "
+                "acceptance is pending."),
+        ),
+    ),
+    _entry(
+        slug="doaj",
+        # Year, not day: the client sends `bibjson.year`. See the
+        # DateGranularity comment above for why this was wrong until now.
+        date_granularity="year",
+        name="DOAJ",
+        description="Community-curated index of peer-reviewed open-access journals",
+        subject_coverage="All disciplines (OA journals)",
+        endpoint="https://doaj.org/api/search/articles",
+        query_method="GET article-search with URL-encoded query",
+        rate_limit="5.0 req/s",
+        client_module="api_doaj.py",
+        requirement="none",
+        credential_name=None,
+        website="https://doaj.org",
+        registration_url=None,
+        upstream_policy="No strict rate; courtesy use expected",
+        parallel_safe="Yes",
+        notes="",
+        keyword_combination_notes=(
+            "DOAJ requires every word when no operator is given. Measured October 30, "
+            "2026: `climate model` matched 63,007 articles and `climate AND model` "
+            "76,055, against 2,038,283 for `climate OR model`. Results are returned in "
+            "relevance-scored order. resmon puts your terms in parentheses before adding "
+            "the year, so the year applies to all of them."
+        ),
+        result_order="relevance",
+        result_order_established=(
+            "`api_doaj.py`: `search()` sends no sort, and DOAJ returns results "
+            "in relevance-scored order (`keyword_combination_notes`)."
+        ),
+        constraints=_constraints(
+            window_effect="whole_years",
+            window_rounding="outward",
+            established=(
+                "`api_doaj.py`: `search()` clips both bounds with `[:4]` "
+                "and sends `bibjson.year`; nothing narrows the answer back "
+                "to the days asked for."),
+            notices=(
+                _notice(
+                    "date_window",
+                    "DOAJ is searched by publication year, so a window inside "
+                    "a single year widens to the whole of it and results can "
+                    "fall outside the dates you set.",
+                    "`api_doaj.py`: the `bibjson.year` clause in "
+                    "`search()`.",
+                    applies_when="with_date_window",
+                ),
+            ),
+        ),
+        entity_search=_entity(
+            "field", author_syntax='bibjson.author.name:"{name}"',
+            returns_affiliation=True,
+            established=(
+                f"{ENTITY_PROBED_ON}: the author field returned 5 and the nonsense author 0, and the "
+                "`bibjson.title:` control a different set. **72 of 72 authors carried an "
+                "affiliation and none carried an ORCID.**"),
+        ),
+    ),
+    _entry(
+        slug="dryad",
+        name="Dryad",
+        description="Curated research datasets published for open reuse",
+        subject_coverage="Multi-disciplinary research data",
+        endpoint="https://datadryad.org/api/v2/search",
+        query_method="GET /search with q, publishedSince, publishedBefore, page, and per_page",
+        rate_limit="1.0 req/s (conservative; no published API limit)",
+        client_module="api_dryad.py",
+        requirement="none",
+        credential_name=None,
+        website="https://datadryad.org",
+        registration_url=None,
+        upstream_policy="No published numeric API rate limit; resmon uses a conservative shared ceiling",
+        parallel_safe="Yes",
+        notes=(
+            "Dryad publishes accepted datasets under CC0 for reuse: "
+            "https://datadryad.org/publication_policy. Citation is recommended, "
+            "not required: https://dev.datadryad.org/help/guides/reuse."
+        ),
+        keyword_combination_notes=(
+            "Dryad's OpenAPI /search documentation says multiple q terms return only "
+            "items containing all terms. Measured October 30, 2026: `climate model` "
+            "matched 3,844 datasets, as `climate AND model` did, and `climate OR model` "
+            "also matched 3,844, so an explicit OR is not honored."
+        ),
+        result_order="unstated",
+        result_order_established=(
+            "`api_dryad.py`: `search()` sends no sort, and nothing establishes "
+            "Dryad's default order."
+        ),
+        constraints=_constraints(
+            established=(
+                "`api_dryad.py`: `search()` sends `publishedSince` and "
+                "`publishedBefore` built from the two bounds as typed."),
+        ),
+        entity_search=_entity(
+            "param", author_syntax="author={name}",
+            returns_orcid=True, returns_affiliation=True,
+            established=(
+                f"{ENTITY_PROBED_ON}: `author=Michael Brown` returned 5 datasets and the nonsense author 0. "
+                "**191 of 191 authors carried an affiliation and 22 of 191 an ORCID.**"),
+        ),
+    ),
+    _entry(
+        slug="eric",
+        name="ERIC",
+        description="Education research and information index maintained by the U.S. Department of Education",
+        subject_coverage="Education research / Policy / Practice",
+        endpoint="https://api.ies.ed.gov/eric/",
+        query_method="GET JSON served as text/plain with upstream publication-year filtering",
+        rate_limit="0.5 req/s (conservative; no published API limit)",
+        client_module="api_eric.py",
+        requirement="none",
+        credential_name=None,
+        website="https://eric.ed.gov",
+        registration_url=None,
+        upstream_policy="No published numeric rate limit; resmon waits two seconds between requests",
+        parallel_safe="Yes",
+        notes="ERIC documents metadata download for database use. Only publication year is searchable, so resmon preserves year-only precision and does not claim a narrower match. A date window narrower than one whole year therefore returns nothing from ERIC — there is no field to filter on, so resmon reports zero results rather than widening the window you asked for.",
+        keyword_combination_notes=(
+            "ERIC documents OR as the default between unmarked terms, with stemming. "
+            "Measured October 30, 2026: `climate model` matched 225,585 records, as "
+            "`climate OR model` did, and `climate AND model` 3,953."
+        ),
+        result_order="unstated",
+        result_order_established=(
+            "`api_eric.py`: `search()` sends no sort, and nothing establishes "
+            "ERIC's default order."
+        ),
+        # api_eric.py:168-172 — a window with no whole calendar year inside it is refused, not widened.
+        date_granularity="year",
+        constraints=_constraints(
+            window_effect="whole_years",
+            window_rounding="inward",
+            established=(
+                "`api_eric.py`: `_search_year_bounds` keeps only whole "
+                "years inside the window, and `search()` records "
+                "`year_granularity` and returns without a request when "
+                "there are none."),
+            notices=(
+                _notice(
+                    "date_window",
+                    "ERIC exposes only a publication year. resmon searches the "
+                    "whole calendar years inside your window, and refuses a "
+                    "window containing none rather than returning records whose "
+                    "position in it cannot be known.",
+                    "`api_eric.py`: `_search_year_bounds`, and the "
+                    "`year_granularity` early return in `search()`.",
+                    applies_when="with_date_window",
+                ),
+            ),
+        ),
+        entity_search=_entity(
+            "field", author_syntax='author:"{name}"',
+            established=(
+                f"{ENTITY_PROBED_ON}: `author:\"John Hattie\"` returned 5, the nonsense author 0, and the "
+                "`title:` control a different set. No ORCID or affiliation in the record."),
+        ),
+    ),
+    _entry(
+        slug="europepmc",
+        name="EuropePMC",
+        description="Biomedical and life-sciences literature index (EMBL-EBI)",
+        subject_coverage="Biomedicine / Life sciences",
+        endpoint="https://www.ebi.ac.uk/europepmc/webservices/rest/search",
+        query_method="GET with query={q} and cursorMark pagination",
+        rate_limit="5.0 req/s",
+        client_module="api_europepmc.py",
+        requirement="none",
+        credential_name=None,
+        website="https://europepmc.org",
+        registration_url=None,
+        upstream_policy="No hard published rate; 'reasonable use' \u2014 5/s is polite",
+        parallel_safe="Yes",
+        notes="",
+        keyword_combination_notes=(
+            "Europe PMC requires every word when no operator is given. Measured October "
+            "30, 2026: `climate model` matched 376,070, the same as `climate AND model`, "
+            "against 9,315,296 for `climate OR model`. resmon puts your terms in "
+            "parentheses before adding your dates, so the dates apply to all of them."
+        ),
+        result_order="relevance",
+        result_order_established=(
+            "`api_europepmc.py`: `search()` sends no sort, and Europe PMC "
+            "answers an unsorted search in relevance order, not by date: on "
+            "October 30, 2026 the first ten records for `climate model` were "
+            "dated out of order."
+        ),
+        attribution='Data from Europe PMC',
+        attribution_requirement="requested",
+        attribution_source='https://www.ebi.ac.uk/about/terms-of-use/',
+        constraints=_constraints(
+            established=(
+                "`api_europepmc.py`: `search()` sends `FIRST_PDATE` built "
+                "from the two bounds as typed."),
+        ),
+        entity_search=_entity(
+            "field", author_syntax='AUTH:"{name}"',
+            returns_orcid=True,
+            established=(
+                f"{ENTITY_PROBED_ON}: `AUTH:\"Eric Topol\"` returned 5, the nonsense author 0, and the bare "
+                "and `TITLE:` controls different sets. **23 of 65 authors carried an "
+                "`authorId` of type ORCID; none carried an affiliation on the author "
+                "object** — Europe PMC keeps affiliation elsewhere in some result types "
+                "and resmon does not claim it from here."),
+        ),
+    ),
+    _entry(
+        slug="govinfo", name="GovInfo",
+        description="Official U.S. government publication and granule metadata",
+        subject_coverage="Legislation / Regulation / Courts / Government reports",
+        endpoint="https://api.govinfo.gov/search",
+        query_method="POST JSON; publishdate range; opaque offsetMark pagination",
+        rate_limit="1.0 req/s (below default key quotas)",
+        client_module="api_govinfo.py", requirement="required",
+        credential_name="govinfo_api_key", website="https://www.govinfo.gov",
+        registration_url="https://www.govinfo.gov/api-signup",
+        upstream_policy="Default key limits: 36,000/hour, 1,200/minute, 40/second. https://github.com/usgpo/api#keys",
+        parallel_safe="Yes; one shared limiter",
+        date_granularity="day",
+        keyword_combination_notes=(
+            "GovInfo documents AND, OR, and quoted phrases at "
+            "https://www.govinfo.gov/help/search-operators. resmon has not measured it, "
+            "because asking needs an API key."
+        ),
+        result_order="relevance",
+        result_order_established=(
+            "`api_govinfo.py`: `search()` sends `sorts` on `score`, `DESC`."
+        ),
+        notes=(
+            "Terms verdict: compatible for official bibliographic metadata. GPO permits local digital collections; "
+            "its copyright notice warns that embedded third-party content is not automatically public domain. "
+            "resmon retains title, government authors, IDs, dateIssued, collection and a link; no teasers, abstracts or document files. "
+            "No retention/refresh condition is stated for these fields; private backup is consistent with this metadata reuse. "
+            "https://www.govinfo.gov/about/policies "
+            "Search pageSize maximum 1000; resmon uses at most 100. The response offsetMark supplies the next cursor; "
+            "the client checks both publication-date bounds locally as well. "
+            "Each search scans at most max(10000, Max Results) rows, rounded up to a page, and returns the retained prefix. "
+            "https://www.govinfo.gov/features/search-service-overview "
+            "API keys are sent in the X-Api-Key header: https://api.data.gov/docs/api-key/"
+        ),
+        constraints=_constraints(
+            established=(
+                "`api_govinfo.py`: `search()` validates both bounds and "
+                "sends the documented `publishdate:range(` form with closed "
+                "calendar endpoints."),
+        ),
+        entity_search=_entity(
+            "unknown",
+            identifier_query="unknown",
+            established=(
+                f"{ENTITY_PROBED_ON}: not established. GovInfo requires an API key and this machine holds "
+                "none. Its client is Delegation 08's and was not touched."),
+        ),
+    ),
+    _entry(
+        slug="hal",
+        name="HAL",
+        description="French national open-access archive (CCSD)",
+        subject_coverage="All disciplines (French-leaning)",
+        endpoint="https://api.archives-ouvertes.fr/search/",
+        query_method="GET Solr endpoint with q={query} wt=json",
+        rate_limit="2.0 req/s",
+        client_module="api_hal.py",
+        requirement="none",
+        credential_name=None,
+        website="https://hal.science",
+        registration_url=None,
+        upstream_policy="No published rate; courtesy use expected",
+        parallel_safe="Yes",
+        notes=(
+            "With no end date, resmon asks HAL for records dated up to the end of "
+            "today (UTC). HAL holds records dated in the future, and newest first "
+            "they came before every current paper: on October 30, 2026, 93 of the "
+            "375 records for `climate` since October 1 were dated after that day. "
+            "A record dated ahead is found by a run made after its date."
+        ),
+        keyword_combination_notes=(
+            "HAL requires every word when no operator is given. Measured October 30, "
+            "2026: `climate model` matched 20,595 records, the same as `climate AND "
+            "model`, against 534,623 for `climate OR model`. resmon asks for the results "
+            "newest first, not in relevance order."
+        ),
+        result_order="newest_first",
+        result_order_established=(
+            "`api_hal.py`: `search()` sends `sort=producedDate_tdate desc`."
+        ),
+        attribution='Data from HAL, the French national open archive',
+        attribution_requirement="requested",
+        attribution_source='https://doc.hal.science/en/legal-aspects/',
+        constraints=_constraints(
+            established=(
+                "`api_hal.py`: `_produced_date_range` builds the "
+                "`producedDate_tdate` range from the two bounds as typed, and "
+                "ends an open end at `_utc_today`."),
+        ),
+        entity_search=_entity(
+            "field", author_syntax='authFullName_s:"{name}"',
+            established=(
+                f"{ENTITY_PROBED_ON}: `authFullName_s:\"Jean-Pierre Serre\"` returned 4, the nonsense author "
+                "0, and the `title_s:` control 0 for the same words. **The field is an "
+                "exact string**: `authFullName_s:\"Yann LeCun\"` returns 0 where "
+                "`\"Yann Le Cun\"` returns 1, so a name that does not match HAL's spelling "
+                "finds nothing. **No affiliation is claimed from HAL**: `labStructName_s` "
+                "is a *document* field, and one record listed 2 authors against 1 lab "
+                "name, so resmon cannot say whose it is. No ORCID was populated either."),
+        ),
+    ),
+    _entry(
+        slug="inspire_hep",
+        name="INSPIRE-HEP",
+        description="Curated literature database for high-energy physics and related fields",
+        subject_coverage="High-energy physics / Accelerators / Astroparticle physics",
+        endpoint="https://inspirehep.net/api/literature",
+        query_method="GET with INSPIRE q syntax, mostrecent sort, projected fields, and page/size pagination",
+        rate_limit="2.0 req/s (below the 15 requests/5 s anonymous ceiling)",
+        client_module="api_inspire_hep.py",
+        requirement="none",
+        credential_name=None,
+        website="https://inspirehep.net",
+        registration_url=None,
+        upstream_policy="Anonymous per-IP limit: 15 requests per 5-second window",
+        parallel_safe="Yes",
+        notes="Author names remain in the upstream Surname, Given form. Abstracts are stored only where INSPIRE reports the abstract's own source as arXiv or CERN, which is the limit its terms of use set; records carrying only a publisher-supplied abstract are indexed without one. In a 100-record sample that was about a fifth of them.",
+        keyword_combination_notes=(
+            "INSPIRE reads a phrase in double quotes and the operators and, or, and not. "
+            "Adjacent free-form terms currently return the same total as explicit AND in "
+            "the live API; explicit OR broadens the result set."
+        ),
+        result_order="newest_first",
+        result_order_established=(
+            "`api_inspire_hep.py`: `search()` sends `sort=mostrecent`."
+        ),
+        constraints=_constraints(
+            established=(
+                "`api_inspire_hep.py`: `search()` appends `de>` and `de<` "
+                "to the query, built from the two bounds as typed."),
+        ),
+        entity_search=_entity(
+            "field", author_syntax="a {name}",
+            returns_orcid=True, returns_affiliation=True,
+            established=(
+                f"{ENTITY_PROBED_ON}: `a Edward Witten` returned 5 and the nonsense author 0; `t` on the "
+                "same words returned a different set. **9 of 9 authors carried both an "
+                "identifier list including an ORCID and an affiliation.** Quoting breaks "
+                "it — `a \"Edward Witten\"` returns 0, which is the first thing the probe "
+                "got wrong."),
+        ),
+    ),
+    _entry(
+        slug="medrxiv",
+        name="medRxiv",
+        description="Preprints across medicine, clinical research, and related health sciences",
+        subject_coverage="Medicine / Clinical research / Health sciences preprints",
+        endpoint="https://api.biorxiv.org/details/medrxiv/{from}/{to}/{cursor}",
+        query_method="GET date-range JSON; keywords filtered client-side by resmon",
+        rate_limit="2.0 req/s (conservative; no published API limit)",
+        client_module="api_biorxiv.py",
+        requirement="none",
+        credential_name=None,
+        website="https://www.medrxiv.org",
+        registration_url=None,
+        upstream_policy="No published API rate limit; resmon uses a conservative ceiling",
+        parallel_safe="Yes",
+        notes="Shares the /details client implementation with bioRxiv while remaining a distinct selectable source.",
+        keyword_combination_notes=(
+            "Its documented /details API retrieves by date range or DOI rather than by "
+            "words."
+        ),
+        result_order="newest_first",
+        result_order_established=(
+            "`api_biorxiv.py`, as for bioRxiv: `search()` reads the "
+            "`/details` range, which the endpoint lists oldest first, from "
+            "its end back (`_newest_first`), each page reversed."
+        ),
+        constraints=_constraints(
+            keyword_search="client_side",
+            default_start_days=DEFAULT_START_DAYS,
+            established=(
+                "`api_biorxiv.py`, shared with bioRxiv: the "
+                "`_BIORXIV_API_BASE` URL in `search()` is built from the "
+                "two dates unrounded, and `search_terms.matches` does the keyword "
+                "matching because the endpoint has no query parameter. A "
+                "search with no start date starts at `_default_start`, "
+                "`default_start_days` before the run."),
+            notices=(
+                _notice(
+                    "keyword_search",
+                    "medRxiv cannot be asked for keywords. resmon retrieves the "
+                    "preprints posted in your date range and matches your terms "
+                    "against each title and abstract itself, as whole words "
+                    "and phrases; a preprint is kept when it has any one of your "
+                    "terms, or every term when the search asks for all of them.",
+                    "`api_biorxiv.py`: `search_terms.matches`, called from the "
+                    "per-item loop in `search()`. The `_BIORXIV_API_BASE` "
+                    "endpoint takes a server, a date range and a cursor and "
+                    "nothing else.",
+                ),
+                _notice(
+                    "applied_default",
+                    "With no start date, resmon asks medRxiv for the "
+                    f"{DEFAULT_START_DAYS} days before the run starts, or "
+                    "before your end date when that is earlier. resmon reads "
+                    "every preprint in the range itself, and medRxiv's whole "
+                    "archive since 2019 is far more than a search can read "
+                    "in 45 seconds.",
+                    "`api_biorxiv.py`: `_default_start`, from the catalog's "
+                    "`default_start_days`, for `d_from` in `search()`, and "
+                    "`_SEARCH_BUDGET_SECONDS`.",
+                    applies_when="without_start_date",
+                ),
+                _notice(
+                    "date_window",
+                    "resmon reads medRxiv from the newest preprints in your "
+                    "window back, for at most 45 seconds, and a window longer "
+                    f"than {DEFAULT_START_DAYS} days can hold more than that "
+                    "reads. A run may stop before it reaches the start of your "
+                    "window, and says how far back it read.",
+                    "`api_biorxiv.py`: `_newest_first` in `search()`, "
+                    "`_SEARCH_BUDGET_SECONDS`, and `note_read`.",
+                    applies_when="beyond_default_start",
+                ),
+            ),
+        ),
+        entity_search=_entity(
+            "none",
+            established=(
+                f"{ENTITY_PROBED_ON}: the same details endpoint as bioRxiv — a date window and a cursor, "
+                "no query of any kind."),
+        ),
+    ),
+    _entry(
+        slug="nasa_ads",
+        name="NASA ADS",
+        description="Digital library for astronomy, astrophysics, and planetary science",
+        subject_coverage="Astronomy / Astrophysics / Planetary science",
+        endpoint="https://api.adsabs.harvard.edu/v1/search/query",
+        query_method="GET with Authorization: Bearer {key} Solr-style q",
+        rate_limit="1.0 req/s (per-key daily cap ~5000/day)",
+        client_module="api_nasa_ads.py",
+        requirement="required",
+        credential_name="nasa_ads_api_key",
+        website="https://ui.adsabs.harvard.edu",
+        registration_url="https://ui.adsabs.harvard.edu/user/settings/token",
+        upstream_policy="5000 calls/day per token; no strict req/s",
+        parallel_safe="Yes",
+        notes="Daily quota (not per-second) is the binding limit.",
+        keyword_combination_notes=(
+            "resmon has not measured how NASA ADS reads a query, because asking needs an "
+            "API key. resmon asks for the results newest first, not in relevance order."
+        ),
+        result_order="newest_first",
+        result_order_established=(
+            "`api_nasa_ads.py`: `search()` sends `sort=date desc`."
+        ),
+        # api_nasa_ads.py:38-43 sends `pubdate:[YYYY-MM TO YYYY-MM]`.
+        date_granularity="month",
+        constraints=_constraints(
+            window_effect="whole_months",
+            window_rounding="outward",
+            established=(
+                "`api_nasa_ads.py`: `search()` clips both bounds to a "
+                "`YYYY-MM` prefix and sends `pubdate`; nothing narrows the "
+                "answer back to the days asked for."),
+            notices=(
+                _notice(
+                    "date_window",
+                    "NASA ADS is searched by publication month, so a window "
+                    "inside a month widens to the whole of it and results can "
+                    "fall outside the dates you set.",
+                    "`api_nasa_ads.py`: the `pubdate` clause in `search()`.",
+                    applies_when="with_date_window",
+                ),
+            ),
+        ),
+        entity_search=_entity(
+            "unknown",
+            identifier_query="unknown",
+            established=(
+                f"{ENTITY_PROBED_ON}: not established. NASA ADS requires a token and this machine holds "
+                "none. Its documented `author:` field is *not* recorded here, because a "
+                "documented field resmon has not exercised is a claim, not a capability."),
+        ),
+    ),
+    _entry(
+        slug="ndl_search",
+        name="NDL Search",
+        description="National Diet Library of Japan cross-database bibliographic metadata",
+        subject_coverage="Japanese national bibliography / Books / Articles / Cultural heritage metadata",
+        endpoint="https://ndlsearch.ndl.go.jp/api/sru",
+        query_method="GET SRU 1.2 with dcndl_v3 XML, dpid=open, anywhere, from/until, and at most 500 records per SRU request",
+        rate_limit="0.5 req/s (conservative; no published numeric API limit)",
+        client_module="api_ndl_search.py",
+        requirement="none",
+        credential_name=None,
+        website="https://ndlsearch.ndl.go.jp/en/",
+        registration_url=None,
+        upstream_policy="No numeric rate limit published; NDL asks continuous users to identify their usage and may restrict heavy or concurrent traffic",
+        parallel_safe="Yes",
+        notes=(
+            "NDL Search API v1.4: https://ndlsearch.ndl.go.jp/file/help/api/specifications/ndlsearch_api_20260331.pdf "
+            "Documents API providers and metadata terms: https://ndlsearch.ndl.go.jp/en/help/api/provider . "
+            "Version 1.4 accepts YYYY, YYYY-MM, YYYY-MM-DD from/until bounds. When input bounds differ in precision, resmon preserves inclusive intent by expanding lower partials to their first day and upper partials to their last day before sending same-precision clauses. "
+            "The client limits requests to dpid=open and independently retains only records with an explicit PDM 1.0, CC0 1.0, or CC BY 4.0 metadata-rights URI; "
+            "the open-provider summary is incomplete for current live results because they include CC BY. "
+            "You must credit NDL Search API, on a website or application using the API. "
+            "Also, you must credit the metadata providing database and institution in the case that credit is needed. "
+            "https://ndlsearch.ndl.go.jp/en/help/api/ . "
+            "This catalog note records those obligations but does not itself discharge attribution."
+        ),
+        keyword_combination_notes=(
+            "NDL Search API v1.4 documents AND as the default when several values are "
+            "given for the anywhere search field, and resmon asks through that field "
+            "alone. Measured October 30, 2026: `東京 地図` matched 2,066 open records, the "
+            "same as two anywhere clauses joined with AND. An AND or OR typed into a term "
+            "is searched for as a word."
+        ),
+        result_order="unstated",
+        result_order_established=(
+            "`api_ndl_search.py`: `search()` sends no sort, and nothing "
+            "establishes NDL Search's default order."
+        ),
+        attribution='Powered by NDL Search API. Metadata provided by the National Diet Library and its contributing databases and institutions.',
+        attribution_requirement="required",
+        attribution_source='https://ndlsearch.ndl.go.jp/en/help/api/',
+        constraints=_constraints(
+            records_per_request=500,
+            established=(
+                "`api_ndl_search.py`: `_parse_date_bound` and `search()` "
+                "send each bound at the precision it was given, expanding "
+                "only to keep two different precisions inclusive."),
+            notices=(
+                _notice(
+                    "result_cap",
+                    "You have asked for more records than NDL Search returns "
+                    "in one request, so resmon splits your date range into "
+                    "smaller ones, earliest first, until it has enough. That "
+                    "needs a start date: with no end date the range ends "
+                    "today, and with no start date NDL Search is not asked "
+                    "and the run says why. A single day holding more than "
+                    "500 matches cannot be split, and the run says that too.",
+                    "`api_ndl_search.py`: `_MAX_RECORDS`, the "
+                    "`_collect_partitions` branch in `search()`, `_utc_today`, "
+                    "and the `note_unanswerable` calls.",
+                    applies_when="above_record_cap",
+                ),
+                _notice(
+                    "record_filter",
+                    "resmon asks NDL Search only for open-provider records, and "
+                    "keeps only those carrying a single Public Domain Mark 1.0, "
+                    "CC0 1.0 or CC BY 4.0 metadata-rights statement. Anything "
+                    "else is dropped and counted rather than stored.",
+                    "`api_ndl_search.py`: `_ALLOWED_RIGHTS`, the `dpid` "
+                    "clause built beside `_cql_quote`, and "
+                    "`_normalized_rights_uri`.",
+                ),
+            ),
+        ),
+        entity_search=_entity(
+            "field", author_syntax='creator="{name}"',
+            established=(
+                f"{ENTITY_PROBED_ON}: SRU `creator=\"Haruki Murakami\"` returned 5 records and the nonsense "
+                "author 0; the `anywhere=` and `title=` controls returned different "
+                "identifier sets. No ORCID or affiliation in the dcndl record."),
+        ),
+    ),
+    _entry(
+        slug="openaire",
+        name="OpenAIRE",
+        description="Open scholarly graph aggregating research outputs and relationships",
+        subject_coverage="Multi-disciplinary publications / Research outputs",
+        endpoint="https://api.openaire.eu/search/publications",
+        query_method="GET legacy Search API with keywords, date filters, and XML-derived JSON pagination",
+        rate_limit="0.0167 req/s (60/hour unauthenticated)",
+        client_module="api_openaire.py",
+        requirement="none",
+        credential_name=None,
+        website="https://explore.openaire.eu",
+        registration_url=None,
+        upstream_policy="Unauthenticated limit: 60 requests/hour in a one-hour sliding window",
+        parallel_safe="Yes",
+        notes="OpenAIRE announced this legacy Search API discontinued on May 31, 2026. It still responded on August 30, 2026, but continued availability is not guaranteed.",
+        service_notice=(
+            "OpenAIRE has announced the end of the API resmon asks it through, and it still answered on November 4, "
+            "2026. resmon asks it while it answers; a run records it as not answering once it stops."),
+        keyword_combination_notes=(
+            "OpenAIRE documents keywords only as a whitespace-separated list. Measured "
+            "October 30, 2026: `climate model` matched 342,094 records, fewer than "
+            "`climate` (1,684,444) or `model` (15,647,488) alone, so the words are not "
+            "combined with OR; a query containing AND or OR was refused with HTTP 409."
+        ),
+        result_order="unstated",
+        result_order_established=(
+            "`api_openaire.py`: `search()` sends no sort, and nothing "
+            "establishes OpenAIRE's default order."
+        ),
+        attribution='Data from the OpenAIRE Graph, licensed CC BY 4.0. Changes: resmon stores a normalized subset of the returned metadata.',
+        attribution_requirement="required",
+        attribution_source='https://graph.openaire.eu/docs/apis/terms/',
+        constraints=_constraints(
+            established=(
+                "`api_openaire.py`: `search()` sends `fromDateAccepted` and "
+                "`toDateAccepted` built from the two bounds as typed."),
+            notices=(
+                _notice(
+                    "date_window",
+                    "resmon sends your window to OpenAIRE as a date-accepted "
+                    "range. That is a different field from the work's "
+                    "publication date.",
+                    "`api_openaire.py`: `search()` sends `fromDateAccepted` "
+                    "and `toDateAccepted`, which are not the publication "
+                    "date.",
+                    applies_when="with_date_window",
+                ),
+            ),
+        ),
+        entity_search=_entity(
+            "param", author_syntax="author={name}",
+            established=(
+                f"{ENTITY_PROBED_ON}: `author=Yoshua Bengio` returned 5 results of 877 and the nonsense "
+                "author 0; the echoed query shows OpenAIRE parsed it as "
+                "`resultauthor exact \"Yoshua Bengio\"`. **Neither ORCID nor a per-author "
+                "affiliation was established from the creator objects**, so nothing is "
+                "filled from here."),
+        ),
+    ),
+    _entry(
+        slug="openalex",
+        name="OpenAlex",
+        description="Open scholarly index (successor to MAG) operated by OurResearch",
+        subject_coverage="All disciplines",
+        endpoint="https://api.openalex.org/works",
+        query_method="GET /works?search={q} with cursor pagination",
+        rate_limit="10.0 req/s (100k/day provider ceiling)",
+        client_module="api_openalex.py",
+        requirement="none",
+        credential_name=None,
+        website="https://openalex.org",
+        registration_url=None,
+        upstream_policy="10 req/s; 100k/day. Polite pool via mailto= query param or UA",
+        parallel_safe="Yes",
+        notes="Set mailto for stable performance.",
+        keyword_combination_notes=(
+            "OpenAlex's search requires every word when no operator is given, across "
+            "title, abstract and full text, and ranks by relevance. Measured October 30, "
+            "2026: `climate model` matched 3,987,924 works and `climate AND model` "
+            "3,986,942, against 51,564,188 for `climate OR model`."
+        ),
+        result_order="relevance",
+        result_order_established=(
+            "`api_openalex.py`: `search()` sends no sort, and OpenAlex's "
+            "`search` ranks by relevance (`keyword_combination_notes`)."
+        ),
+        constraints=_constraints(
+            established=(
+                "`api_openalex.py`: `search()` sends "
+                "`from_publication_date` and `to_publication_date` built "
+                "from the two bounds as typed."),
+        ),
+        entity_search=_entity(
+            "param", author_syntax="filter=raw_author_name.search:{name}",
+            identifier_query="orcid",
+            identifier_syntax="filter=author.orcid:https://orcid.org/{orcid}",
+            returns_orcid=True, returns_affiliation=True,
+            established=(
+                f"{ENTITY_PROBED_ON}: `raw_author_name.search:Yoshua Bengio` returned 1,495 works and the "
+                "nonsense author 0. **`author.orcid:` is a real identifier query** — the "
+                "same ORCID returned 1,294 works and OpenAlex echoed the parsed filter. "
+                "**9 of 17 authorships carried an ORCID and 14 of 17 a raw affiliation "
+                "string.** The anonymous pool sheds load with a rate-limit body, so the "
+                "polite-pool `mailto` is not optional."),
+        ),
+    ),
+    _entry(
+        slug="openlibrary",
+        name="Open Library",
+        description="Open bibliographic catalog of books and other published works",
+        subject_coverage="Books / Humanities / General bibliography",
+        endpoint="https://openlibrary.org/search.json",
+        query_method="GET work search with q, first_publish_year field clauses, page, limit, and projected fields",
+        rate_limit="1.0 req/s (unidentified-client ceiling)",
+        client_module="api_openlibrary.py",
+        requirement="none",
+        credential_name=None,
+        website="https://openlibrary.org",
+        registration_url=None,
+        upstream_policy="1 request/second for unidentified clients; 3 requests/second only with an application-and-contact User-Agent",
+        parallel_safe="Yes",
+        notes="Open Library work search exposes only first publication year, so resmon preserves year-only precision and locally checks the requested window. A sub-year window returns nothing: no whole publication year can be established as inside it, so resmon does not widen the request.",
+        keyword_combination_notes=(
+            "Open Library documents q as a Solr query, but not how plain unfielded words "
+            "are combined, so this rests on a live comparison. Measured October 30, 2026: `climate model` matched 1,636 "
+            "works, the same as `climate AND model`, against 275,807 for `climate OR "
+            "model`."
+        ),
+        result_order="unstated",
+        result_order_established=(
+            "`api_openlibrary.py`: `search()` sends no sort, and Open Library "
+            "does not document its default order."
+        ),
+        # api_openlibrary.py:162-166 — a window with no whole calendar year inside it is refused, not widened.
+        date_granularity="year",
+        constraints=_constraints(
+            window_effect="whole_years",
+            window_rounding="inward",
+            established=(
+                "`api_openlibrary.py`: `_search_year_bounds` keeps only "
+                "whole years inside the window, and `search()` records "
+                "`year_granularity` and returns without a request when "
+                "there are none."),
+            notices=(
+                _notice(
+                    "date_window",
+                    "Open Library holds a first-publication year and nothing "
+                    "finer. resmon searches the whole calendar years inside "
+                    "your window, and refuses a window containing none rather "
+                    "than overstating what it knows about a book's date.",
+                    "`api_openlibrary.py`: `_publication_year_clause`, and "
+                    "the `year_granularity` early return in `search()`.",
+                    applies_when="with_date_window",
+                ),
+            ),
+        ),
+        entity_search=_entity(
+            "param", author_syntax="author={name}",
+            established=(
+                f"{ENTITY_PROBED_ON}: `author=Ursula K. Le Guin` returned 5 and the nonsense author 0. A "
+                "book catalog: no ORCID, no affiliation."),
+        ),
+    ),
+    _entry(
+        slug="osti",
+        name="OSTI.GOV",
+        description="U.S. Department of Energy research records including technical reports, datasets, and other gray literature",
+        subject_coverage="Energy / Physical sciences / DOE-funded research / Technical reports",
+        endpoint="https://www.osti.gov/api/v1/records",
+        query_method="GET JSON with q, publication date filters, and page/rows pagination",
+        rate_limit="0.5 req/s (conservative; no published API limit)",
+        client_module="api_osti.py",
+        requirement="none",
+        credential_name=None,
+        website="https://www.osti.gov",
+        registration_url=None,
+        upstream_policy="No numeric rate limit published; excessive automated requests prohibited; OSTI requests acknowledgement and links to current records",
+        parallel_safe="Yes",
+        notes="OSTI supports metadata export and full-corpus API access, but public access does not make records or abstracts public domain. OSTI asks users to contact it about library-database reuse and before using records or data as AI, ML, or LLM input.",
+        keyword_combination_notes=(
+            "OSTI documents q only as searching the full record for provided terms and "
+            "does not state how they combine, so this rests on a live comparison. "
+            "Measured October 30, 2026: `climate model` matched 94,331 records and "
+            "`climate AND model` 94,877, against 1,020,657 for `climate OR model`."
+        ),
+        result_order="unstated",
+        result_order_established=(
+            "`api_osti.py`: `search()` sends no sort, and nothing establishes "
+            "OSTI's default order."
+        ),
+        attribution='Courtesy of OSTI.GOV, U.S. Department of Energy',
+        attribution_requirement="requested",
+        attribution_source='https://www.osti.gov/disclaim',
+        constraints=_constraints(
+            established=(
+                "`api_osti.py`: `search()` sends `publication_date_start` "
+                "and `publication_date_end`, converted by `_osti_date` from "
+                "the two bounds as given."),
+        ),
+        entity_search=_entity(
+            "param", author_syntax="author={name}",
+            established=(
+                f"{ENTITY_PROBED_ON}: `author=Steven Chu` returned 5 records and the nonsense author 0. No "
+                "ORCID or affiliation in the record."),
+        ),
+    ),
+    _entry(
+        slug="plos",
+        name="PLOS",
+        description="Public Library of Science journal articles (Solr)",
+        subject_coverage="Biology / Medicine / Natural sciences (PLOS journals only)",
+        endpoint="https://api.plos.org/search",
+        query_method="GET Solr with q wt=json start rows",
+        rate_limit="0.083 req/s (1 per 12 s)",
+        client_module="api_plos.py",
+        requirement="none",
+        credential_name=None,
+        website="https://plos.org",
+        registration_url=None,
+        upstream_policy="10 requests a minute, 300 an hour, and 7,200 a day; an address that asks for more is locked out",
+        parallel_safe="Yes",
+        notes="One request every 12 seconds keeps within all three of PLOS's limits.",
+        keyword_combination_notes=(
+            "PLOS requires every word when no operator is given, which its documentation "
+            "does not state. Measured October 30, 2026: `climate model` matched 41,718 "
+            "articles, the same as `climate AND model`, against 351,956 for `climate OR "
+            "model`. resmon puts your terms in parentheses before adding your dates, and "
+            "asks for the results newest first, not in relevance order."
+        ),
+        result_order="newest_first",
+        result_order_established=(
+            "`api_plos.py`: `search()` sends `sort=publication_date desc`."
+        ),
+        attribution='Data Provided by PLOS',
+        attribution_requirement="required",
+        attribution_source='https://api.plos.org/api-display-policy/',
+        constraints=_constraints(
+            established=(
+                "`api_plos.py`: `search()` sends `publication_date` built "
+                "from the two bounds as typed."),
+        ),
+        entity_search=_entity(
+            "field", author_syntax='author:"{name}"',
+            established=(
+                f"{ENTITY_PROBED_ON}: `author:\"Eric Topol\"` returned 5, the nonsense author 0, and "
+                "`title:` on the same words 0. `author_affiliate` is a requestable field "
+                "but was not populated in the sample, so no affiliation is claimed."),
+        ),
+    ),
+    _entry(
+        slug="pubmed",
+        name="PubMed",
+        description="NCBI biomedical literature via E-utilities",
+        subject_coverage="Biomedicine",
+        endpoint="https://eutils.ncbi.nlm.nih.gov/entrez/eutils/{esearch|efetch}.fcgi",
+        query_method="Two-stage: esearch for PMIDs then efetch for abstracts",
+        rate_limit="3.0 req/s (matches keyless; 10/s with key)",
+        client_module="api_pubmed.py",
+        requirement="optional",
+        credential_name="pubmed_api_key",
+        website="https://pubmed.ncbi.nlm.nih.gov",
+        registration_url="https://www.ncbi.nlm.nih.gov/account/",
+        upstream_policy="3 req/s keyless; 10 req/s with NCBI API key",
+        parallel_safe="Yes",
+        notes="Add an API key to raise the ceiling.",
+        keyword_combination_notes=(
+            "NCBI documents AND as PubMed's default between terms, and PubMed's automatic "
+            "term mapping can narrow adjacent words further. A quoted phrase PubMed does "
+            "not hold in its phrase index is searched as its words, as PubMed's help "
+            "says."
+        ),
+        result_order="newest_first",
+        result_order_established=(
+            "`api_pubmed.py`: `search()` sends E-utilities `sort=pub_date`, "
+            "which NCBI documents as newest publication date first."
+        ),
+        constraints=_constraints(
+            established=(
+                "`api_pubmed.py`: `_esearch` sends `mindate` and `maxdate` "
+                "with `datetype`, built from the two bounds as typed."),
+        ),
+        entity_search=_entity(
+            "field", author_syntax="{name}[au]",
+            returns_orcid=True, returns_affiliation=True,
+            established=(
+                f"{ENTITY_PROBED_ON}: `Eric Topol[au]` returned 5 ids and the nonsense author 0; the bare "
+                "term and `[ti]` controls returned different PMID sets. Over the fetched "
+                "records, **30 of 30 authors carried an `<Affiliation>` and 4 of 30 an "
+                "`<Identifier Source=\"ORCID\">`.**"),
+        ),
+    ),
+    _entry(
+        slug="semantic_scholar",
+        name="Semantic Scholar",
+        description="Allen Institute for AI multi-disciplinary scholarly index",
+        subject_coverage="All disciplines (strong CS and biomed)",
+        endpoint="https://api.semanticscholar.org/graph/v1/paper/search",
+        query_method="GET with query and fields; x-api-key header when keyed",
+        rate_limit="0.33 req/s (1 per 3 s)",
+        client_module="api_semantic_scholar.py",
+        requirement="recommended",
+        credential_name="semantic_scholar_api_key",
+        website="https://www.semanticscholar.org",
+        registration_url=None,
+        upstream_policy="Unauthenticated: 1 req/s shared, heavily throttled. Partner API key \u2192 1 req/s guaranteed",
+        parallel_safe="Yes",
+        notes="Expect 429s without a key in bursts.",
+        keyword_combination_notes=(
+            "Semantic Scholar's paper search takes plain text with no syntax, and its "
+            "documentation says a hyphenated term matches nothing, so resmon sends a "
+            "hyphen as a space."
+        ),
+        result_order="relevance",
+        result_order_established=(
+            "`api_semantic_scholar.py`: `search()` sends no sort, and Semantic "
+            "Scholar's paper search ranks by relevance "
+            "(`keyword_combination_notes`)."
+        ),
+        attribution='Data from Semantic Scholar',
+        attribution_requirement="required",
+        attribution_source='https://www.semanticscholar.org/product/api/license',
+        # api_semantic_scholar.py:46-54 sends a `year` range.
+        date_granularity="year",
+        constraints=_constraints(
+            window_effect="whole_years",
+            window_rounding="outward",
+            established=(
+                "`api_semantic_scholar.py`: `search()` clips both bounds to "
+                "`year_from` and `year_to`; nothing narrows the answer back "
+                "to the days asked for."),
+            notices=(
+                _notice(
+                    "date_window",
+                    "Semantic Scholar is searched by publication year, so a "
+                    "window inside a single year widens to the whole of it and "
+                    "results can fall outside the dates you set.",
+                    "`api_semantic_scholar.py`: `year_from` and `year_to` "
+                    "in `search()`.",
+                    applies_when="with_date_window",
+                ),
+            ),
+        ),
+        entity_search=_entity(
+            "endpoint",
+            author_syntax="/author/search?query={name} then /author/{{id}}/papers",
+            identifier_query="native",
+            identifier_syntax="/author/{id}/papers",
+            established=(
+                f"{ENTITY_PROBED_ON}: the paper search has no author field; `/author/search` returned 17 "
+                "matches for Yoshua Bengio and `/author/{{id}}/papers` returned his papers. "
+                "The author objects carry a Semantic Scholar `authorId` and nothing else: "
+                "`authors.externalIds` and `authors.affiliations` are **rejected outright** "
+                "as unsupported fields, which is itself the answer about ORCID here."),
+        ),
+    ),
+    _entry(
+        slug="springer",
+        name="Springer Nature",
+        description="Springer Nature's Meta API, across the Springer, Nature, BMC, and Palgrave imprints",
+        subject_coverage="STM / Humanities / Social sciences",
+        endpoint="https://api.springernature.com/meta/v2/json",
+        query_method="GET with q={q} and api_key={key}",
+        rate_limit="5.0 req/s (per-key daily cap ~5000/day on free tier)",
+        client_module="api_springer.py",
+        requirement="required",
+        credential_name="springer_api_key",
+        website="https://www.springernature.com",
+        registration_url="https://dev.springernature.com",
+        upstream_policy="5000 calls/day free tier",
+        parallel_safe="Yes",
+        notes="Daily quota is the binding limit.",
+        keyword_combination_notes=(
+            "resmon has not measured how Springer Nature reads a query, because asking "
+            "needs an API key."
+        ),
+        result_order="relevance",
+        result_order_established=(
+            "`api_springer.py`: `search()` sends no sort, and Springer Nature "
+            "ranks by relevance (`keyword_combination_notes`)."
+        ),
+        constraints=_constraints(
+            established=(
+                "`api_springer.py`: `search()` appends `onlinedatefrom` and "
+                "`onlinedateto` to the query, built from the two bounds as "
+                "typed."),
+            notices=(
+                _notice(
+                    "date_window",
+                    "resmon sends your window to Springer Nature as an online "
+                    "publication date range, which for a journal article is "
+                    "the date it first appeared online rather than its issue "
+                    "date.",
+                    "`api_springer.py`: `search()` sends `onlinedatefrom` "
+                    "and `onlinedateto`, the online publication date.",
+                    applies_when="with_date_window",
+                ),
+            ),
+        ),
+        entity_search=_entity(
+            "unknown",
+            identifier_query="unknown",
+            established=(
+                f"{ENTITY_PROBED_ON}: not established. Springer requires a key and this machine holds "
+                "none."),
+        ),
+    ),
+    _entry(
+        slug="zenodo",
+        name="Zenodo",
+        description="General-purpose open repository for published research outputs",
+        subject_coverage="Multi-disciplinary publications / Data / Software / Other outputs",
+        endpoint="https://zenodo.org/api/records",
+        query_method="GET with Elasticsearch query-string q, best-match sort, and page/size pagination",
+        rate_limit="0.5 req/s (30 search requests/min)",
+        client_module="api_zenodo.py",
+        requirement="none",
+        credential_name=None,
+        website="https://zenodo.org",
+        registration_url=None,
+        upstream_policy="Search REST API: 30 req/min; anonymous pages contain at most 25 records",
+        parallel_safe="Yes",
+        notes="Date bounds are expressed as a publication_date range inside the q query.",
+        keyword_combination_notes=(
+            "Zenodo's search guide says space-separated terms match with OR by default "
+            "and results are ranked against the query. Measured October 30, 2026: "
+            "`climate model` matched 627,587 records, near `climate OR model` (627,593), "
+            "and `climate AND model` 26,960."
+        ),
+        result_order="relevance",
+        result_order_established=(
+            "`api_zenodo.py`: `search()` sends `sort=bestmatch`."
+        ),
+        constraints=_constraints(
+            established=(
+                "`api_zenodo.py`: `search()` wraps `publication_date` into "
+                "the query, built from the two bounds as typed."),
+        ),
+        entity_search=_entity(
+            "field", author_syntax='creators.name:"{name}"',
+            established=(
+                f"{ENTITY_PROBED_ON}: `creators.name:\"Yoshua Bengio\"` returned 5, the nonsense author 0, "
+                "and the `title:` control 0. **No ORCID and no affiliation was populated on "
+                "any of the 16 creators measured**, though both keys exist in the schema."),
+        ),
+    ),
+]
+
+
+def catalog_as_dicts() -> list[dict]:
+    """Return the catalog as a list of plain dicts (safe for JSON responses)."""
+    return [entry.to_dict() for entry in REPOSITORY_CATALOG]
+
+
+def credential_names() -> set[str]:
+    """Return the set of credential names referenced by the catalog."""
+    return {e.credential_name for e in REPOSITORY_CATALOG if e.credential_name}
+
+
+def required_credential_for(slug: str) -> str | None:
+    """Return the credential name for a repo if it is strictly required, else None.
+
+    This is the single answer to "does this source need a key?". The sweep's
+    gate reads it, because a hand-written list of keyed slugs beside it can
+    omit one, and a source that needs a key but is never asked is then recorded
+    as one that had answered with nothing.
+    """
+    for e in REPOSITORY_CATALOG:
+        if e.slug == slug and e.api_key_requirement == "required":
+            return e.credential_name
+    return None
+
+
+def constraints_for(slug: str) -> SourceConstraints | None:
+    """Return what resmon can tell a user about a source before they search.
+
+    ``None`` for a slug the catalog does not carry, which is a different
+    answer from a source that constrains nothing — that one is a record whose
+    ``has_anything_to_say`` is False.
+    """
+    for e in REPOSITORY_CATALOG:
+        if e.slug == slug:
+            return e.constraints
+    return None
+
+
+def catalog_names() -> dict[str, str]:
+    """Each source's display name, by slug."""
+    return {entry.slug: entry.name for entry in REPOSITORY_CATALOG}

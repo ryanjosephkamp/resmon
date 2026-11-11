@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "kind": "person",
+  "display_name": "Vincent Lariviere",
+  "names": [
+    {
+      "value": "Vincent Lariviere",
+      "script": "latin"
+    },
+    {
+      "value": "Vincent Larivière",
+      "script": ""
+    }
+  ],
+  "identifiers": {
+    "orcid": {
+      "value": "0000-0002-2733-0689",
+      "cited": "Verified 2026-09-06 against the public ORCID record: GET https://pub.orcid.org/v3.0/0000-0002-2733-0689/person returned this name."
+    }
+  },
+  "affiliations": [],
+  "field_hints": [],
+  "notes": "Scientometrics; Universite de Montreal."
+}

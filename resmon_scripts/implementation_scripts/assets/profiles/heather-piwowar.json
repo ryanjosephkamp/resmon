@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "kind": "person",
+  "display_name": "Heather Piwowar",
+  "names": [
+    {
+      "value": "Heather Piwowar",
+      "script": "latin"
+    }
+  ],
+  "identifiers": {
+    "orcid": {
+      "value": "0000-0003-1613-5981",
+      "cited": "Verified 2026-09-06 against the public ORCID record: GET https://pub.orcid.org/v3.0/0000-0003-1613-5981/person returned this name."
+    }
+  },
+  "affiliations": [],
+  "field_hints": [],
+  "notes": "Open-access measurement; co-founder of OurResearch."
+}

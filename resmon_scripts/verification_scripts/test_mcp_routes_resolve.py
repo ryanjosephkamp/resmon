@@ -1,0 +1,180 @@
+"""Every path the MCP server calls resolves against a route the app really has.
+
+**Checking the routes by hand does not last; this test does.** A contract row
+can name an endpoint or an argument that does not exist as written, and a tool
+built against it fails for every input. A check a person performs at freeze
+time has to be re-performed at the next freeze and can be quietly skipped; this
+file performs it on every run.
+
+It is the same lesson as ``routes.ts`` on the renderer side: the denominator has
+to be a list in the code, not a list in someone's head. Here the denominator is
+``mcp_server.TOOLS`` for the calls and ``resmon.app.routes`` for the answers, and
+neither is written out by hand.
+
+Hermetic: no socket is opened. The tools are driven through a recording double
+that answers nothing, because what is under test is the *address* each tool
+sends to, not what comes back.
+"""
+
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+from unittest.mock import patch
+
+import httpx
+import pytest
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
+
+import mcp_server as mcp  # noqa: E402
+import resmon as resmon_mod  # noqa: E402,F401
+
+BASE = "http://127.0.0.1:8742"
+
+# Derived rather than written down, so narrowing the allowlist cannot quietly
+# take the two settings routes out of this file's denominator.
+_WRITABLE_PROBE = sorted(mcp.SETTINGS_KEYS_WRITABLE)[0]
+
+# Arguments chosen to reach *every* path each tool can reach, not just one.
+# A tool with several endpoints behind it gets several entries: that is why
+# ``export_references`` and ``get_analytics`` are lists of six and two.
+# Iterated against ``mcp.TOOLS``, so a new tool with no entry here is a
+# KeyError rather than a silent gap.
+TOOL_ARGS: dict[str, list[dict]] = {
+    "health": [{}],
+    "search_corpus": [{"query": "x"}],
+    "find_similar": [{"doc_id": 1}],
+    "list_sources": [{}],
+    "list_routines": [{}],
+    "get_routine": [{"routine_id": 1}],
+    "list_executions": [{}],
+    "get_execution": [{"exec_id": 1}],
+    "get_execution_results": [{"exec_id": 1}],
+    "get_search_record": [{"exec_id": 1}],
+    "explain_match": [{"doc_id": 1}],
+    "get_paper_lifecycle": [{"doc_id": 1}],
+    # Answered only inside an Ask conversation with attached files; ``_calls`` sets one.
+    "read_attached_file": [{}],
+    "get_analytics": [{"view": v} for v in sorted(mcp._ANALYTICS_VIEWS)],
+    "get_watchdog_findings": [{}],
+    "list_collections": [{}],
+    "export_references": [{"exec_id": 1, "format": "bibtex"},
+                          {"doc_ids": [1], "format": "bibtex"}],
+    # `get_watch_profile` sends two requests, and both are listed by
+    # giving it one entry -- the recorder collects every call the tool makes,
+    # which is why the double answers 200 rather than 404.
+    "list_watch_profiles": [{}, {"kind": "person"}],
+    "get_watch_profile": [{"profile_id": 1}],
+    "get_profile_matches": [{"profile_id": 1}],
+    "create_watch_profile": [{"name": "Jane Doe"},
+                             {"name": "Jane Doe", "orcid": "0000-0002-1825-0097"}],
+    "run_sweep": [{"query": "x", "sources": ["arxiv"]}],
+    "create_routine": [{"name": "n", "keywords": ["a"], "sources": ["arxiv"],
+                        "schedule": "0 8 * * *"},
+                       {"name": "n", "keywords": ["a"], "sources": ["arxiv"],
+                        "schedule": "0 8 * * *",
+                        "entity": {"profile_id": 1, "mode": "new_papers"}}],
+    "run_routine": [{"routine_id": 1}],
+    "activate_routine": [{"routine_id": 1}],
+    "deactivate_routine": [{"routine_id": 1}],
+    # Any key on the writable allowlist; which group it really belongs to is
+    # irrelevant here, because the double below answers for all of them and
+    # what this file measures is which *routes* a tool reaches. A key that is
+    # not writable is refused before the GET, and both settings routes would
+    # silently drop out of the denominator.
+    "update_settings": [{"group": g, "settings": {_WRITABLE_PROBE: "x"}}
+                        for g in mcp.SETTINGS_GROUPS],
+}
+
+
+def _calls() -> list[tuple[str, str]]:
+    """Drive every tool and collect the (method, path) pairs it sent."""
+    seen: list[tuple[str, str]] = []
+
+    def _request(method, url, **kwargs):
+        path = url[len(BASE):].partition("?")[0]
+        seen.append((method, path))
+        # 200 with a shape each tool can walk far enough to keep going. What
+        # matters is that the *next* request also gets recorded -- update_settings
+        # sends three, and a double that 404'd would hide two of them.
+        body = {"anything": "x", "id": 1}
+        if path.startswith("/api/settings/") and method == "GET":
+            # Every writable key, so the probe above is in whichever group it
+            # was aimed at: the tool refuses a key the group does not hold,
+            # which would drop the PUT out of this discovery denominator.
+            body = {key: "x" for key in mcp.SETTINGS_KEYS_WRITABLE}
+            if path == "/api/settings/embeddings":
+                # The real GET wraps writable settings alongside capability
+                # data. A flat double makes the corrected tool refuse before
+                # its PUT and silently drops a real route from this
+                # discovery denominator.
+                body = {"settings": body, "capability": {}}
+        return httpx.Response(200, json=body,
+                              request=httpx.Request(method, url))
+
+    mcp.backend._base = BASE
+    try:
+        with patch.object(mcp.httpx, "request", side_effect=_request):
+            for tool in mcp.TOOLS:
+                for args in TOOL_ARGS[tool["name"]]:
+                    with mcp.in_conversation(1 if tool.get("conversation") else None):
+                        mcp.call_tool(tool["name"], args)
+    finally:
+        mcp.backend._base = None
+    return seen
+
+
+def _route_matchers() -> list[tuple[set[str], re.Pattern]]:
+    from resmon import app  # noqa: PLC0415
+
+    out = []
+    for route in app.routes:
+        regex = getattr(route, "path_regex", None)
+        methods = getattr(route, "methods", None)
+        if regex is not None and methods:
+            out.append((set(methods), regex))
+    return out
+
+
+def test_every_tool_has_arguments_that_reach_its_endpoints():
+    """The denominator is TOOLS. A tool added without an entry fails here."""
+    assert set(TOOL_ARGS) == {t["name"] for t in mcp.TOOLS}
+
+
+def test_every_path_the_mcp_server_calls_is_a_route_the_app_has():
+    """Every route the server calls exists, as a test rather than as a promise in a document."""
+    matchers = _route_matchers()
+    unresolved = []
+    for method, path in _calls():
+        if not any(method in methods and regex.fullmatch(path)
+                   for methods, regex in matchers):
+            unresolved.append(f"{method} {path}")
+    assert unresolved == [], (
+        "the MCP server calls addresses the app does not serve: "
+        f"{sorted(set(unresolved))}"
+    )
+
+
+def test_the_contract_states_the_right_number_of_pairs():
+    """The contract quotes a count. Counts in prose drift; this one cannot.
+
+    Not decoration: the sentence "all 46 resolve" is only meaningful if 46 is
+    the number of pairs there are. When this fails, the contract's tools
+    section is the thing to correct.
+    """
+    pairs = sorted(set(_calls()))
+    assert len(pairs) == 46, (
+        f"{len(pairs)} distinct method-and-path pairs, and the contract "
+        f"says 46:\n" + "\n".join(f"  {m} {p}" for m, p in pairs)
+    )
+
+
+@pytest.mark.parametrize("method,path", sorted(set(_calls())))
+def test_each_pair_resolves(method, path):
+    """One case per pair, so a failure names the address rather than a count."""
+    matchers = _route_matchers()
+    assert any(method in methods and regex.fullmatch(path)
+               for methods, regex in matchers), f"{method} {path} is not a route"

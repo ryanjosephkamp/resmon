@@ -1,0 +1,779 @@
+"""The source wall: one source's answer to one run, across runs.
+
+`execution_sources` has held these rows since schema 6 and nothing has ever
+read them across executions. These cases are about the reader, and about the
+one thing a coverage wall must never do: turn an outcome resmon did not
+observe into either a tick or a cross.
+
+The denominators here come from the code on both sides --
+`zero_reason.ZERO_REASONS`, `zero_reason.DID_NOT_ANSWER` and
+`source_wall.WALL_STATES` -- so a reason added to the backend turns this file
+red rather than arriving at a user as a cell with no rule.
+
+What this file cannot see: what the wall looks like. Every assertion here is
+about the served payload; whether five states are distinguishable to a person
+looking at the screen is not a thing a pytest run can establish.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from implementation_scripts import database as db  # noqa: E402
+from implementation_scripts import source_coverage as coverage  # noqa: E402
+from implementation_scripts import source_wall, zero_reason  # noqa: E402
+import resmon as resmon_mod  # noqa: E402
+
+
+@pytest.fixture
+def conn(tmp_path):
+    """A real file-backed corpus that `resmon._get_db()` also opens."""
+    resmon_mod._db_path = str(tmp_path / "corpus.db")
+    resmon_mod._shared_conn = None
+    resmon_mod._db_initialized = False
+    connection = resmon_mod._get_db()
+    try:
+        yield connection
+    finally:
+        resmon_mod._close_db(connection)
+        resmon_mod._db_path = None
+        resmon_mod._shared_conn = None
+        resmon_mod._db_initialized = False
+
+
+@pytest.fixture
+def client(conn):
+    from fastapi.testclient import TestClient
+
+    with TestClient(resmon_mod.app) as c:
+        yield c
+
+
+def make_run(conn, *, started: str, repositories=None, status: str = "completed") -> int:
+    params = {"keywords": ["x"]}
+    if repositories is not None:
+        params["repositories"] = list(repositories)
+    cursor = conn.execute(
+        """
+        INSERT INTO executions (execution_type, parameters, start_time, status)
+        VALUES ('deep_sweep', ?, ?, ?)
+        """,
+        (json.dumps(params), started, status),
+    )
+    conn.commit()
+    return int(cursor.lastrowid)
+
+
+def record(conn, exec_id, source, status="ok", *, count=0, reason=None, detail=None):
+    db.record_execution_source(
+        conn, exec_id, source, status,
+        result_count=count, zero_reason=reason,
+        zero_detail=json.dumps(detail) if detail is not None else None,
+    )
+
+
+def cell_for(wall, slug, index=-1):
+    source = next(s for s in wall["sources"] if s["slug"] == slug)
+    return source["cells"][index]
+
+
+def test_a_deleted_watch_run_keeps_an_explicit_watch_label(conn):
+    watch = db.insert_routine(conn, {
+        "name": "Perovskite films", "schedule_cron": "0 8 * * *",
+        "is_active": 0, "parameters": json.dumps({"repositories": ["arxiv"]}),
+    })
+    execution = db.insert_execution(conn, {
+        "execution_type": "automated_sweep", "routine_id": watch,
+        "start_time": "2026-10-29T08:00:00Z", "status": "completed",
+        "parameters": json.dumps({"repositories": ["arxiv"]}),
+    })
+    assert source_wall.build(conn)["runs"][0]["label"] == "Watch — Perovskite films"
+    db.delete_routine(conn, watch)
+    wall = source_wall.build(conn)
+    assert wall["runs"][0]["execution_id"] == execution
+    assert wall["runs"][0]["label"] == "Watch — a deleted watch"
+
+
+# ---------------------------------------------------------------------------
+# The vocabulary, with its denominator taken from the backend
+# ---------------------------------------------------------------------------
+
+
+def test_the_non_answer_map_covers_exactly_the_backend_non_answer_set():
+    """A reason added to `DID_NOT_ANSWER` must turn this red, not ship.
+
+    The sixth copy of this classification is the defect that put a tick on
+    sources that could not be asked. This wall does not keep a list of
+    non-answer reasons; it keeps a list of *states* for the backend's list,
+    and the two sets are asserted equal rather than reviewed by eye.
+    """
+    assert set(source_wall.STATE_FOR_NON_ANSWER) == set(zero_reason.DID_NOT_ANSWER)
+    assert set(source_wall.STATE_FOR_NON_ANSWER.values()) == {
+        "could_not_be_asked", "failed",
+    }
+
+
+@pytest.mark.parametrize("reason", zero_reason.ZERO_REASONS)
+def test_every_recorded_reason_reaches_exactly_one_wall_state(reason):
+    mapped = source_wall.mapped_reasons()
+    assert reason in mapped, f"{reason} has no wall state"
+    assert mapped[reason] in source_wall.WALL_STATES
+    assert set(mapped) == set(zero_reason.ZERO_REASONS)
+
+
+def test_the_states_are_the_eight_the_screen_draws():
+    """Five were approved; the sixth to eighth are here because the data had them.
+
+    `not_selected` and `not_recorded` are both silences and they are not the
+    same silence: one is a choice the user made and the other is a hole in the
+    record. Collapsing them is the same compression as calling a 503 an empty
+    field, one level down. `answered_in_part` is resmon stopping a source it
+    read in order, which is neither a full answer nor a failure. And
+    `rate_limited` is a source that is up and asked resmon to slow down,
+    which a person acts on differently from an outage.
+    """
+    assert source_wall.WALL_STATES == (
+        "answered", "answered_empty", "answered_in_part", "could_not_be_asked", "rate_limited",
+        "failed", "not_recorded", "not_selected",
+    )
+
+
+def test_the_legend_word_for_a_state_is_the_backend_s_own_word():
+    """The renderer holds no copy of this vocabulary.
+
+    A zero that is a real answer is called *answered, zero* by
+    `source_coverage.outcome`, and the legend on the wall has to call it that
+    too. A renderer that keeps its own copy of this vocabulary drifts from it;
+    the backend owns the word and every surface takes it, rather than the
+    backend being edited to match a screen.
+    """
+    legend = {entry["state"]: entry["label"] for entry in source_wall.STATE_LEGEND}
+    assert [entry["state"] for entry in source_wall.STATE_LEGEND] == list(source_wall.WALL_STATES)
+
+    quiet = coverage.outcome({"source": "x", "status": "ok", "result_count": 0,
+                              "zero_reason": "answered_empty"})
+    assert legend["answered_empty"] == quiet["label"] == "answered, zero"
+
+    got = coverage.outcome({"source": "x", "status": "ok", "result_count": 3,
+                            "zero_reason": None})
+    assert legend["answered"] == got["label"] == "answered"
+
+    for entry in source_wall.STATE_LEGEND:
+        assert entry["label"] and entry["meaning"]
+
+
+# ---------------------------------------------------------------------------
+# One cell per source per run, classified by the backend that already does it
+# ---------------------------------------------------------------------------
+
+
+def test_each_of_the_eight_states_is_reachable_from_stored_rows(conn):
+    """Rows a real sweep can write, and eight distinct cells out."""
+    slugs = ["arxiv", "biorxiv", "crossref", "doaj", "europe_pmc", "medrxiv", "plos"]
+    run = make_run(conn, started="2026-10-01T09:00:00", repositories=slugs)
+    record(conn, run, "arxiv", count=7)
+    record(conn, run, "biorxiv", count=0, reason="answered_empty")
+    record(conn, run, "medrxiv", count=0, reason="answered_in_part",
+           detail={"detail": "budget", "attempts": 24, "read": {
+               "records": 660, "order": "newest_first", "total": 1824,
+               "first_date": "2026-10-29", "last_date": "2026-10-31"}})
+    record(conn, run, "crossref", status="skipped_missing_key", reason="missing_key")
+    record(conn, run, "doaj", count=0, reason="upstream_failure",
+           detail={"status": 503, "attempts": 3})
+    record(conn, run, "europe_pmc", count=0, reason=None)
+    record(conn, run, "plos", count=0, reason="upstream_failure",
+           detail={"detail": "rate_limited", "status": 429, "attempts": 3})
+
+    wall = source_wall.build(conn)
+    assert cell_for(wall, "plos")["state"] == "rate_limited"
+    assert cell_for(wall, "plos")["label"] == "rate-limited"
+
+    assert cell_for(wall, "arxiv")["state"] == "answered"
+    assert cell_for(wall, "biorxiv")["state"] == "answered_empty"
+    assert cell_for(wall, "crossref")["state"] == "could_not_be_asked"
+    assert cell_for(wall, "doaj")["state"] == "failed"
+    assert cell_for(wall, "europe_pmc")["state"] == "not_recorded"
+    assert cell_for(wall, "medrxiv")["state"] == "answered_in_part"
+    assert cell_for(wall, "medrxiv")["label"] == "answered in part"
+    # The last comes from a row recorded outside this run's saved selection,
+    # which gives the grid a source the run never asked.
+    record(conn, run, "zenodo", count=1)
+    later = make_run(conn, started="2026-10-02T09:00:00", repositories=slugs)
+    record(conn, later, "arxiv", count=1)
+    wall = source_wall.build(conn)
+    assert cell_for(wall, "zenodo", 0)["state"] == "answered"
+    assert cell_for(wall, "zenodo", 1)["state"] == "not_selected"
+    assert {c["state"] for s in wall["sources"] for c in s["cells"]} == set(
+        source_wall.WALL_STATES
+    )
+    # The cell carries the backend's own sentence; no consumer re-words it.
+    assert "503" in cell_for(wall, "doaj", 0)["note"]
+
+
+@pytest.mark.parametrize("reason", ["rights_filtered", "records_unusable"])
+def test_a_reply_whose_records_resmon_could_not_keep_is_not_a_quiet_field(conn, reason):
+    """The source answered *with records*. Drawing a quiet field would lie.
+
+    `answered_empty` means the field had nothing. A rights-filtered zero means
+    the field had something and resmon declined to store it, which is a
+    statement about resmon, not about the literature.
+    """
+    run = make_run(conn, started="2026-10-01T09:00:00", repositories=["ndl"])
+    record(conn, run, "ndl", count=0, reason=reason,
+           detail={"matched": 12, "kept": 0, "rights": 9, "incomplete": 3})
+
+    cell = cell_for(source_wall.build(conn), "ndl")
+
+    assert cell["state"] == "answered"
+    assert cell["state"] != "answered_empty"
+    assert "12" in cell["note"]
+
+
+@pytest.mark.parametrize("row", [
+    {"status": "ok", "count": 0, "reason": None},
+    {"status": "ok", "count": 0, "reason": "not_recorded"},
+    {"status": "cancelled", "count": 0, "reason": None},
+])
+def test_an_unobserved_outcome_is_never_drawn_as_success_or_failure(conn, row):
+    run = make_run(conn, started="2026-10-01T09:00:00", repositories=["arxiv"])
+    record(conn, run, "arxiv", row["status"], count=row["count"], reason=row["reason"])
+
+    wall = source_wall.build(conn)
+    cell = cell_for(wall, "arxiv")
+
+    assert cell["state"] == "not_recorded"
+    assert wall["totals"]["answered"] == 0
+    assert wall["totals"]["failed"] == 0
+    assert wall["verdict"]["level"] == "unknown"
+    assert "cannot say" in wall["verdict"]["headline"]
+
+
+def test_the_two_silences_are_drawn_apart(conn):
+    """"I did not ask" and "I asked and do not know" are different marks.
+
+    The first is a choice the user made; the second is a hole in the record.
+    Drawing both as `not_recorded` with different hover text would put the
+    whole distinction behind a mouse.
+    """
+    run = make_run(conn, started="2026-10-01T09:00:00", repositories=["arxiv", "doaj"])
+    record(conn, run, "arxiv", count=4)
+    record(conn, run, "pubmed", count=2)  # recorded, outside the saved selection
+    second = make_run(conn, started="2026-10-02T09:00:00", repositories=["arxiv"])
+    record(conn, second, "arxiv", count=5)
+
+    wall = source_wall.build(conn)
+
+    asked_and_unknown = cell_for(wall, "doaj", 0)
+    assert asked_and_unknown["state"] == "not_recorded"
+    assert asked_and_unknown["outcome_recorded"] is False
+    assert asked_and_unknown["in_selection"] is True
+    assert "recorded no outcome" in asked_and_unknown["note"]
+
+    never_asked = cell_for(wall, "doaj", 1)
+    assert never_asked["state"] == "not_selected"
+    assert never_asked["in_selection"] is False
+    assert "not asked" in never_asked["note"]
+
+    # The source outside the selection still has a row: it was recorded.
+    assert cell_for(wall, "pubmed", 0)["state"] == "answered"
+    assert cell_for(wall, "pubmed", 0)["in_selection"] is False
+
+
+def test_an_unknown_saved_selection_is_not_turned_into_a_choice(conn):
+    """No usable selection means resmon cannot say the source was not asked."""
+    run = make_run(conn, started="2026-10-01T09:00:00", repositories=None)
+    record(conn, run, "arxiv", count=4)
+    later = make_run(conn, started="2026-10-02T09:00:00", repositories=None)
+    record(conn, later, "doaj", count=1)
+
+    wall = source_wall.build(conn)
+
+    silent = cell_for(wall, "arxiv", 1)
+    assert silent["state"] == "not_recorded"
+    assert silent["in_selection"] is None
+    assert "unknown" in silent["note"]
+
+
+def test_a_source_dropped_from_the_selection_keeps_its_row(conn):
+    """Its disappearance is the thing the user came to the wall to see."""
+    first = make_run(conn, started="2026-10-01T09:00:00", repositories=["arxiv", "doaj"])
+    record(conn, first, "arxiv", count=4)
+    record(conn, first, "doaj", count=2)
+    second = make_run(conn, started="2026-10-02T09:00:00", repositories=["arxiv"])
+    record(conn, second, "arxiv", count=5)
+
+    wall = source_wall.build(conn)
+
+    assert [s["slug"] for s in wall["sources"]] == ["arxiv", "doaj"]
+    doaj = next(s for s in wall["sources"] if s["slug"] == "doaj")
+    assert [c["state"] for c in doaj["cells"]] == ["answered", "not_selected"]
+    assert doaj["cells"][1]["in_selection"] is False
+
+
+def test_runs_read_oldest_to_newest_and_sources_hold_their_position(conn):
+    older = make_run(conn, started="2026-10-01T09:00:00", repositories=["zenodo"])
+    newer = make_run(conn, started="2026-10-05T09:00:00", repositories=["arxiv"])
+    record(conn, older, "zenodo", count=1)
+    record(conn, newer, "arxiv", count=1)
+
+    wall = source_wall.build(conn)
+
+    assert [r["execution_id"] for r in wall["runs"]] == [older, newer]
+    # Alphabetical by display name, and every cell names the run it belongs to.
+    assert [s["name"] for s in wall["sources"]] == sorted(
+        (s["name"] for s in wall["sources"]), key=str.lower
+    )
+    for source in wall["sources"]:
+        assert [c["execution_id"] for c in source["cells"]] == [older, newer]
+
+
+# ---------------------------------------------------------------------------
+# The verdict, in words
+# ---------------------------------------------------------------------------
+
+
+def test_a_source_that_stopped_answering_is_named_rather_than_counted(conn):
+    for day, count in ((1, 9), (2, 7)):
+        run = make_run(conn, started=f"2026-10-0{day}T09:00:00", repositories=["arxiv"])
+        record(conn, run, "arxiv", count=count)
+    broken = make_run(conn, started="2026-10-03T09:00:00", repositories=["arxiv"])
+    record(conn, broken, "arxiv", count=0, reason="upstream_failure",
+           detail={"status": 500, "attempts": 2})
+
+    verdict = source_wall.build(conn)["verdict"]
+
+    assert verdict["level"] == "attention"
+    assert verdict["headline"] == "arXiv has stopped answering."
+
+
+def _answered_then(conn, slug, last: dict, *, day: int = 3) -> None:
+    """``slug`` answers two runs, then its run on ``day`` records ``last``."""
+    for earlier, count in ((1, 9), (2, 7)):
+        run = make_run(conn, started=f"2026-10-0{earlier}T09:00:00", repositories=[slug])
+        record(conn, run, slug, count=count)
+    run = make_run(conn, started=f"2026-10-0{day}T09:00:00", repositories=[slug])
+    record(conn, run, slug, **last)
+
+
+def test_a_reply_that_could_not_be_read_is_not_called_a_silence(conn):
+    _answered_then(conn, "hal", {"count": 0, "reason": "parse_failure",
+                                 "detail": {"detail": "parse_error", "attempts": 1}})
+
+    verdict = source_wall.build(conn)["verdict"]
+
+    assert verdict["level"] == "attention"
+    assert verdict["headline"] == "HAL's last reply could not be read."
+
+
+@pytest.mark.parametrize("detail", [
+    {"detail": "http_400", "status": 400, "attempts": 1},
+    {"detail": "refused", "status": None, "attempts": 1},
+])
+def test_a_request_the_source_refused_is_named_as_refused(conn, detail):
+    _answered_then(conn, "plos", {"count": 0, "reason": "upstream_failure", "detail": detail})
+
+    verdict = source_wall.build(conn)["verdict"]
+
+    assert verdict["level"] == "attention"
+    assert verdict["headline"] == "PLOS refused resmon's last request."
+
+
+@pytest.mark.parametrize("detail", [
+    {"detail": "timeout", "status": None, "attempts": 2},
+    {"detail": "connect", "status": None, "attempts": 2},
+    {"detail": "http_503", "status": 503, "attempts": 2},
+])
+def test_no_answer_at_all_is_still_stopped_answering(conn, detail):
+    _answered_then(conn, "arxiv", {"count": 0, "reason": "upstream_failure", "detail": detail})
+
+    assert source_wall.build(conn)["verdict"]["headline"] == "arXiv has stopped answering."
+
+
+def test_a_failure_detail_that_cannot_be_read_is_not_guessed_into_a_refusal():
+    row = {"zero_reason": "upstream_failure", "zero_detail": "not json"}
+    assert source_wall._last_outcome_kind("failed", row) == "stopped"
+    assert source_wall._last_outcome_kind("failed", None) == "stopped"
+
+
+def test_a_source_that_could_not_be_asked_is_not_said_to_have_stopped(conn):
+    _answered_then(conn, "springer", {"status": "skipped_missing_key", "count": 0, "reason": "missing_key"})
+
+    verdict = source_wall.build(conn)["verdict"]
+
+    assert verdict["headline"] == "Springer Nature could not be asked on the last run that included it."
+
+
+def test_each_last_outcome_gets_its_own_sentence(conn):
+    sources = ["arxiv", "doaj", "hal", "plos"]
+    for day in (1, 2):
+        run = make_run(conn, started=f"2026-10-0{day}T09:00:00", repositories=sources)
+        for slug in sources:
+            record(conn, run, slug, count=4)
+    last = make_run(conn, started="2026-10-03T09:00:00", repositories=sources)
+    record(conn, last, "arxiv", count=0, reason="upstream_failure",
+           detail={"detail": "timeout", "attempts": 2})
+    record(conn, last, "doaj", count=0, reason="parse_failure", detail={"detail": "parse_error"})
+    record(conn, last, "hal", count=0, reason="parse_failure", detail={"detail": "parse_error"})
+    record(conn, last, "plos", count=0, reason="upstream_failure",
+           detail={"detail": "http_400", "status": 400, "attempts": 1})
+
+    verdict = source_wall.build(conn)["verdict"]
+
+    assert verdict["headline"] == (
+        "arXiv has stopped answering. PLOS refused resmon's last request. "
+        "The last replies from DOAJ and HAL could not be read."
+    )
+    assert verdict["detail"][0] == (
+        "Each of these answered earlier in this window, and the last outcome "
+        "resmon recorded for it was not an answer."
+    )
+
+
+def test_a_trailing_silence_does_not_change_what_the_last_outcome_was(conn):
+    """A canceled run after HAL's unreadable reply is resmon's own stop, not a new fact about HAL."""
+    _answered_then(conn, "hal", {"count": 0, "reason": "parse_failure", "detail": {"detail": "parse_error"}})
+    canceled = make_run(conn, started="2026-10-04T09:00:00", repositories=["hal"], status="cancelled")
+    record(conn, canceled, "hal", status="cancelled")
+    make_run(conn, started="2026-10-05T09:00:00", repositories=["arxiv"])
+
+    assert source_wall.build(conn)["verdict"]["headline"] == "HAL's last reply could not be read."
+
+
+def test_the_verdict_partitions_every_state_it_can_meet(conn):
+    """The verdict's own three buckets, checked against the state list.
+
+    A state that belongs to none of them falls through to whichever branch
+    happens to catch it, and the branch that catches an unclassified state is
+    the one that says *stopped answering*. That is how a wall ends up blaming
+    a source for something the source did not do, so the partition is
+    asserted rather than reviewed.
+    """
+    buckets = (source_wall._ANSWERING | source_wall._ATTENTION | source_wall._SILENT)
+    assert buckets == set(source_wall.WALL_STATES)
+    assert not (source_wall._ANSWERING & source_wall._ATTENTION)
+    assert not (source_wall._ANSWERING & source_wall._SILENT)
+    assert not (source_wall._ATTENTION & source_wall._SILENT)
+
+
+def test_deselecting_a_source_is_never_reported_as_the_source_failing(conn):
+    """The one sentence the whole screen exists to produce, guarded.
+
+    A user who unticks DOAJ has not been let down by DOAJ. `failed` must not
+    blame a source for a keystroke and neither must the headline, which is the
+    same rule one level up and in the place where it is read first. Removing
+    `not_selected` from the verdict's silent set turns this red; until it
+    existed, that change passed the whole file.
+    """
+    first = make_run(conn, started="2026-10-01T09:00:00", repositories=["arxiv", "doaj"])
+    record(conn, first, "arxiv", count=4)
+    record(conn, first, "doaj", count=6)
+    for day in (2, 3):
+        later = make_run(conn, started=f"2026-10-0{day}T09:00:00", repositories=["arxiv"])
+        record(conn, later, "arxiv", count=5)
+
+    wall = source_wall.build(conn)
+    verdict = wall["verdict"]
+
+    assert "DOAJ" not in verdict["headline"]
+    assert "stopped answering" not in verdict["headline"]
+    assert verdict["level"] == "ok"
+    # It answered the last time resmon asked it, which is what the sentence says.
+    assert verdict["headline"] == (
+        "All 2 of 2 sources answered the last time resmon asked them."
+    )
+    # And the deselection is still reported -- quietly, as a fact, not an alarm.
+    assert any("no longer in the most recent run" in line for line in verdict["detail"])
+
+
+def test_a_source_deselected_after_it_broke_is_still_reported_as_broken(conn):
+    """Unticking a source does not launder its last recorded failure.
+
+    The mirror of the case above, and the reason the fix is "read past the
+    silence" rather than "ignore a source that was deselected".
+    """
+    first = make_run(conn, started="2026-10-01T09:00:00", repositories=["arxiv", "doaj"])
+    record(conn, first, "arxiv", count=4)
+    record(conn, first, "doaj", count=3)
+    broke = make_run(conn, started="2026-10-02T09:00:00", repositories=["arxiv", "doaj"])
+    record(conn, broke, "arxiv", count=4)
+    record(conn, broke, "doaj", count=0, reason="upstream_failure",
+           detail={"status": 503, "attempts": 2})
+    after = make_run(conn, started="2026-10-03T09:00:00", repositories=["arxiv"])
+    record(conn, after, "arxiv", count=4)
+
+    verdict = source_wall.build(conn)["verdict"]
+
+    assert verdict["headline"] == "DOAJ has stopped answering."
+
+
+def test_a_withdrawn_source_is_shown_by_the_name_it_had(conn):
+    """``ieee`` is a slug; the wall names IEEE Xplore, and still says it is not in the catalog."""
+    run = make_run(conn, started="2026-10-01T09:00:00", repositories=["ieee"])
+    record(conn, run, "ieee", status="error", reason="retired",
+           detail={"detail": "IEEE Xplore was withdrawn on its terms."})
+
+    wall = source_wall.build(conn)
+    ieee = next(s for s in wall["sources"] if s["slug"] == "ieee")
+
+    assert ieee["name"] == "IEEE Xplore"
+    assert ieee["in_catalog"] is False
+    assert "IEEE Xplore" in wall["verdict"]["headline"]
+    assert "ieee " not in wall["verdict"]["headline"]
+
+
+def test_a_source_that_never_answered_in_the_window_is_not_called_stopped(conn):
+    run = make_run(conn, started="2026-10-01T09:00:00", repositories=["ieee"])
+    record(conn, run, "ieee", status="error", reason="retired",
+           detail={"detail": "IEEE Xplore was withdrawn on its terms."})
+
+    verdict = source_wall.build(conn)["verdict"]
+
+    assert verdict["level"] == "attention"
+    assert "stopped answering" not in verdict["headline"]
+    # Nothing before this run either: it has never answered, which is not the
+    # same thing as not having answered lately.
+    assert verdict["headline"] == "IEEE Xplore has not answered any run resmon has a record of."
+
+
+def test_a_source_that_rate_limited_resmon_is_named_as_that(conn):
+    """A 429 is not a refusal of the request and not an outage: the source is up and asked resmon to wait."""
+    _answered_then(conn, "plos", {"count": 0, "reason": "upstream_failure",
+                                  "detail": {"detail": "rate_limited", "status": 429, "attempts": 3}})
+    wall = source_wall.build(conn)
+    assert wall["verdict"]["headline"] == "PLOS rate-limited resmon's last request."
+    legend = next(e for e in wall["state_legend"] if e["state"] == "rate_limited")
+    assert legend["label"] == "rate-limited"
+
+
+def test_the_headline_says_when_to_try_again_where_the_source_said():
+    from datetime import datetime, timedelta, timezone
+
+    later = (datetime.now(timezone.utc) + timedelta(hours=2)).replace(microsecond=0).isoformat()
+    sources = [{"name": "arXiv", "cells": [
+        {"state": "answered", "outcome_recorded": True, "label": "answered"},
+        {"state": "rate_limited", "outcome_recorded": True, "label": "rate-limited",
+         "cooldown_until_utc": later}]}]
+    verdict = source_wall._verdict(sources, 2, {"arXiv": "rate_limited"}, set(), {"arXiv": later})
+    assert verdict["headline"].startswith("arXiv rate-limited resmon's last request. Try again after about ")
+    # Once the time has passed, it is not said.
+    verdict = source_wall._verdict(sources, 2, {"arXiv": "rate_limited"}, set(),
+                                   {"arXiv": "2020-01-01T00:00:00Z"})
+    assert verdict["headline"] == "arXiv rate-limited resmon's last request."
+
+
+def test_a_source_rate_limited_on_every_run_says_so_after_its_silence():
+    from datetime import datetime, timedelta, timezone
+
+    later = (datetime.now(timezone.utc) + timedelta(hours=1)).replace(microsecond=0).isoformat()
+    cell = {"state": "rate_limited", "outcome_recorded": True, "label": "rate-limited", "cooldown_until_utc": later}
+    verdict = source_wall._verdict([{"name": "arXiv", "cells": [cell, cell, cell]}], 3,
+                                   {"arXiv": "rate_limited"}, set(), {"arXiv": later})
+    assert verdict["headline"].startswith(
+        "arXiv has not answered any run resmon has a record of. arXiv rate-limited resmon's last request. "
+        "Try again after about ")
+
+
+def test_a_silent_source_is_counted_against_the_runs_that_included_it(conn):
+    # Semantic Scholar answered once, long before the window, then was in the
+    # first run of the window only. The second run did not ask it, so "has not
+    # answered in the last 2 runs" alone would claim a failure that the record
+    # does not hold.
+    earlier = make_run(conn, started="2026-09-01T09:00:00", repositories=["semantic_scholar"])
+    record(conn, earlier, "semantic_scholar", count=3)
+    first = make_run(conn, started="2026-10-01T09:00:00",
+                     repositories=["arxiv", "semantic_scholar"])
+    record(conn, first, "arxiv", count=4)
+    record(conn, first, "semantic_scholar", count=0, reason="upstream_failure",
+           detail={"status": 429, "attempts": 3})
+    second = make_run(conn, started="2026-10-02T09:00:00", repositories=["arxiv"])
+    record(conn, second, "arxiv", count=4)
+
+    verdict = source_wall.build(conn, limit=2)["verdict"]
+
+    assert verdict["level"] == "attention"
+    # Its one recorded outcome was a 429, which is said after the silence.
+    assert verdict["headline"] == (
+        "Semantic Scholar has not answered in the last 2 runs. Only 1 of those "
+        "runs recorded an outcome for it, and none was an answer. Semantic "
+        "Scholar rate-limited resmon's last request.")
+
+
+def test_an_all_clear_verdict_carries_its_denominator(conn):
+    run = make_run(conn, started="2026-10-01T09:00:00", repositories=["arxiv", "biorxiv"])
+    record(conn, run, "arxiv", count=3)
+    record(conn, run, "biorxiv", count=0, reason="answered_empty")
+
+    verdict = source_wall.build(conn)["verdict"]
+
+    assert verdict["level"] == "ok"
+    assert verdict["headline"] == (
+        "All 2 of 2 sources answered the last time resmon asked them."
+    )
+    # The product's banned words, checked rather than trusted.
+    for word in ("intact", "healthy", "verified", "fully"):
+        assert word not in verdict["headline"].lower()
+
+
+def test_an_empty_corpus_says_so_rather_than_claiming_an_all_clear(conn):
+    wall = source_wall.build(conn)
+
+    assert wall["sources"] == [] and wall["runs"] == []
+    assert wall["verdict"]["level"] == "empty"
+    assert wall["totals"] == {state: 0 for state in source_wall.WALL_STATES}
+
+
+def test_a_trailing_unrecorded_run_does_not_erase_the_last_known_outcome(conn):
+    """The newest column being blank is the absence of a fact, not a fact."""
+    first = make_run(conn, started="2026-10-01T09:00:00", repositories=["arxiv"])
+    record(conn, first, "arxiv", count=0, reason="upstream_failure",
+           detail={"status": 503, "attempts": 1})
+    make_run(conn, started="2026-10-02T09:00:00", repositories=["arxiv"])
+
+    wall = source_wall.build(conn)
+    arxiv = next(s for s in wall["sources"] if s["slug"] == "arxiv")
+
+    assert [c["state"] for c in arxiv["cells"]] == ["failed", "not_recorded"]
+    assert "not_selected" not in [c["state"] for c in arxiv["cells"]]
+    assert arxiv["latest_known_state"] == "failed"
+    assert wall["verdict"]["level"] == "attention"
+
+
+# ---------------------------------------------------------------------------
+# The bound
+# ---------------------------------------------------------------------------
+
+
+def test_the_window_is_bounded_and_says_what_it_left_out(conn):
+    """A corpus of many runs reads the same number of rows as a small one."""
+    for n in range(60):
+        run = make_run(conn, started=f"2026-08-{(n % 28) + 1:02d}T{n % 24:02d}:00:00",
+                       repositories=["arxiv"])
+        record(conn, run, "arxiv", count=1)
+
+    default = source_wall.build(conn)
+    assert len(default["runs"]) == source_wall.DEFAULT_RUNS == 12
+    assert default["window"]["runs_available"] == 60
+    assert default["window"]["max"] == source_wall.MAX_RUNS
+
+    assert len(source_wall.build(conn, limit=3)["runs"]) == 3
+    # Out-of-range values are clamped rather than honored: the grid is the
+    # bound, and a caller that asks for everything gets the maximum.
+    assert len(source_wall.build(conn, limit=10_000)["runs"]) == source_wall.MAX_RUNS
+    assert len(source_wall.build(conn, limit=0)["runs"]) == 1
+    for source in default["sources"]:
+        assert len(source["cells"]) == len(default["runs"])
+
+
+# ---------------------------------------------------------------------------
+# The endpoint
+# ---------------------------------------------------------------------------
+
+
+def test_the_endpoint_serves_a_classified_grid(conn, client):
+    run = make_run(conn, started="2026-10-01T09:00:00", repositories=["arxiv", "doaj"])
+    record(conn, run, "arxiv", count=5)
+    record(conn, run, "doaj", count=0, reason="parse_failure")
+
+    response = client.get("/api/coverage/source-wall")
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["states"] == list(source_wall.WALL_STATES)
+    # The legend travels with the grid, so the renderer keeps no copy of it.
+    assert [e["state"] for e in body["state_legend"]] == list(source_wall.WALL_STATES)
+    assert len(body["runs"]) == 1
+    # Every cell arrives classified. Nothing downstream has to look at a
+    # status and a reason and decide again what they mean.
+    for source in body["sources"]:
+        for cell in source["cells"]:
+            assert cell["state"] in source_wall.WALL_STATES
+            assert cell["note"]
+            assert cell["label"]
+    assert body["verdict"]["headline"]
+
+
+def test_the_endpoint_rejects_a_window_outside_its_bound(client):
+    assert client.get("/api/coverage/source-wall?limit=0").status_code == 422
+    assert client.get(
+        f"/api/coverage/source-wall?limit={source_wall.MAX_RUNS + 1}"
+    ).status_code == 422
+    assert client.get(
+        f"/api/coverage/source-wall?limit={source_wall.MAX_RUNS}"
+    ).status_code == 200
+
+
+def test_never_answered_and_not_answered_lately_are_said_apart(conn):
+    """A source that once answered and one that never has are different faults.
+
+    The first stopped; the second usually cannot be asked the way the runs ask
+    it. One headline said "has not answered in the last N runs" of both.
+    """
+    earlier = make_run(conn, started="2026-09-01T09:00:00", repositories=["doaj"])
+    record(conn, earlier, "doaj", count=5)
+    for day in ("01", "02"):
+        run = make_run(conn, started=f"2026-10-{day}T09:00:00", repositories=["doaj", "plos"])
+        record(conn, run, "doaj", count=0, reason="upstream_failure", detail={"status": 400, "attempts": 1})
+        record(conn, run, "plos", count=0, reason="upstream_failure", detail={"status": 400, "attempts": 1})
+
+    verdict = source_wall.build(conn, limit=2)["verdict"]
+
+    assert verdict["headline"] == (
+        "DOAJ has not answered in the last 2 runs. "
+        "PLOS has not answered any run resmon has a record of.")
+
+
+def test_a_failure_before_the_window_is_not_an_answer_before_it(conn):
+    """Only an answer counts as having answered: an older failure does not make
+    a source one that "has not answered lately"."""
+    earlier = make_run(conn, started="2026-09-01T09:00:00", repositories=["plos"])
+    record(conn, earlier, "plos", count=0, reason="upstream_failure", detail={"status": 503, "attempts": 3})
+    run = make_run(conn, started="2026-10-01T09:00:00", repositories=["plos"])
+    record(conn, run, "plos", count=0, reason="upstream_failure", detail={"status": 400, "attempts": 1})
+
+    assert source_wall.build(conn, limit=1)["verdict"]["headline"] == (
+        "PLOS has not answered any run resmon has a record of.")
+
+
+@pytest.mark.parametrize("names, said", [
+    (["A"], "A"),
+    (["A", "B"], "A and B"),
+    (["Crossref", "HAL", "OpenAlex"], "Crossref, HAL, and OpenAlex"),
+    (["A", "B", "C", "D"], "A, B, C, and D"),
+])
+def test_every_list_the_wall_writes_takes_the_serial_comma(names, said):
+    assert source_wall._join(names) == said
+
+
+def test_the_dropped_sources_line_takes_the_serial_comma(conn):
+    first = make_run(conn, started="2026-10-01T09:00:00", repositories=["arxiv", "crossref", "hal", "openalex"])
+    for slug in ("arxiv", "crossref", "hal", "openalex"):
+        record(conn, first, slug, count=2)
+    second = make_run(conn, started="2026-10-02T09:00:00", repositories=["arxiv"])
+    record(conn, second, "arxiv", count=2)
+
+    detail = source_wall.build(conn)["verdict"]["detail"]
+
+    assert any(line.startswith("Crossref, HAL, and OpenAlex answered when last asked") for line in detail), detail
+
+
+
+@pytest.mark.parametrize("count", [0, 4])
+def test_a_user_stopped_source_is_neither_an_answer_nor_a_failure(conn, count):
+    first = make_run(conn, started="2026-11-01T08:00:00Z", repositories=["arxiv"])
+    record(conn, first, "arxiv", count=3)
+    failed = make_run(conn, started="2026-11-02T08:00:00Z", repositories=["arxiv"])
+    record(conn, failed, "arxiv", "error", reason="upstream_failure")
+    last = make_run(conn, started="2026-11-03T08:00:00Z", repositories=["arxiv"])
+    record(conn, last, "arxiv", "cancelled", count=count,
+           detail={"source_stop": True})
+    wall = source_wall.build(conn)
+    assert wall["verdict"]["level"] == "unknown"
+    assert "stopped answering" not in wall["verdict"]["headline"]
+    assert cell_for(wall, "arxiv")["label"] == "stopped by you"
+    assert wall["sources"][0]["latest_known_state"] == "failed"

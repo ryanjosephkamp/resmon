@@ -1,0 +1,184 @@
+/**
+ * `electron/main.ts`, under test: what only a real browser engine and a real
+ * main process can see, each undone silently by an ordinary refactor with the
+ * rest of the suite green.
+ *
+ * - **P3** an external link opens *in-app*, with the URL in the title bar and
+ *   the main window's background, and never hands http(s) to the system
+ *   browser (link behavior must not depend on where you clicked);
+ * - **P3b** the main process's OS-facing calls are still the five the guards
+ *   count;
+ * - **P4** the History menu moves the hash route.
+ *
+ * That the window's own background matches the page's, the white flash on
+ * open and close, is `atlas-appearance.spec.ts`'s, in each theme.
+ */
+import { test, expect } from './fixtures/resmon-app';
+import { installIpcGuards, readGuards, NOTHING_ESCAPED } from './fixtures/ipc-guards';
+import * as fs from 'fs';
+import * as path from 'path';
+import { FRONTEND_ROOT } from './fixtures/resmon-app';
+
+test.describe.configure({ mode: 'serial' });
+
+/** `#0F1117`, `#ff0f1117`, `#0f1117` → `0f1117`. Electron and CSS disagree on case and alpha. */
+function rgbHex(value: string): string {
+  const hex = value.trim().replace(/^#/, '').toLowerCase();
+  // Electron returns ARGB or RGBA on some platforms; the color is the last six.
+  return hex.length === 8 ? hex.slice(-6) : hex;
+}
+
+test('P3: an external link opens in-app, titled with its URL, and never reaches the browser', async ({
+  app, win, goto,
+}) => {
+  await installIpcGuards(app);
+  await goto('/settings/about');
+
+  // A real link on a real screen: About resmon's report link, which opens
+  // GitHub's issues page. It renders unconditionally, so this is a user path
+  // and not a fixture.
+  const link = win.locator('[data-about="issues"]');
+  await expect(link).toBeVisible();
+  const href = await link.getAttribute('href');
+  expect(href).toMatch(/^https?:\/\//);
+
+  // `getAllWindows()` is not in creation order — the first run of this spec
+  // found the freshly opened link window at index 0 and the main window at
+  // index 1 — so the main window is identified by id before the click rather
+  // than by position after it.
+  const mainId = await app.evaluate(async ({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0].id);
+  // Cancel this real navigation before transport. The window is
+  // still created by the app; no successful remote page is fabricated.
+  const interception = await app.evaluateHandle(({ session }, target) => {
+    const facts = {
+      installed: false,
+      canceled: [] as string[],
+      errors: [] as { url: string; error: string }[],
+    };
+    session.defaultSession.webRequest.onErrorOccurred({ urls: [target] }, (details) => {
+      facts.errors.push({ url: details.url, error: details.error });
+    });
+    session.defaultSession.webRequest.onBeforeRequest({ urls: [target] }, (details, callback) => {
+      facts.canceled.push(details.url);
+      callback({ cancel: true });
+    });
+    facts.installed = true;
+    return facts;
+  }, href!);
+  const before = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
+  let openedId: number | null = null;
+  try {
+    expect(await interception.jsonValue()).toEqual({ installed: true, canceled: [], errors: [] });
+    await link.click();
+    await expect.poll(() => interception.evaluate((facts) => facts.canceled)).toEqual([href]);
+    await expect.poll(() => interception.evaluate((facts) => facts.errors)).toEqual([
+      { url: href, error: 'net::ERR_BLOCKED_BY_CLIENT' },
+    ]);
+    console.log('ATTRIBUTION CANCELED BEFORE TRANSPORT', JSON.stringify(await interception.jsonValue()));
+
+    // `setWindowOpenHandler` runs in the main process, so the new window is an
+    // Electron fact rather than a DOM one.
+    await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), { timeout: 20_000 }).toBe(before + 1);
+
+    const windows = await app.evaluate(async ({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows().map((w) => ({
+        id: w.id,
+        title: w.getTitle(),
+        background: w.getBackgroundColor(),
+      })));
+    console.log('P3 WINDOWS', JSON.stringify(windows));
+    const main = windows.find((w) => w.id === mainId);
+    const opened = windows.find((w) => w.id !== mainId);
+    expect(main).toBeTruthy();
+    expect(opened).toBeTruthy();
+    openedId = opened?.id ?? null;
+    if (process.platform === 'darwin') {
+      await expect.poll(() => app.evaluate(({ Menu }, id) =>
+        Menu.getApplicationMenu()?.getMenuItemById(`window-open-${id}`)?.label ?? null,
+      openedId)).toBe(href);
+    }
+
+    // The bar's address field carries the address, whatever the page calls
+    // itself, and a page that could not be loaded names its window by its
+    // address too (`openLinkWindow`).
+    expect((opened as { title: string }).title).toBe(href);
+    const barOf = () => app.windows().find((page) => page !== win && page.url().startsWith('data:text/html'));
+    await expect.poll(() => Boolean(barOf())).toBe(true);
+    await expect(barOf()!.getByRole('textbox', { name: 'Address' })).toHaveValue(href!);
+    // Same background as the main window — the flash fix applies here too.
+    expect(rgbHex((opened as { background: string }).background))
+      .toBe(rgbHex((main as { background: string }).background));
+
+    // And nothing was handed to the system browser. This is the assertion the
+    // in-app link window exists for, and it is a count rather than an inference.
+    const guards = await readGuards(app);
+    console.log('P3 GUARD COUNTS', JSON.stringify(guards.escaped));
+    expect(guards.escaped).toEqual(NOTHING_ESCAPED);
+
+  } finally {
+    await app.evaluate(({ session }) => {
+      session.defaultSession.webRequest.onBeforeRequest(null);
+      session.defaultSession.webRequest.onErrorOccurred(null);
+    });
+    await interception.dispose();
+    // Leave the app as it was found — a stray window would confuse every spec
+    // after this one about which window is which.
+    await app.evaluate(async ({ BrowserWindow }, keep) => {
+      for (const w of BrowserWindow.getAllWindows()) if (w.id !== keep) w.destroy();
+    }, mainId);
+    await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), { timeout: 10_000 }).toBe(before);
+    if (process.platform === 'darwin' && openedId !== null) {
+      await expect.poll(() => app.evaluate(({ Menu }, id) =>
+        Menu.getApplicationMenu()?.getMenuItemById(`window-open-${id}`)?.label ?? null,
+      openedId)).toBeNull();
+    }
+  }
+});
+
+test('P3b: the main-process OS-facing surface is still the five that are guarded', async () => {
+  // The guards are only a measurement while they cover everything. A new
+  // `shell.` or `dialog.` call in `main.ts` would escape silently, and the
+  // count would still read zero.
+  const source = ['main.ts', 'downloads.ts'].map(name => fs.readFileSync(path.join(FRONTEND_ROOT, 'electron', name), 'utf8')).join('\n')
+    // Comments first. `main.ts` explains `shell.openExternal` in prose in three
+    // places, and a call that exists only in a comment is not a call — this
+    // check has to be able to go red, so it must not be satisfied by the file
+    // *talking about* a function.
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+  // `void dialog\n  .showMessageBox({` is real code in this file, so the dot
+  // may carry a line break with it.
+  const calls = new Set(
+    [...source.matchAll(/\b(?:dialog|shell)\s*\.\s*(\w+)\s*\(/g)].map((m) => m[1]),
+  );
+  console.log('P3b OS-FACING CALLS IN main.ts and downloads.ts', JSON.stringify([...calls].sort()));
+  expect([...calls].sort()).toEqual([
+    'openExternal', 'openPath', 'showItemInFolder', 'showMessageBox', 'showOpenDialog', 'trashItem',
+  ]);
+});
+
+test('P4: the History menu moves the hash route', async ({ app, win, goto }) => {
+  await goto('/health/analytics');
+  await goto('/health/watchdog');
+  expect(win.url()).toContain('#/health/watchdog');
+
+  /** Click a real application-menu item, by id, in the real main process. */
+  const clickMenu = (id: string) => app.evaluate(async ({ Menu }, itemId) => {
+    const item = Menu.getApplicationMenu()?.getMenuItemById(itemId);
+    if (!item) throw new Error(`no menu item ${itemId}`);
+    item.click();
+    return true;
+  }, id);
+
+  await clickMenu('history-back');
+  await win.waitForFunction(() => window.location.hash.startsWith('#/health/analytics'),
+    undefined, { timeout: 15_000 });
+  expect(win.url()).toContain('#/health/analytics');
+
+  await clickMenu('history-forward');
+  await win.waitForFunction(() => window.location.hash.startsWith('#/health/watchdog'),
+    undefined, { timeout: 15_000 });
+  expect(win.url()).toContain('#/health/watchdog');
+  console.log('P4 HISTORY', JSON.stringify({ final: win.url().split('#')[1] }));
+});

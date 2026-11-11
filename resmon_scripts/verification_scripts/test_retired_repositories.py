@@ -1,0 +1,118 @@
+"""Retired sources stay retired, and say why.
+
+IEEE Xplore is withdrawn on its terms rather than its behavior (see
+``api_registry.RETIRED_REPOSITORIES``). Retirement has two halves and both are
+load-bearing: the module is not imported, and the registry refuses the slug even
+if something imports it anyway. The second half exists because the first can
+fail silently — a test that imports ``api_ieee`` directly runs its module-scope
+``_register()``, which would put the source back while the suite went on passing.
+
+OAPEN is withdrawn for neither its terms nor its client: its search API answers
+HTTP 403. The same two halves apply to it.
+
+NIST RMM is withdrawn because its papers API has answered HTTP 500 to every
+search since the source was added. The same two halves apply to it too.
+"""
+
+import importlib
+
+import pytest
+
+from implementation_scripts import api_registry
+from implementation_scripts.api_registry import (
+    RETIRED_REPOSITORIES,
+    get_client,
+    list_repositories,
+    register_client,
+)
+
+
+RETIRED = sorted(RETIRED_REPOSITORIES)
+
+
+def test_ieee_is_retired():
+    assert "ieee" in RETIRED_REPOSITORIES
+
+
+def test_oapen_is_retired():
+    """Withdrawn because its search API answers HTTP 403.
+
+    The parametrized cases below read their slugs from RETIRED_REPOSITORIES,
+    so dropping the entry would quietly stop them covering OAPEN; this one
+    would fail instead.
+    """
+    assert "oapen" in RETIRED_REPOSITORIES
+    assert "HTTP 403" in RETIRED_REPOSITORIES["oapen"]
+
+
+def test_nist_rmm_is_retired():
+    """Withdrawn because its papers API answers every search with HTTP 500.
+
+    The parametrized cases below read their slugs from RETIRED_REPOSITORIES,
+    so dropping the entry would quietly stop them covering NIST RMM; this one
+    would fail instead.
+    """
+    assert "nist_rmm" in RETIRED_REPOSITORIES
+    assert "HTTP 500" in RETIRED_REPOSITORIES["nist_rmm"]
+    assert "November 4, 2026" in RETIRED_REPOSITORIES["nist_rmm"]
+
+
+@pytest.mark.parametrize("slug", RETIRED)
+def test_retired_slugs_are_not_registered(slug):
+    assert slug not in list_repositories()
+
+
+@pytest.mark.parametrize("slug", RETIRED)
+def test_retired_slugs_are_absent_from_the_catalog(slug):
+    from implementation_scripts.repo_catalog import REPOSITORY_CATALOG
+
+    assert slug not in {entry.slug for entry in REPOSITORY_CATALOG}
+
+
+@pytest.mark.parametrize("slug", RETIRED)
+def test_get_client_explains_the_retirement(slug):
+    """A saved routine naming a retired source gets the reason, not 'unknown'.
+
+    The sweep engine catches this ValueError and records its text against the
+    source, so this string is user-visible in the run report.
+    """
+    with pytest.raises(ValueError) as excinfo:
+        get_client(slug)
+    message = str(excinfo.value)
+    assert "Unknown repository" not in message
+    assert RETIRED_REPOSITORIES[slug] in message
+
+
+def test_unknown_slug_still_says_unknown():
+    """Retirement wording must not swallow the genuine typo case."""
+    with pytest.raises(ValueError, match="Unknown repository: not_a_source"):
+        get_client("not_a_source")
+
+
+@pytest.mark.parametrize("slug", RETIRED)
+def test_registry_refuses_to_register_a_retired_slug(slug):
+    with pytest.raises(ValueError, match="retired"):
+        register_client(slug, object)
+    assert slug not in list_repositories()
+
+
+@pytest.mark.parametrize("module", ["api_ieee", "api_nist_rmm", "api_oapen", "api_repec", "api_ssrn"])
+def test_importing_a_retired_client_module_registers_nothing(module):
+    """The modules are kept on disk for reference; importing must be inert."""
+    importlib.import_module(f"implementation_scripts.{module}")
+    for slug in RETIRED:
+        assert slug not in api_registry.list_repositories()
+
+
+def test_ieee_no_longer_has_a_required_credential():
+    """The sweep engine's key gate must not name a source it can never reach.
+
+    The gate reads the catalog now rather than a list of its own, so this is
+    a question about the catalog: a retired source has no entry, and a slug
+    with no entry has no required credential.
+    """
+    from implementation_scripts.sweep_engine import (  # noqa: PLC0415
+        required_credential_for_sweep,
+    )
+
+    assert required_credential_for_sweep("ieee") is None
