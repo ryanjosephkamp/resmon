@@ -592,6 +592,29 @@ const isCurrent = (href: string) => !href.includes('#') && current.startsWith(ur
     margin-top: 0;
   }
 
+  /* Below 360 pixels, the smallest phones: the top bar's spacing tightens so it fits without widening the page. */
+  @media (max-width: 22.49rem) {
+    .masthead-inner {
+      column-gap: var(--space-2);
+    }
+
+    .nav a {
+      padding-inline: var(--space-1);
+    }
+
+    .nav a[aria-current='page']::after {
+      inset-inline: var(--space-1);
+    }
+
+    .mast-end {
+      gap: var(--space-1);
+    }
+
+    .mast-action {
+      padding-inline: var(--space-2);
+    }
+  }
+
   @media (min-width: 40rem) {
     .shell {
       padding-inline: var(--gutter-wide);
