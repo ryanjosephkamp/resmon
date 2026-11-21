@@ -26,14 +26,28 @@ _EFETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 # 3 req/s without API key, 10 req/s with key
 _RATE_LIMITER = RateLimiter(requests_per_second=3.0)
 
+# NCBI asks software that calls E-utilities to name itself with ``tool`` and to
+# give a contact ``email``, so it can write before blocking a misbehaving
+# client. The tool is always "resmon"; the address is the one the person set in
+# Settings › Sources, and none is sent when none is set (``source_contact``).
+_TOOL = "resmon"
+
 
 class PubmedClient(BaseAPIClient):
     """PubMed / NCBI E-utilities repository API client."""
 
     describe_request = staticmethod(sent_params("term", "mindate", "maxdate", "datetype", "sort", url=_ESEARCH_URL))
 
+    def __init__(self, mailto: str | None = None):
+        # The address set in Settings › Sources, or None, when nothing is sent (``source_contact``).
+        self._mailto = mailto
+
     def get_name(self) -> str:
         return "PubMed"
+
+    def _identity(self) -> dict:
+        """E-utilities' ``tool``, and ``email`` when the person set an address."""
+        return {"tool": _TOOL, **({"email": self._mailto} if self._mailto else {})}
 
     def lookup(self, kind: str, value: str, max_results: int = 5) -> list[NormalizedResult]:
         """A PMID, a DOI or a title found with ``esearch``'s own field tags, then read with ``efetch``.
@@ -85,6 +99,7 @@ class PubmedClient(BaseAPIClient):
             "retmax": max_results,
             "retmode": "json",
             "sort": "pub_date",
+            **self._identity(),
         }
         if date_from:
             params["mindate"] = date_from.replace("-", "/")
@@ -144,6 +159,7 @@ class PubmedClient(BaseAPIClient):
                 "id": ",".join(batch),
                 "rettype": "xml",
                 "retmode": "xml",
+                **self._identity(),
             }
             if api_key:
                 params["api_key"] = api_key

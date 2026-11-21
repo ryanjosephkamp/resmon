@@ -187,8 +187,8 @@ function KeyField({ name, source, state }: { name: string; source: string; state
 const CONTACT_KEY = ['source-settings'] as const;
 
 /**
- * The contact address resmon gives Crossref and OpenAlex. Nothing is sent
- * until one is entered here, and it goes to those two sources and no other
+ * The contact address resmon gives Crossref, OpenAlex, and PubMed. Nothing is
+ * sent until one is entered here, and it goes to those three sources and no other
  * (`source_contact.py`); Remove takes it back.
  */
 function ContactAddress() {
@@ -212,14 +212,14 @@ function ContactAddress() {
   };
   return (
     <section className="sources-contact" aria-labelledby="contact-title" data-sources="contact" aria-busy={stored.isPending}>
-      <h3 id="contact-title" className="field-title">A Contact Address for Crossref and OpenAlex</h3>
+      <h3 id="contact-title" className="field-title">A Contact Address for Crossref, OpenAlex, and PubMed</h3>
       <p className="field-lede">
-        Crossref and OpenAlex let a program name a contact address with its requests. Crossref answers requests that
-        carry one from its polite pool, and either can write to you about a problem rather than block it. resmon sends
-        an address only if you enter one here, and only to those two sources; with none, nothing is sent.
+        Crossref, OpenAlex, and PubMed let a program name a contact address with its requests. Crossref answers requests
+        that carry one from its polite pool, and each can write to you about a problem rather than block it. resmon sends
+        an address only if you enter one here, and only to those three sources; with none, nothing is sent.
       </p>
       {stored.isError && <p className="field-error" role="alert">The engine did not say what is set ({stored.error.message}).</p>}
-      <form className="contact-form" onSubmit={submit} aria-label="A Contact Address for Crossref and OpenAlex">
+      <form className="contact-form" onSubmit={submit} aria-label="A Contact Address for Crossref, OpenAlex, and PubMed">
         <label className="sr-only" htmlFor="contact-email">Your email address</label>
         <input
           id="contact-email" type="email" value={value} autoComplete="email" spellCheck={false}
@@ -235,7 +235,7 @@ function ContactAddress() {
       </form>
       {save.isSuccess && !dirty && (
         <p className="settings-said" role="status" data-sources="contact-said">
-          {save.data.contact_email ? `Saved. Crossref and OpenAlex are sent ${save.data.contact_email}.` : 'Removed. No address is sent.'}
+          {save.data.contact_email ? `Saved. Crossref, OpenAlex, and PubMed are sent ${save.data.contact_email}.` : 'Removed. No address is sent.'}
         </p>
       )}
       {save.error && <p className="field-error" role="alert">{refusal(save.error)}</p>}

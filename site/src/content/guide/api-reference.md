@@ -375,7 +375,7 @@ A credential's value is never returned. The engine reports only whether one is s
 | `PUT` | `/api/settings/notifications` | Store it. |
 | `GET` | `/api/settings/storage` | The export folder, where backups go. |
 | `PUT` | `/api/settings/storage` | Store it. |
-| `GET` | `/api/settings/sources` | The contact address resmon gives Crossref and OpenAlex, if you set one, and the sources it goes to. |
+| `GET` | `/api/settings/sources` | The contact address resmon gives Crossref, OpenAlex, and PubMed, if you set one, and the sources it goes to. |
 | `PUT` | `/api/settings/sources` | Store it, or clear it with `null`; with none, nothing is sent. |
 | `GET` | `/api/settings/execution` | How many runs go at once, and how many manual searches and watch runs may wait in their shared queue. |
 | `PUT` | `/api/settings/execution` | Store them. |

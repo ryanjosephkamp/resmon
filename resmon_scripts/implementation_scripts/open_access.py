@@ -17,9 +17,9 @@ PDF is asked for). "Free to read" with no license, a publisher's own terms
 are recorded but never downloaded: the paper's page offers Open at the source
 instead. Nothing is downloaded from NASA ADS, Springer, CORE, BMC, or
 nature.com, or from a Crossref text-mining link (no client stores those),
-whatever license is stated: their terms are not settled for resmon
-(``docs/source-landscape.md``). BMC and nature.com are Springer Nature's
-journal sites, under the same terms as Springer.
+whatever license is stated: their terms are not settled for resmon. BMC and
+nature.com are Springer Nature's journal sites, under the same terms as
+Springer.
 """
 from __future__ import annotations
 

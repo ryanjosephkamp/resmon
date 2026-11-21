@@ -9,7 +9,7 @@ resmon asks 25 open scholarly sources. The tables below follow the catalog that 
 
 "API key" says whether resmon can ask the source without one. A key is yours: you register for it, resmon stores it in your operating system's keychain, and sends it only to that source. A source that requires a key and has none is recorded as not asked, never as an answer with nothing in it. "resmon's pace" is the rate resmon sets for its own requests. It is not always the provider's published limit, which **Settings › Sources** shows beside it in the source's details. Where a provider states none, resmon picked a conservative number.
 
-**Settings › Sources › A Contact Address for Crossref and OpenAlex** sends an address to those two only, if you enter one. OpenAIRE remains in the catalog with an **end announced** notice; its details state that the API is being discontinued.
+**Settings › Sources › A Contact Address for Crossref, OpenAlex, and PubMed** sends an address to those three only, if you enter one. OpenAIRE remains in the catalog with an **end announced** notice; its details state that the API is being discontinued.
 
 | Source | Coverage | API key | resmon's pace |
 |---|---|---|---|
@@ -108,11 +108,11 @@ resmon queries third-party scholarly APIs. **When a source runs on your key, the
 
 What resmon does:
 
-- **Checks terms before adopting a source,** against the provider's own words, and records the reasoning in [`docs/source-landscape.md`](docs/source-landscape.md) so you can read it. The question for each is whether resmon may keep a retrieved record indefinitely in a local database, copy that database to storage you control, do so in a freely installable MIT-licensed application that redistributes no records, and keep the first-retrieved record without a provider-mandated refresh.
+- **Checks terms before adopting a source,** against the provider's own words. The question for each is whether resmon may keep a retrieved record indefinitely in a local database, copy that database to storage you control, do so in a freely installable MIT-licensed application that redistributes no records, and keep the first-retrieved record without a provider-mandated refresh.
 - **Downloads only openly licensed copies.** Get the PDF fetches a paper's PDF only where a source states an open license for it, and never from NASA ADS (whose terms forbid systematic copies), Springer (whose text-and-data-mining terms keep copies only for a project's duration), CORE (whose terms require a license and attribution resmon has not settled), or BMC or nature.com (Springer Nature's journal sites, under the same terms as Springer), or from Crossref's text-mining links.
-- **Honors field-level conditions.** Where a source permits storing a field only under conditions, resmon checks them. INSPIRE-HEP's terms permit reusing an abstract only where INSPIRE reports that abstract's own source as arXiv or CERN, so resmon stores an abstract only in that case. A record with only a publisher-supplied abstract is still indexed, without one.
+- **Honors field-level conditions.** Where a source permits storing a field only under conditions, resmon checks them. INSPIRE-HEP's terms permit reusing an abstract only where INSPIRE reports that abstract's own source as arXiv or CERN, so resmon stores an abstract only in that case. A record with only a publisher-supplied abstract is still indexed, without one. Springer Nature's terms license an abstract for personal use only unless the article is open access, so resmon keeps a Springer Nature abstract only from a record Springer Nature marks open access.
 - **Shows required credits, unconditionally.** **Settings › Sources** lists the credits a provider's license requires at the top, for every source that requires one, not behind a card you have to expand.
-- **Says when it does not know.** Several sources publish terms that neither clearly grant nor forbid what resmon does. They are active, and that assessment is recorded in the landscape review, not dressed up as a clearance.
+- **Says when it does not know.** Several sources publish terms that neither clearly grant nor forbid what resmon does. They are active, and that assessment is not dressed up as a clearance.
 
 What it does not do, and you should assume for yourself:
 

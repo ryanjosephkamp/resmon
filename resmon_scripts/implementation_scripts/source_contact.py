@@ -1,9 +1,9 @@
-"""The contact address resmon gives Crossref and OpenAlex, when the person has set one.
+"""The contact address resmon gives Crossref, OpenAlex, and PubMed, when the person has set one.
 
-Both ask a client to name a contact address with its requests, so they can
+All three ask a client to name a contact address with its requests, so they can
 write to someone before blocking a client that misbehaves, and Crossref serves
 requests that carry one from its polite pool. An address goes only where the
-person has set one in Settings › Sources, and only to these two sources; with
+person has set one in Settings › Sources, and only to these three sources; with
 none set, nothing is sent. A placeholder address would name nobody, and would
 let one copy of resmon's misbehavior count against every copy.
 """
@@ -16,7 +16,7 @@ from typing import Optional
 #: The ``app_settings`` key.
 SETTING = "source_contact_email"
 #: The sources the address is sent to, and no others.
-SOURCES = ("crossref", "openalex")
+SOURCES = ("crossref", "openalex", "pubmed")
 
 _ADDRESS = re.compile(r"^[^@\s<>\"]+@[^@\s<>\"]+\.[^@\s<>\"]+$")
 _LONGEST = 254
@@ -45,7 +45,7 @@ def read(conn: sqlite3.Connection) -> Optional[str]:
 
 
 def client_options(source: str, conn: sqlite3.Connection) -> dict:
-    """What a source's client is given when it is made: the address for Crossref and OpenAlex, when one is set."""
+    """What a source's client is given when it is made: the address for Crossref, OpenAlex, and PubMed, when one is set."""
     if source not in SOURCES:
         return {}
     address = read(conn)

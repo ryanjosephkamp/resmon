@@ -6,8 +6,7 @@ STATUS: EXCLUDED from the active resmon registry.
 The RePEc/IDEAS htsearch CGI endpoint that this client targets is no longer
 publicly reachable, and RePEc does not publish an open search API. This module
 is retained on disk for reference only; it is not imported by
-``api_registry.py`` and therefore cannot be invoked from the application. See
-``docs/source-landscape.md`` for the full rationale.
+``api_registry.py`` and therefore cannot be invoked from the application.
 """
 
 import logging

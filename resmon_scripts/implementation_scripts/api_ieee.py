@@ -22,7 +22,7 @@ single field — was fixed in place instead.
 
 Kept on disk because retirement on terms is reversible in a way that retirement
 on behavior is not: a written license from IEEE would make this file useful
-again unchanged. See ``docs/source-landscape.md`` for the full reading.
+again unchanged.
 """
 
 import logging

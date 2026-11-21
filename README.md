@@ -180,7 +180,7 @@ The documentation lives on the project site, **<https://ryanjosephkamp.github.io
 | [License](https://ryanjosephkamp.github.io/resmon/guide/license/) | The project license and where the third-party notices live. |
 | [Acknowledgments](https://ryanjosephkamp.github.io/resmon/guide/acknowledgments/) | The open-access providers, the open-source projects, and the standards resmon is built on. |
 
-Reference documents (the source landscape, the backup bundle format, the local API security model,
+Reference documents (the backup bundle format, the local API security model,
 the webhook receiver contract, and the generated HTTP and MCP contract) are rendered from
 [`docs/`](docs/) at <https://ryanjosephkamp.github.io/resmon/reference/>.
 

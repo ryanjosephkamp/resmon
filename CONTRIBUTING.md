@@ -13,7 +13,6 @@ It is a single-maintainer project, so please open an issue before starting subst
 | Run the app or the tests from a clone | **[Running from source](#running-from-source)** and **[Before you open a pull request](#before-you-open-a-pull-request)**, below |
 | Change the HTTP API | **[Changing the HTTP API](#changing-the-http-api)**, below |
 | Drive resmon from another tool over MCP | **[docs/api-contract/mcp.md](docs/api-contract/mcp.md)** |
-| Know which sources are viable | **[docs/source-landscape.md](docs/source-landscape.md)** |
 | Use the app | **[README.md](README.md)** and the [guide](https://ryanjosephkamp.github.io/resmon/guide/) |
 
 ## The one rule that outranks the others

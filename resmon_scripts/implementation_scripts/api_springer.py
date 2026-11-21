@@ -16,6 +16,21 @@ _SPRINGER_API_URL = "https://api.springernature.com/meta/v2/json"
 _RATE_LIMITER = RateLimiter(requests_per_second=5.0)
 
 
+# Springer Nature's API terms ("Use of abstracts") license an abstract for
+# personal use only, unless the article is open access, when the abstract
+# carries the article's own open license. Each Meta API record says which it
+# is in ``openaccess``, the string "true" or "false". So an abstract is kept
+# only from a record marked open access; any other record is still indexed,
+# with no abstract.
+def _licensed_abstract(rec: dict) -> str | None:
+    """The record's abstract when Springer Nature marks the record open access, else ``None``."""
+    flag = rec.get("openaccess")
+    if flag is not True and not (isinstance(flag, str) and flag.strip().lower() == "true"):
+        return None
+    abstract = rec.get("abstract")
+    return abstract if isinstance(abstract, str) and abstract.strip() else None
+
+
 class SpringerClient(BaseAPIClient):
     """Springer Nature repository API client (Tier 2, requires API key)."""
 
@@ -94,7 +109,7 @@ class SpringerClient(BaseAPIClient):
                 creators = rec.get("creators", [])
                 authors = [c.get("creator", "") for c in creators if c.get("creator")]
 
-                abstract = rec.get("abstract")
+                abstract = _licensed_abstract(rec)
                 doi = rec.get("doi", "")
                 pub_date = rec.get("onlineDate") or rec.get("publicationDate")
                 if pub_date:

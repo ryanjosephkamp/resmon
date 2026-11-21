@@ -8795,7 +8795,7 @@ def _source_settings(conn) -> dict:
 @app.get("/api/settings/sources", response_model=response_models.SourceSettings,
          response_model_exclude_unset=True)
 def get_source_settings():
-    """The contact address resmon gives Crossref and OpenAlex, and the sources it goes to."""
+    """The contact address resmon gives Crossref, OpenAlex, and PubMed, and the sources it goes to."""
     conn = _get_db()
     try:
         return _source_settings(conn)

@@ -2089,7 +2089,11 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         registration_url="https://dev.springernature.com",
         upstream_policy="5000 calls/day free tier",
         parallel_safe="Yes",
-        notes="Daily quota is the binding limit.",
+        notes=(
+            "Daily quota is the binding limit. Abstracts are stored only for records Springer Nature "
+            "marks as open access, because its terms license other abstracts for personal use only; "
+            "other records are indexed without one."
+        ),
         keyword_combination_notes=(
             "resmon has not measured how Springer Nature reads a query, because asking "
             "needs an API key."

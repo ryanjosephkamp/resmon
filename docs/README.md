@@ -5,8 +5,8 @@ Two things live here, and knowing which is which is the whole of this file.
 **Markdown sources, edited by hand.** These are the files the repository itself links to by
 path, so they stay where they are:
 
-- `*.md` — the reference documents: `source-landscape.md`, `backup.md`,
-  `local-api-security.md`, `adding-a-source.md` and the rest.
+- `*.md` — the reference documents: `backup.md`, `local-api-security.md`,
+  `adding-a-source.md` and the rest.
 - `api-contract/*.md` and `api-contract/openapi.json` — the API contracts.
   `mcp.md` and the five feature contracts are written by hand. `openapi.json` and `http.md`
   are **generated and guarded:** `implementation_scripts/api_contract.py` writes them from the

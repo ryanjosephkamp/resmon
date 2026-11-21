@@ -74,7 +74,7 @@ The switch **Run resmon in the background** installs or removes the background s
 
 **Settings › Sources** lists all 25, with their limits as each states them. Choose a source's name for its details: its description, resmon's pace, the source's published policy, how it dates papers, how it combines terms, its endpoint, and its website. A source that takes a key has a field to **Store** one, and a stored key is shown as a fixed 12-character mask whatever its length. See [Sources and Their Terms](/resmon/guide/sources/).
 
-**A Contact Address for Crossref and OpenAlex**, if you set one, goes only to those two sources. Leave it empty to send no contact address. OpenAIRE's row carries its service notice; its details say what was announced.
+**A Contact Address for Crossref, OpenAlex, and PubMed**, if you set one, goes only to those three sources. Leave it empty to send no contact address. OpenAIRE's row carries its service notice; its details say what was announced.
 
 ### The Danger Zone
 
