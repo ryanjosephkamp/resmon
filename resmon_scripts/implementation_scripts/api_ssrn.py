@@ -7,7 +7,7 @@ SSRN's results.cfm search page is protected by Cloudflare and returns HTTP 403
 bot-challenge responses to programmatic clients. SSRN does not publish an open
 search API. This module is retained on disk for reference only; it
 is not imported by ``api_registry.py`` and therefore cannot be invoked from the
-application. See ``docs/source-landscape.md`` for the full rationale.
+application.
 """
 
 import logging

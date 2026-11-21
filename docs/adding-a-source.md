@@ -22,8 +22,7 @@ other. Four questions decide it:
 3. May a **freely installable MIT-licensed** application do this, redistributing nothing?
 4. May the first-retrieved record be **kept without re-fetching** it?
 
-Answer all four against the provider's own words, and cite the clause. `docs/source-landscape.md`
-records assessments made this way; check there first.
+Answer all four against the provider's own words, and cite the clause.
 
 Three outcomes matter:
 

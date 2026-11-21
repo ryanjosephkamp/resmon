@@ -362,7 +362,7 @@ function markdownBody(source) {
  * URLs the document happens to contain.
  *
  * This was calibrated the wrong way round first. A floor picked from six
- * sampled documents put `docs/source-landscape.md` at 80% and failed it — not
+ * sampled documents put one reference document at 80% and failed it — not
  * because the page had lost anything, but because that document is 42 KB of
  * provider survey carrying a link on nearly every line, and a link's target is
  * source text that is never rendered. Removing the parts that are not supposed

@@ -14,9 +14,9 @@
  *     `verification_scripts/test_api_contract.py`, which regenerates both and
  *     fails on any difference. A build that deleted them would turn a Python
  *     test red for a reason nobody would look for in a site build.
- *   - `docs/adding-a-source.md`, `docs/source-landscape.md`,
- *     `docs/local-api-security.md` and the rest are linked by repository path
- *     from the README, CONTRIBUTING.md, and the source tree.
+ *   - `docs/adding-a-source.md`, `docs/local-api-security.md` and the rest are
+ *     linked by repository path from the README, CONTRIBUTING.md, and the
+ *     source tree.
  *
  * So those files stay exactly where they are, the site reads them in place, and
  * this script copies the build output around them. PROTECTED below is the list,

@@ -168,7 +168,7 @@ def _import_clients():
         # its behavior: 4(c) forbids using a retrieval application
         # against the content at all, so no field-level gate makes the
         # integration compliant. See RETIRED_REPOSITORIES above for the wording
-        # the user is shown, and docs/source-landscape.md for the full reading.
+        # the user is shown.
         #
         # OAPEN answered, and was withdrawn in October 2026 once its search
         # API answered HTTP 403 from both places resmon's requests were sent:
@@ -183,7 +183,7 @@ def _import_clients():
         # been checked against a live response.
         #
         # All five client modules are retained on disk for reference but are
-        # not loaded. See docs/source-landscape.md for the full rationale.
+        # not loaded.
     ]
     for mod_name in _CLIENT_MODULES:
         import_module(f".{mod_name}", package=__package__)
