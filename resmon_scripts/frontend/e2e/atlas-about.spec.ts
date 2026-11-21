@@ -107,7 +107,7 @@ test('About resmon: the engine\'s version, the license as written, the keychain 
         .toEqual([
           ['Ryan Kamp’s website', 'https://ryanjosephkamp.github.io/', '_blank'],
           ['Ryan Kamp on GitHub', GITHUB, '_blank'],
-          ['Ryan Kamp on LinkedIn', 'https://www.linkedin.com/in/rjk1999', '_blank'],
+          ['Ryan Kamp on LinkedIn', 'https://www.linkedin.com/in/ryanjosephkamp/', '_blank'],
           ['Ryan Kamp on X', 'https://x.com/ryanjosephkamp', '_blank'],
           ['Ryan Kamp on YouTube', 'https://m.youtube.com/@RyanJosephKamp', '_blank'],
         ]);

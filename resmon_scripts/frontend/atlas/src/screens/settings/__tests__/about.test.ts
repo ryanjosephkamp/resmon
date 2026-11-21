@@ -65,7 +65,7 @@ describe('who made it: the credit row the maker\'s sites end with', () => {
     expect(CREDIT_LINKS.map((link) => [link.href, link.label, link.title])).toEqual([
       ['https://ryanjosephkamp.github.io/', 'Ryan Kamp’s website', 'Website'],
       ['https://github.com/ryanjosephkamp/', 'Ryan Kamp on GitHub', 'GitHub'],
-      ['https://www.linkedin.com/in/rjk1999', 'Ryan Kamp on LinkedIn', 'LinkedIn'],
+      ['https://www.linkedin.com/in/ryanjosephkamp/', 'Ryan Kamp on LinkedIn', 'LinkedIn'],
       ['https://x.com/ryanjosephkamp', 'Ryan Kamp on X', 'X'],
       ['https://m.youtube.com/@RyanJosephKamp', 'Ryan Kamp on YouTube', 'YouTube'],
     ]);
