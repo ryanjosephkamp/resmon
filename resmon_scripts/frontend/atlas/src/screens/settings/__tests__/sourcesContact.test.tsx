@@ -1,5 +1,5 @@
 /**
- * Settings › Sources: the contact address for Crossref and OpenAlex. Nothing
+ * Settings › Sources: the contact address for Crossref, OpenAlex, and PubMed. Nothing
  * is set at first, so nothing is sent; Save stores what is typed, Remove
  * clears it, and what the engine stored is what the page then says.
  */
@@ -17,11 +17,11 @@ const reply = (data: unknown) => Promise.resolve({ data, error: undefined, respo
 test('an address is sent only once it is saved, and Remove takes it back', async () => {
   let stored: string | null = null;
   const GET = jest.fn((path: string) => reply(
-    path === '/api/settings/sources' ? { contact_email: stored, sent_to: ['crossref', 'openalex'] }
+    path === '/api/settings/sources' ? { contact_email: stored, sent_to: ['crossref', 'openalex', 'pubmed'] }
       : path === '/api/credentials' ? { credentials: {}, keyring_responsive: true } : []));
   const PUT = jest.fn((_path: string, init: { body: { contact_email: string | null } }) => {
     stored = init.body.contact_email;
-    return reply({ contact_email: stored, sent_to: ['crossref', 'openalex'] });
+    return reply({ contact_email: stored, sent_to: ['crossref', 'openalex', 'pubmed'] });
   });
   (engine as jest.Mock).mockReturnValue({ GET, PUT, DELETE: jest.fn() });
   render(
@@ -39,7 +39,7 @@ test('an address is sent only once it is saved, and Remove takes it back', async
   fireEvent.change(field, { target: { value: ' ada@example.org ' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
   await waitFor(() => expect(PUT).toHaveBeenCalledWith('/api/settings/sources', { body: { contact_email: 'ada@example.org' } }));
-  expect(await screen.findByText('Saved. Crossref and OpenAlex are sent ada@example.org.')).toBeInTheDocument();
+  expect(await screen.findByText('Saved. Crossref, OpenAlex, and PubMed are sent ada@example.org.')).toBeInTheDocument();
   expect(field.value).toBe('ada@example.org');
 
   fireEvent.click(screen.getByRole('button', { name: 'Remove' }));

@@ -4338,7 +4338,7 @@ export interface paths {
         };
         /**
          * Get Source Settings
-         * @description The contact address resmon gives Crossref and OpenAlex, and the sources it goes to.
+         * @description The contact address resmon gives Crossref, OpenAlex, and PubMed, and the sources it goes to.
          */
         get: operations["get_source_settings_api_settings_sources_get"];
         /**

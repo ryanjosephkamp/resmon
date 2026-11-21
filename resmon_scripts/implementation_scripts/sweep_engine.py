@@ -1912,7 +1912,7 @@ class SweepEngine:
                     credential_name=cred_name,
                 )
             try:
-                # Crossref and OpenAlex get the contact address set in
+                # Crossref, OpenAlex, and PubMed get the contact address set in
                 # Settings › Sources, when there is one (``source_contact``).
                 client = get_client(repo_name, **source_contact.client_options(repo_name, self.db))
                 # Thread the exec_id onto the client so that any

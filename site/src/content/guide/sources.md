@@ -9,7 +9,7 @@ resmon asks 25 open scholarly sources. The tables below follow the catalog that 
 
 "API key" says whether resmon can ask the source without one. A key is yours: you register for it, resmon stores it in your operating system's keychain, and sends it only to that source. A source that requires a key and has none is recorded as not asked, never as an answer with nothing in it. "resmon's pace" is the rate resmon sets for its own requests. It is not always the provider's published limit, which **Settings › Sources** shows beside it in the source's details. Where a provider states none, resmon picked a conservative number.
 
-**Settings › Sources › A Contact Address for Crossref and OpenAlex** sends an address to those two only, if you enter one. OpenAIRE remains in the catalog with an **end announced** notice; its details state that the API is being discontinued.
+**Settings › Sources › A Contact Address for Crossref, OpenAlex, and PubMed** sends an address to those three only, if you enter one. OpenAIRE remains in the catalog with an **end announced** notice; its details state that the API is being discontinued.
 
 | Source | Coverage | API key | resmon's pace |
 |---|---|---|---|

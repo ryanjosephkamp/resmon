@@ -1,9 +1,8 @@
-"""The contact address resmon gives Crossref and OpenAlex: only one the person set, and only to them.
+"""The contact address resmon gives Crossref, OpenAlex, and PubMed: only one the person set, and only to them.
 
-Both were sent ``resmon@example.com``, a placeholder that named nobody, by
-every copy of resmon. These tests pin that nothing is sent until an address is
-set in Settings › Sources, that a set address goes to those two sources and no
-other, and that the placeholder is gone from the engine.
+These tests pin that nothing is sent until an address is set in Settings ›
+Sources, that a set address goes to those three sources and no other, and that
+the placeholder ``resmon@example.com``, which named nobody, is not in the engine.
 """
 from __future__ import annotations
 
@@ -12,7 +11,7 @@ from pathlib import Path
 import pytest
 
 import resmon as resmon_mod
-from implementation_scripts import api_crossref, api_openalex, lifecycle, source_contact
+from implementation_scripts import api_crossref, api_openalex, api_pubmed, lifecycle, source_contact
 from implementation_scripts.database import get_connection, init_db, set_setting
 
 SCRIPTS = Path(__file__).resolve().parent.parent
@@ -65,9 +64,10 @@ def test_nothing_is_sent_until_an_address_is_set(conn) -> None:
     set_setting(conn, source_contact.SETTING, "ada@example.org")
     assert source_contact.client_options("crossref", conn) == {"mailto": "ada@example.org"}
     assert source_contact.client_options("openalex", conn) == {"mailto": "ada@example.org"}
+    assert source_contact.client_options("pubmed", conn) == {"mailto": "ada@example.org"}
     # No other source is given it.
     assert source_contact.client_options("arxiv", conn) == {}
-    assert source_contact.client_options("pubmed", conn) == {}
+    assert source_contact.client_options("europepmc", conn) == {}
 
 
 def test_an_address_stored_by_hand_that_is_not_one_is_not_sent(conn) -> None:
@@ -87,6 +87,27 @@ def test_a_search_sends_the_address_only_when_it_has_one(monkeypatch, module, cl
     assert sent[1]["params"]["mailto"] == "ada@example.org"
 
 
+def test_pubmed_names_resmon_always_and_sends_the_address_only_when_it_has_one(monkeypatch) -> None:
+    """E-utilities' ``tool`` is always sent, its ``email`` only once the person set an address, to esearch and efetch alike."""
+    monkeypatch.setattr(api_pubmed, "get_credential_for", lambda *a: None)
+    sent = _capture(monkeypatch, api_pubmed, {"esearchresult": {"idlist": ["1"]}})
+    api_pubmed.PubmedClient().search("graphene", max_results=5)
+    api_pubmed.PubmedClient(mailto="ada@example.org").search("graphene", max_results=5)
+    esearch = [s["params"] for s in sent if "term" in s["params"]]
+    efetch = [s["params"] for s in sent if "id" in s["params"]]
+    assert len(esearch) == 2 and len(efetch) == 2
+    for params in (esearch[0], efetch[0]):
+        assert params["tool"] == "resmon" and "email" not in params
+    for params in (esearch[1], efetch[1]):
+        assert params["tool"] == "resmon" and params["email"] == "ada@example.org"
+
+
+def test_the_pubmed_address_is_not_written_into_the_run_record() -> None:
+    described = api_pubmed.PubmedClient.describe_request(
+        api_pubmed._ESEARCH_URL, {"term": "graphene", "tool": "resmon", "email": "ada@example.org"}, None)
+    assert described is not None and "ada@example.org" not in described and "resmon" not in described
+
+
 def test_the_lifecycle_check_sends_the_address_only_when_it_has_one(monkeypatch) -> None:
     sent = _capture(monkeypatch, lifecycle, {"message": {"items": []}})
     lifecycle.CrossrefLifecycleProvider().fetch(["10.1/a"])
@@ -101,7 +122,7 @@ def test_settings_sets_reads_refuses_and_clears_the_address() -> None:
 
     client = TestClient(resmon_mod.create_app())
     assert client.put("/api/settings/sources", json={"contact_email": None}).status_code == 200
-    assert client.get("/api/settings/sources").json() == {"contact_email": None, "sent_to": ["crossref", "openalex"]}
+    assert client.get("/api/settings/sources").json() == {"contact_email": None, "sent_to": ["crossref", "openalex", "pubmed"]}
     saved = client.put("/api/settings/sources", json={"contact_email": " ada@example.org "})
     assert saved.status_code == 200 and saved.json()["contact_email"] == "ada@example.org"
     refused = client.put("/api/settings/sources", json={"contact_email": "ada at example"})

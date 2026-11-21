@@ -271,7 +271,7 @@ No route. A GitHub Actions workflow over `verification_scripts/live_suite.py` an
 | `PUT` | `/api/credentials/{key_name}` | token | — | `CredentialChanged` | *Store Credential Endpoint* |
 | `GET` | `/api/repositories/catalog` | token | — | `list` | Return the static repository catalog (never returns secrets). |
 | `GET` | `/api/search/repositories` | token | — | `list` | *Search Repositories* |
-| `GET` | `/api/settings/sources` | token | — | `SourceSettings` | The contact address resmon gives Crossref and OpenAlex, and the sources it goes to. |
+| `GET` | `/api/settings/sources` | token | — | `SourceSettings` | The contact address resmon gives Crossref, OpenAlex, and PubMed, and the sources it goes to. |
 | `PUT` | `/api/settings/sources` | token | — | `SourceSettings` | Set the contact address, or clear it with null or an empty string, after which nothing is sent. |
 
 ## J23 — Notifications and email
