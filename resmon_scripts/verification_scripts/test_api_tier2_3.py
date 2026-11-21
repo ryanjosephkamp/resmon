@@ -107,3 +107,31 @@ def test_plos_with_no_window_sends_no_date_clause(monkeypatch):
     sent = _capture_plos_queries(monkeypatch)
     get_client("plos").search("crispr", max_results=3)
     assert sent[0]["q"] == "crispr"
+
+
+# ---------------------------------------------------------------------------
+# Springer Nature: an abstract is kept only from an open-access record
+# ---------------------------------------------------------------------------
+
+def test_springer_keeps_an_abstract_only_from_a_record_marked_open_access(monkeypatch):
+    """Springer Nature's terms license a closed article's abstract for personal use only; the record is kept without it."""
+    records = [
+        {"doi": "10.1007/open", "title": "Open", "abstract": "Open text.", "openaccess": "true"},
+        {"doi": "10.1007/closed", "title": "Closed", "abstract": "Closed text.", "openaccess": "false"},
+        {"doi": "10.1007/unsaid", "title": "Unsaid", "abstract": "Unsaid text."},
+        {"doi": "10.1007/bool", "title": "Boolean", "abstract": "Boolean text.", "openaccess": True},
+    ]
+
+    def fake_request(method, url, **kwargs):
+        body = {"records": records, "result": [{"total": str(len(records))}]}
+        return httpx.Response(200, json=body, request=httpx.Request(method, url))
+
+    monkeypatch.setattr(implementation_scripts.api_springer, "get_credential_for", lambda *a: "test-only-key")
+    monkeypatch.setattr(implementation_scripts.api_springer, "safe_request", fake_request)
+    results = get_client("springer").search("crispr", max_results=10)
+    assert {r.doi: r.abstract for r in results} == {
+        "10.1007/open": "Open text.",
+        "10.1007/closed": None,
+        "10.1007/unsaid": None,
+        "10.1007/bool": "Boolean text.",
+    }
